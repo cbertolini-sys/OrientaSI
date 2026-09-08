@@ -34,9 +34,9 @@ ENV AMBIENTE=producao
 COPY --from=css /build/static/css/orientasi.css /app/static/css/orientasi.css
 # entrada.css e a fonte do Tailwind, nao um arquivo a servir: seu "@import
 # tailwindcss" nao e um caminho relativo real, e o pos-processador do
-# WhiteNoise quebra o collectstatic tentando resolve-lo. Removido antes do
-# collectstatic; o orientasi.css compilado acima e o unico CSS de produção.
-RUN rm -f static/css/entrada.css
+# WhiteNoise quebra tentando resolve-lo como se fosse um recurso. --ignore
+# resolve na causa (o collectstatic nunca tenta coletar o arquivo), em vez de
+# depender de removê-lo manualmente antes de cada invocação futura.
 RUN AMBIENTE=producao SECRET_KEY=apenas-para-o-build ALLOWED_HOSTS=build \
-    python manage.py collectstatic --noinput
+    python manage.py collectstatic --noinput --ignore=entrada.css
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]

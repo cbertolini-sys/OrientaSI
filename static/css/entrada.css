@@ -22,8 +22,28 @@
   --color-accent: #38c2c2;
   --color-accent-content: #16202e;
 
-  --color-warning: #d9530e;
+  /* #d9530e (o laranja institucional puro) reprova AA para texto: branco sobre
+     ele mede 4.04:1, e nenhuma cor de primeiro plano corrige isso (o tom fica
+     no meio da faixa de luminância). #b8440b é o mesmo laranja escurecido:
+     branco sobre ele mede 5.43:1, passa AA. Por isso `--color-warning` (o
+     token que o DaisyUI usa para texto/ícone de `.btn-warning`, `.text-warning`
+     etc.) usa a versão escura. O tom claro original sobrevive como
+     `--color-warning-institucional`, exclusivamente para uso NÃO-textual:
+     superfícies, bordas, indicadores visuais (onde 3:1 basta). Nenhuma tarefa
+     futura deve usar `--color-warning-institucional` atrás de texto. */
+  --color-warning: #b8440b;
   --color-warning-content: #ffffff;
+  --color-warning-institucional: #d9530e;
+
+  /* --size-field e --size-selector controlam a altura que o DaisyUI calcula
+     para .input/.select (campo x10) e .checkbox/.radio (seletor x6). Os
+     valores padrão do DaisyUI (0.25rem) rendem 40px e 24px — abaixo do alvo
+     de toque mínimo de 44px (WCAG 2.1 AA, critério 2.5.5). 0.275rem*10 =
+     2.75rem = 44px exatos; 0.5rem*6 = 3rem = 48px, com folga proposital para
+     absorver variação de renderização entre navegadores. Medido com
+     Playwright contra o CSS compilado — ver tarefa-4-report.md. */
+  --size-field: 0.275rem;
+  --size-selector: 0.5rem;
 
   --radius-box: 0.75rem;
   --radius-field: 0.5rem;
@@ -34,10 +54,36 @@
   --font-corpo: "Inter", system-ui, -apple-system, sans-serif;
 }
 
+/* Fontes vendorizadas em static/fonts/ (sem CDN, ver restricoes-globais.md).
+   font-display: swap evita texto invisível durante o carregamento (FOIT); a
+   faixa de peso cobre as variações usadas pelas classes de peso do Tailwind. */
+@font-face {
+  font-family: "Jakarta";
+  src: url("../fonts/jakarta.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("../fonts/inter.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* Alvo de toque mínimo de 44x44px (WCAG 2.1 AA, alvo 2.5.5). Aplicado uma vez
-   aqui em vez de repetido em cada componente. */
+   aqui em vez de repetido em cada componente. Cobre tanto os componentes do
+   DaisyUI (via --size-field/--size-selector acima) quanto qualquer campo ou
+   link simples sem essas classes: input:not([type="hidden"]) inclui
+   checkbox/radio nativos, texto, email etc.; textarea e select ficam
+   explícitos porque nem todo campo recebe a classe do DaisyUI. */
 @layer base {
-  button, [role="button"], a.btn, input[type="submit"], select {
+  button,
+  [role="button"],
+  a.btn,
+  input:not([type="hidden"]),
+  textarea,
+  select {
     min-height: 2.75rem;
     min-width: 2.75rem;
   }

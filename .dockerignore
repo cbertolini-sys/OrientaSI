@@ -3,6 +3,7 @@
 __pycache__
 *.pyc
 node_modules
+static/css/orientasi.css
 media
 staticfiles
 .pytest_cache

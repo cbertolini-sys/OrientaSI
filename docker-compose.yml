@@ -83,13 +83,17 @@ services:
       "
 
   tailwind:
+    # Sem profile: o comando oficial de subir o ambiente é `docker compose up
+    # -d` (ver CLAUDE.md), e o estágio `css` do Dockerfile só alimenta o
+    # estágio `prod` — o serviço `web` roda o alvo `dev`, que nunca compila
+    # CSS. Colocado atrás de `profiles: [dev]`, um clone novo mais o comando
+    # oficial serviria a página sem nenhum estilo (o orientasi.css está no
+    # .gitignore, gerado só por este serviço ou pelo build de produção).
     image: node:22-alpine
     working_dir: /app
     command: sh -c "npm ci && npx tailwindcss -i static/css/entrada.css -o static/css/orientasi.css --watch=always"
     volumes:
       - .:/app
-    profiles:
-      - dev
 
 volumes:
   dados_postgres:
