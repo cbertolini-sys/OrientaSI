@@ -97,6 +97,20 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Limite de upload aplicado pelos validators de apps.comum (spec §3, regra 7).
 TAMANHO_MAXIMO_UPLOAD_MB = 15
 
+CELERY_BROKER_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+CELERY_RESULT_BACKEND = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_TASK_TIME_LIMIT = 300
+CELERY_TASK_ACKS_LATE = True
+
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "nao-responda@orientasi.local")
+
 if AMBIENTE == "producao":
     DEBUG = False
     SECRET_KEY = obrigatorio("SECRET_KEY")
