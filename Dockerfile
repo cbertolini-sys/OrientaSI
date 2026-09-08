@@ -1,7 +1,10 @@
 FROM node:22-alpine AS css
 WORKDIR /build
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+# npm ci (nao npm install) trava a build na versao exata do lockfile: sem isto,
+# a build de producao poderia resolver um patch do daisyUI diferente do que
+# roda em dev, so porque o lockfile nao era copiado para o contexto do build.
+RUN npm ci
 COPY static/css/entrada.css ./static/css/entrada.css
 COPY templates ./templates
 COPY apps ./apps
