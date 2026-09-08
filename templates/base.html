@@ -16,12 +16,20 @@
 <body class="min-h-screen bg-base-200 font-corpo text-base-content">
 
   {% comment %}
-    Primeiro elemento focável da página. Invisível até receber foco: quem usa
-    mouse nunca o vê, quem usa teclado o encontra na primeira tabulação.
+    Primeiro elemento focável da página. Deslocado para fora da viewport
+    (-translate-y) até receber foco: quem usa mouse nunca o vê, quem usa
+    teclado o encontra na primeira tabulação.
+
+    Antes usava a utilidade `sr-only` (que encolhe o link para 1x1px via
+    clip): funcionava para leitor de tela, mas o teste de alvo de toque
+    (test_toque.py) media essa caixa de 1x1px como um alvo interativo
+    minúsculo. Deslocar via transform, em vez de encolher, mantém o link com
+    o tamanho real (padding incluso) mesmo fora da tela — a Tarefa 5
+    encontrou essa diferença ao medir o alvo de toque desta página.
   {% endcomment %}
   <a href="#conteudo"
-     class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded
-            focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-content">
+     class="absolute z-50 m-2 -translate-y-24 rounded bg-primary px-4 py-3
+            text-primary-content focus:translate-y-0">
     Pular para o conteúdo
   </a>
 

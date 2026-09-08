@@ -13,9 +13,12 @@ RUN npx tailwindcss -i static/css/entrada.css -o static/css/orientasi.css --mini
 FROM python:3.12-slim AS base
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 # WeasyPrint renderiza via Pango e Cairo: sem estas bibliotecas ele falha já na
-# importação, e a falha só apareceria no Bloco E (spec §8.2).
+# importação, e a falha só apareceria no Bloco E (spec §8.2). libharfbuzz-subset0
+# faltava aqui: a Tarefa 5 pegou isso porque, sem ela, a própria importação do
+# WeasyPrint emite um DeprecationWarning (futuras versões vão exigi-la), e o
+# filterwarnings="error" do pyproject.toml transforma o aviso em falha de teste.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libcairo2 \
+      libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0 libcairo2 \
       libgdk-pixbuf-2.0-0 libjpeg62-turbo zlib1g curl \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
