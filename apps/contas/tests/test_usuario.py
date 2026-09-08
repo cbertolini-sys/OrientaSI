@@ -35,6 +35,15 @@ def test_aluno_sem_cpf_e_recusado_pelo_banco():
 
 
 @pytest.mark.django_db
+def test_aluno_com_cpf_vazio_e_recusado_pelo_banco():
+    """cpf="" satisfaz cpf__isnull=False: sem o reforço extra, a constraint não pega isto."""
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Usuario.objects.create_user(
+            email="joao@ufsm.br", password="x", nome_completo="João", papel=Usuario.ALUNO, cpf=""
+        )
+
+
+@pytest.mark.django_db
 def test_conta_sugrad_e_unica():
     Usuario.objects.create_user(
         email="sugrad@ufsm.br", password="x", nome_completo="SUGRAD", papel=Usuario.SUGRAD, cpf=None

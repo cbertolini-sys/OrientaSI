@@ -18,5 +18,7 @@ RUN pip install --no-cache-dir -r requirements-dev.txt \
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
 FROM base AS prod
-RUN python manage.py collectstatic --noinput
+ENV AMBIENTE=producao
+RUN AMBIENTE=producao SECRET_KEY=apenas-para-o-build ALLOWED_HOSTS=build \
+    python manage.py collectstatic --noinput
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]

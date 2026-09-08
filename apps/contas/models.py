@@ -65,8 +65,10 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         ordering = ["nome_completo"]
         constraints = [
             # A conta da SUGRAD é um setor, não uma pessoa, e não tem CPF.
+            # O reforço "& ~Q(cpf='')" existe porque blank=True permite que o
+            # admin grave "" em vez de None, e "" satisfaz cpf__isnull=False.
             models.CheckConstraint(
-                condition=Q(papel="SUGRAD") | Q(cpf__isnull=False),
+                condition=Q(papel="SUGRAD") | (Q(cpf__isnull=False) & ~Q(cpf="")),
                 name="cpf_obrigatorio_para_pessoas",
             ),
             # Índice parcial: o banco recusa a segunda conta SUGRAD (spec §5.1).

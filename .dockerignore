@@ -8,3 +8,5 @@ staticfiles
 .pytest_cache
 .ruff_cache
 docs
+.env
+.superpowers
