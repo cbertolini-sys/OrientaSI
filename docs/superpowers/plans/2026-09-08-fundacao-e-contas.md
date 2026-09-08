@@ -1750,10 +1750,23 @@ def professor(db):
     )
 
 
-@pytest.mark.django_db
-def test_convidar_grava_o_hash_e_nunca_o_token_em_claro(coordenadora, settings):
+# services.convidar enfileira o e-mail em transaction.on_commit, e o pytest-django
+# reverte a transacao de cada teste: sem capturar os callbacks, o on_commit nunca
+# dispara e mail.outbox fica vazio. A fixture abaixo executa os callbacks pendentes.
+@pytest.fixture
+def envia_convite(settings, django_capture_on_commit_callbacks):
     settings.CELERY_TASK_ALWAYS_EAGER = True
-    convite = services.convidar("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
+
+    def _envia(*args, **kwargs):
+        with django_capture_on_commit_callbacks(execute=True):
+            return services.convidar(*args, **kwargs)
+
+    return _envia
+
+
+@pytest.mark.django_db
+def test_convidar_grava_o_hash_e_nunca_o_token_em_claro(coordenadora, envia_convite):
+    convite = envia_convite("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
 
     assert convite.email == "novo@ufsm.br"
     assert convite.usado_em is None
@@ -1764,9 +1777,8 @@ def test_convidar_grava_o_hash_e_nunca_o_token_em_claro(coordenadora, settings):
 
 
 @pytest.mark.django_db
-def test_convidar_envia_email_com_o_link(coordenadora, settings):
-    settings.CELERY_TASK_ALWAYS_EAGER = True
-    services.convidar("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
+def test_convidar_envia_email_com_o_link(coordenadora, envia_convite):
+    envia_convite("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
 
     assert len(mail.outbox) == 1
     assert "novo@ufsm.br" in mail.outbox[0].to
@@ -1786,20 +1798,21 @@ def test_recusa_convite_para_email_ja_cadastrado(coordenadora, professor):
 
 
 @pytest.mark.django_db
-def test_recusa_segundo_convite_ativo_para_o_mesmo_email(coordenadora, settings):
-    settings.CELERY_TASK_ALWAYS_EAGER = True
-    services.convidar("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
+def test_recusa_segundo_convite_ativo_para_o_mesmo_email(coordenadora, envia_convite):
+    envia_convite("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
     with pytest.raises(ValidationError):
         services.convidar("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
 
 
 @pytest.mark.django_db
-def test_reenviar_invalida_o_convite_anterior(coordenadora, settings):
-    settings.CELERY_TASK_ALWAYS_EAGER = True
-    primeiro = services.convidar("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
+def test_reenviar_invalida_o_convite_anterior(
+    coordenadora, envia_convite, django_capture_on_commit_callbacks
+):
+    primeiro = envia_convite("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
     hash_antigo = primeiro.token_hash
 
-    segundo = services.reenviar_convite(primeiro, por=coordenadora)
+    with django_capture_on_commit_callbacks(execute=True):
+        segundo = services.reenviar_convite(primeiro, por=coordenadora)
 
     assert segundo.token_hash != hash_antigo
     assert not Convite.objects.filter(token_hash=hash_antigo, usado_em__isnull=True).exists()
@@ -1807,9 +1820,8 @@ def test_reenviar_invalida_o_convite_anterior(coordenadora, settings):
 
 
 @pytest.mark.django_db
-def test_convite_expirado_nao_e_valido(coordenadora, settings):
-    settings.CELERY_TASK_ALWAYS_EAGER = True
-    convite = services.convidar("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
+def test_convite_expirado_nao_e_valido(coordenadora, envia_convite):
+    convite = envia_convite("novo@ufsm.br", Usuario.ALUNO, por=coordenadora)
     convite.expira_em = timezone.now() - timezone.timedelta(seconds=1)
     convite.save(update_fields=["expira_em"])
 
@@ -2702,7 +2714,7 @@ git commit -m "Adiciona login, logout e recuperacao de senha"
 **Interfaces:**
 - Consome: `PerfilProfessor`, `Area` (T6); `login` (T9).
 - Produz: rota nomeada `contas:perfil`;
-  `apps.contas.services.atualiza_areas(perfil_professor, areas)`;
+  `apps.contas.services.atualiza_perfil(usuario, telefone, areas=None, foto=None)`;
   `apps.contas.forms.FormularioPerfilProfessor`.
 
 - [ ] **Passo 1: Escrever o teste (falhando)**
@@ -3231,14 +3243,15 @@ def test_painel_recusa_quem_nao_e_coordenador(client):
 
 
 @pytest.mark.django_db
-def test_painel_envia_convite(client, settings):
+def test_painel_envia_convite(client, settings, django_capture_on_commit_callbacks):
     settings.CELERY_TASK_ALWAYS_EAGER = True
     coordenadora = cria_professor(0, coordenador=True)
     client.force_login(coordenadora)
 
-    resposta = client.post(
-        reverse("contas:painel"), {"email": "novo@ufsm.br", "papel": Usuario.PROFESSOR}
-    )
+    with django_capture_on_commit_callbacks(execute=True):
+        resposta = client.post(
+            reverse("contas:painel"), {"email": "novo@ufsm.br", "papel": Usuario.PROFESSOR}
+        )
 
     assert resposta.status_code == 302
     assert Usuario.objects.filter(email="novo@ufsm.br").count() == 0
