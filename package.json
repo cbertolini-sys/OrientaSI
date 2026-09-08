@@ -1,0 +1,13 @@
+{
+  "name": "orientasi",
+  "private": true,
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "tailwindcss": "^4.1.0",
+    "daisyui": "^5.0.0"
+  },
+  "scripts": {
+    "build:css": "tailwindcss -i static/css/entrada.css -o static/css/orientasi.css --minify",
+    "watch:css": "tailwindcss -i static/css/entrada.css -o static/css/orientasi.css --watch=always"
+  }
+}

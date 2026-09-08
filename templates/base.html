@@ -1,0 +1,47 @@
+{% load static %}<!doctype html>
+<html lang="pt-br" data-theme="orientasi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#21376b">
+  <title>OrientaSI{% block titulo %}{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/orientasi.css' %}">
+  <script src="{% static 'js/htmx.min.js' %}" defer></script>
+  {# O plugin focus registra-se no Alpine e precisa ser avaliado antes do nucleo. #}
+  <script src="{% static 'js/alpine-focus.min.js' %}" defer></script>
+  <script src="{% static 'js/alpine.min.js' %}" defer></script>
+</head>
+<body class="min-h-screen bg-base-200 font-corpo text-base-content">
+
+  {# Primeiro elemento focavel da pagina. Invisivel ate receber foco: quem usa mouse nunca o ve, quem usa teclado o encontra na primeira tabulacao. #}
+  <a href="#conteudo"
+     class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded
+            focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-content">
+    Pular para o conteúdo
+  </a>
+
+  <header class="bg-base-100 shadow-sm">
+    <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+      <a href="{% url 'inicio' %}" class="flex items-center">
+        <img src="{% static 'img/orientasi-marca.png' %}" alt="OrientaSI, Sistema de Gestão de TCC"
+             class="h-12 w-auto">
+      </a>
+      <nav aria-label="Principal">
+        {% block navegacao %}{% endblock %}
+      </nav>
+    </div>
+  </header>
+
+  {# Regiao de anuncio permanente. Sem ela, uma troca de HTMX e silenciosa para leitores de tela: a acao acontece e a pessoa nao recebe sinal algum. Toda resposta HTMX de sucesso ou erro escreve aqui via hx-swap-oob. #}
+  <div id="anuncios" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+  {# tabindex=-1 nao e enfeite: sem ele, Safari e Chrome rolam ate a ancora mas nao movem o foco, e a pessoa continua tabulando dentro do cabecalho. #}
+  <main id="conteudo" tabindex="-1" class="mx-auto max-w-5xl px-4 py-8">
+    {% block conteudo %}{% endblock %}
+  </main>
+
+  <footer class="mx-auto max-w-5xl px-4 py-8 text-sm text-base-content/70">
+    <p>OrientaSI — Sistema de Gestão de TCC do Curso de Sistemas de Informação.</p>
+  </footer>
+</body>
+</html>

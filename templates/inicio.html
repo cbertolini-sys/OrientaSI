@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Início{% endblock %}
+
+{% block conteudo %}
+  <article class="rounded-box bg-base-100 p-8 shadow-sm">
+    <h1 class="font-display text-3xl font-bold text-primary">
+      Sistema de Gestão de TCC
+    </h1>
+    <p class="mt-4 max-w-prose">
+      O OrientaSI acompanha o trabalho de conclusão de curso do início ao depósito
+      final: temas, orientação, bancas, atas e o catálogo público dos trabalhos
+      concluídos.
+    </p>
+    <a href="{% url 'admin:index' %}" class="btn btn-primary mt-6">Entrar</a>
+  </article>
+{% endblock %}

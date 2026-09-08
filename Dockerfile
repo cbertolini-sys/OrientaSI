@@ -1,3 +1,12 @@
+FROM node:22-alpine AS css
+WORKDIR /build
+COPY package.json ./
+RUN npm install
+COPY static/css/entrada.css ./static/css/entrada.css
+COPY templates ./templates
+COPY apps ./apps
+RUN npx tailwindcss -i static/css/entrada.css -o static/css/orientasi.css --minify
+
 FROM python:3.12-slim AS base
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 # WeasyPrint renderiza via Pango e Cairo: sem estas bibliotecas ele falha já na
@@ -19,6 +28,12 @@ CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
 FROM base AS prod
 ENV AMBIENTE=producao
+COPY --from=css /build/static/css/orientasi.css /app/static/css/orientasi.css
+# entrada.css e a fonte do Tailwind, nao um arquivo a servir: seu "@import
+# tailwindcss" nao e um caminho relativo real, e o pos-processador do
+# WhiteNoise quebra o collectstatic tentando resolve-lo. Removido antes do
+# collectstatic; o orientasi.css compilado acima e o unico CSS de produção.
+RUN rm -f static/css/entrada.css
 RUN AMBIENTE=producao SECRET_KEY=apenas-para-o-build ALLOWED_HOSTS=build \
     python manage.py collectstatic --noinput
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]

@@ -82,6 +82,15 @@ services:
       echo 'bucket orientasi pronto'
       "
 
+  tailwind:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npx tailwindcss -i static/css/entrada.css -o static/css/orientasi.css --watch=always"
+    volumes:
+      - .:/app
+    profiles:
+      - dev
+
 volumes:
   dados_postgres:
   dados_minio:
