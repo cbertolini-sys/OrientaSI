@@ -937,7 +937,9 @@ Esperado: PASSA.
 - [ ] **Passo 6: Verificar o worker de verdade**
 
 ```bash
-docker compose exec web python -c "from apps.comum.tasks import somar; print(somar.delay(2, 3).get(timeout=10))"
+# `import config` e obrigatorio: sem ele este processo cru nao registra config.celery.app,
+# e o shared_task liga-se ao app Celery default implicito, que aponta para AMQP.
+docker compose exec web python -c "import config; from apps.comum.tasks import somar; print(somar.delay(2, 3).get(timeout=10))"
 docker compose logs --tail=20 celery_worker
 ```
 
