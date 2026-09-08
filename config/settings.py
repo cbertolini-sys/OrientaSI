@@ -111,6 +111,24 @@ EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "nao-responda@orientasi.local")
 
+# MinIO fala o protocolo S3: dev e produção usam o mesmo backend, mudando apenas
+# o endpoint e as credenciais (spec §3.7).
+_ARMAZENAMENTO_S3 = {
+    "BACKEND": "storages.backends.s3.S3Storage",
+    "OPTIONS": {
+        "bucket_name": os.environ.get("S3_BUCKET", "orientasi"),
+        "endpoint_url": os.environ.get("S3_ENDPOINT") or None,
+        "access_key": os.environ.get("S3_ACCESS_KEY", ""),
+        "secret_key": os.environ.get("S3_SECRET_KEY", ""),
+        "default_acl": None,
+        "querystring_auth": True,
+        "file_overwrite": False,
+    },
+}
+_ARMAZENAMENTO_LOCAL = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+
+_padrao = _ARMAZENAMENTO_S3 if os.environ.get("S3_ENDPOINT") else _ARMAZENAMENTO_LOCAL
+
 if AMBIENTE == "producao":
     DEBUG = False
     SECRET_KEY = obrigatorio("SECRET_KEY")
@@ -125,7 +143,7 @@ if AMBIENTE == "producao":
     # O manifesto exige collectstatic; por isso ele só existe em produção,
     # onde o Dockerfile o executa durante o build.
     STORAGES = {
-        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "default": _padrao,
         "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
     }
 else:
@@ -133,6 +151,6 @@ else:
     SECRET_KEY = os.environ.get("SECRET_KEY", "chave-de-desenvolvimento-nao-use-em-producao")
     ALLOWED_HOSTS = ["*"]
     STORAGES = {
-        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "default": _padrao,
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
