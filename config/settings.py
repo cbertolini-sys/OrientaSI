@@ -111,6 +111,11 @@ EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "nao-responda@orientasi.local")
 
+# Base para montar links absolutos em e-mails (convites, notificações). Lido tanto
+# pelo serviço de convites quanto pelo corpo do e-mail (spec do convite, T7).
+URL_BASE = os.environ.get("URL_BASE", "http://localhost:8000")
+CONVITE_VALIDADE_DIAS = 7
+
 # MinIO fala o protocolo S3: dev e produção usam o mesmo backend, mudando apenas
 # o endpoint e as credenciais (spec §3.7).
 _ARMAZENAMENTO_S3 = {

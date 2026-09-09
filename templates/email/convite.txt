@@ -1,0 +1,14 @@
+Olá,
+
+Você foi convidado(a) a se cadastrar no OrientaSI, o sistema de gestão de TCC do
+Curso de Sistemas de Informação, como {{ convite.get_papel_display|lower }}.
+
+Para concluir seu cadastro, acesse:
+
+{{ link }}
+
+Este link vale por {{ validade_dias }} dias e pode ser usado uma única vez.
+
+Se você não esperava este convite, ignore esta mensagem.
+
+OrientaSI — Sistema de Gestão de TCC

@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from apps.comum.validators import valida_extensao_imagem, valida_tamanho_arquivo
 from apps.contas.validators import valida_cpf
@@ -142,3 +143,41 @@ class PerfilProfessor(models.Model):
 
     def __str__(self):
         return f"{self.usuario.nome_completo} (SIAPE {self.siape})"
+
+
+class Convite(models.Model):
+    PAPEIS_CONVIDAVEIS = [(Usuario.ALUNO, "Aluno"), (Usuario.PROFESSOR, "Professor")]
+
+    email = models.EmailField("e-mail")
+    papel = models.CharField("papel", max_length=10, choices=PAPEIS_CONVIDAVEIS)
+    # Guardamos o hash, nunca o token em claro: se o banco vazar, os convites
+    # pendentes não são utilizáveis (spec §5.5).
+    token_hash = models.CharField("hash do token", max_length=64, unique=True)
+    criado_por = models.ForeignKey(
+        Usuario,
+        on_delete=models.PROTECT,
+        related_name="convites_enviados",
+        verbose_name="criado por",
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    expira_em = models.DateTimeField("expira em")
+    usado_em = models.DateTimeField("usado em", null=True, blank=True)
+    usuario_criado = models.OneToOneField(
+        Usuario,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="convite_de_origem",
+        verbose_name="usuário criado",
+    )
+
+    class Meta:
+        verbose_name = "convite"
+        verbose_name_plural = "convites"
+        ordering = ["-criado_em"]
+
+    def __str__(self):
+        return f"Convite para {self.email} ({self.get_papel_display()})"
+
+    def esta_valido(self):
+        return self.usado_em is None and self.expira_em > timezone.now()
