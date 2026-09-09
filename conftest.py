@@ -36,9 +36,14 @@ def pytest_collection_modifyitems(session, config, items):
     anterior (sempre ligada, mesmo sem nenhum teste de navegador na sessão) é
     que uma sessão sem nenhum `page` (ex.: `pytest tests/test_saude.py`,
     `pytest apps/`) nunca liga a variável.
+
+    Preservação de valores pré-existentes: a variável só é definida se ainda
+    não estiver presente. Um valor vindo de fora (ex.: CI com `DJANGO_ALLOW_ASYNC_UNSAFE=""`)
+    é preservado — a string vazia é lida pelo Django como falso, sendo portanto
+    a maneira de forçar a proteção ligada sem ser sobrescrita por este hook.
     """
     if any("page" in item.fixturenames for item in items):
-        os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+        os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
 
 @pytest.fixture(autouse=True)
