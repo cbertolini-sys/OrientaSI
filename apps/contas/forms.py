@@ -1,4 +1,5 @@
 from django import forms
+from django.contrib.auth.forms import AuthenticationForm, PasswordResetForm, SetPasswordForm
 from django.contrib.auth.password_validation import validate_password
 
 from apps.comum.validators import valida_extensao_imagem, valida_tamanho_arquivo
@@ -127,3 +128,82 @@ class FormularioProfessorConvidado(FormularioConvidado):
         if PerfilProfessor.objects.filter(siape=siape).exists():
             raise forms.ValidationError("Já existe um professor cadastrado com este SIAPE.")
         return siape
+
+
+class MisturaAcessibilidadeFormulario:
+    """Repete, para os formulários prontos do `django.contrib.auth` (login e
+    recuperação de senha), a mesma ligação de acessibilidade que
+    `FormularioConvidado` (T7) já aplica aos formulários próprios do app:
+    classes do DaisyUI via `aplica_estilo`, `aria-describedby` para texto de
+    ajuda e `aria-invalid` + `aria-describedby` para erro, ligados após a
+    validação.
+
+    Como `AuthenticationForm`, `PasswordResetForm` e `SetPasswordForm` são do
+    Django (não controlamos o `__init__`/`full_clean` deles na origem), a
+    lógica é extraída aqui como mixin: entra antes da classe do Django na
+    ordem de herança (MRO), então `super().__init__`/`super().full_clean`
+    chamam a implementação do Django normalmente, e o pós-processamento roda
+    depois.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        aplica_estilo(self)
+        for nome, campo in self.fields.items():
+            if campo.help_text:
+                campo.widget.attrs["aria-describedby"] = f"ajuda-{nome}"
+
+    def full_clean(self):
+        super().full_clean()
+        for nome, campo in self.fields.items():
+            if not self.errors.get(nome):
+                continue
+            campo.widget.attrs["aria-invalid"] = "true"
+            descritores = [
+                d for d in [campo.widget.attrs.get("aria-describedby"), f"erro-{nome}"] if d
+            ]
+            campo.widget.attrs["aria-describedby"] = " ".join(descritores)
+
+
+class FormularioLogin(MisturaAcessibilidadeFormulario, AuthenticationForm):
+    """Formulário de login. O rótulo do e-mail já vem certo do Django (deriva
+    de `Usuario.email.verbose_name`, "e-mail" -> "E-mail"), então só
+    sobrescrevemos a mensagem de erro: a padrão do Django diz que "ambos os
+    campos" (e-mail e senha) diferenciam maiúsculas de minúsculas, o que
+    ficou incorreto sobre o e-mail depois da correção de
+    `GerenciadorUsuario.get_by_natural_key` (login aceita o e-mail em
+    qualquer caixa)."""
+
+    error_messages = {
+        "invalid_login": (
+            "E-mail ou senha incorretos. A senha diferencia maiúsculas de minúsculas."
+        ),
+        "inactive": "Esta conta está inativa.",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # `AuthenticationForm` marca o campo de e-mail com autofocus. Isso
+        # rouba o foco do primeiro Tab assim que a página carrega, então a
+        # primeira tabulação nunca alcança o link "Pular para o conteúdo" de
+        # base.html (tests/test_teclado.py, achado nesta tarefa) — o
+        # navegador já colocou o foco adiante dele antes de qualquer Tab.
+        self.fields["username"].widget.attrs.pop("autofocus", None)
+
+
+class FormularioRecuperarSenha(MisturaAcessibilidadeFormulario, PasswordResetForm):
+    """Formulário de recuperação de senha. Só corrige o rótulo do e-mail: a
+    tradução pt-br embutida no Django para este formulário usa "Email" (sem
+    hífen), inconsistente com "E-mail" usado no resto do projeto (inclusive
+    no rótulo do login, que vem do `verbose_name` do model)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["email"].label = "E-mail"
+
+
+class FormularioDefinirNovaSenha(MisturaAcessibilidadeFormulario, SetPasswordForm):
+    """Formulário de definição da nova senha, usado na tela de confirmação da
+    recuperação. Os rótulos e o texto de ajuda (regras de senha) já vêm
+    corretos e traduzidos do Django; só recebe estilo e acessibilidade do
+    mixin."""

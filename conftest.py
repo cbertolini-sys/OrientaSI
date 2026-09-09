@@ -66,6 +66,8 @@ def midia_temporaria(settings, tmp_path):
 ROTAS = [
     "/",
     "/convite/rota-para-teste-de-acessibilidade/",
+    "/contas/login/",
+    "/contas/password_reset/",
 ]
 
 
@@ -108,6 +110,8 @@ def rota(request, convite_das_rotas):
 SELETOR_POR_ROTA = {
     "/": "h1",
     "/convite/rota-para-teste-de-acessibilidade/": "form",
+    "/contas/login/": "form",
+    "/contas/password_reset/": "form",
 }
 
 

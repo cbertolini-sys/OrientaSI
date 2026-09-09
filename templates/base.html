@@ -46,15 +46,25 @@
              width="264" height="144" class="h-12 w-auto">
       </a>
       {% comment %}
-        Vazio de propósito nesta tarefa: base.html é o layout, não o menu. As
-        Tarefas 8 a 11 preenchem este bloco com os links de cada perfil (aluno,
-        orientador, coordenador). Um landmark <nav> vazio não é um erro de
-        acessibilidade — leitores de tela o anunciam e simplesmente não
-        encontram itens focáveis dentro, sem alarme — mas fica documentado
-        aqui para não ser confundido com um esquecimento.
+        T9 preenche o essencial (entrar/sair); as Tarefas 10-11 acrescentam os
+        links de cada perfil (aluno, orientador, coordenador) a este bloco.
       {% endcomment %}
       <nav aria-label="Principal">
-        {% block navegacao %}{% endblock %}
+        {% block navegacao %}
+          <ul class="flex items-center gap-2">
+            {% if user.is_authenticated %}
+              <li><span class="px-2">{{ user.nome_completo }}</span></li>
+              <li>
+                <form method="post" action="{% url 'logout' %}">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-ghost">Sair</button>
+                </form>
+              </li>
+            {% else %}
+              <li><a href="{% url 'login' %}" class="btn btn-primary">Entrar</a></li>
+            {% endif %}
+          </ul>
+        {% endblock %}
       </nav>
     </div>
   </header>

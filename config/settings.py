@@ -67,6 +67,11 @@ DATABASES = {
 }
 
 AUTH_USER_MODEL = "contas.Usuario"
+# Rotas de autenticação (config/urls.py, T9): login exige sessão, e as views
+# de login/recuperação de senha redirecionam para "/" ao concluir.
+LOGIN_URL = "/contas/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/"
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},

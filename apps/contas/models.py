@@ -23,6 +23,16 @@ class GerenciadorUsuario(BaseUserManager):
         usuario.save(using=self._db)
         return usuario
 
+    def get_by_natural_key(self, email):
+        # O Django chama este método em todo backend de autenticação (login,
+        # recuperação de senha etc.) para localizar o usuário pelo
+        # USERNAME_FIELD. A implementação padrão (BaseUserManager) faz busca
+        # exata, mas `_criar` grava o e-mail inteiro em minúsculas — então
+        # quem se cadastrou como "Ana@ufsm.br" está gravado como
+        # "ana@ufsm.br", e digitar o e-mail com maiúsculas no login não
+        # encontraria a conta sem esta sobrescrita.
+        return self.get(**{f"{self.model.USERNAME_FIELD}__iexact": email})
+
     def create_user(self, email, password=None, **extra):
         extra.setdefault("papel", Usuario.PROFESSOR)
         extra.setdefault("is_staff", False)

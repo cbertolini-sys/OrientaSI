@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Entrar{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-md rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Entrar</h1>
+
+    <form method="post" class="mt-6 space-y-4" novalidate>
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        {% comment %}
+          Mesmo padrão de aceitar_convite.html (T7): tabindex="-1" + autofocus
+          move o foco do teclado para o resumo do erro depois de um POST
+          inválido (a página recarrega inteira, não há HTMX aqui), em vez de
+          deixar o foco voltar ao topo do documento sem nenhum sinal.
+        {% endcomment %}
+        <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
+          <p>Corrija os campos indicados abaixo antes de continuar.</p>
+          {% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      {% for campo in form %}
+        <div class="flex flex-col gap-1">
+          {% comment %}
+            Deliberadamente sem `.label`/`.label-text` do DaisyUI: na v5,
+            `.label` esmaece a cor do texto (color-mix a 60%) e derruba o
+            contraste do rótulo para 4.38:1, abaixo do mínimo de 4.5:1 do
+            WCAG 2 AA (achado na T8). `text-base-content` é a cor de texto
+            padrão do tema, com contraste alto de propósito.
+          {% endcomment %}
+          <label class="font-medium text-base-content" for="{{ campo.id_for_label }}">
+            {{ campo.label }}{% if campo.field.required %} <span aria-hidden="true">*</span>
+              <span class="sr-only">(obrigatório)</span>{% endif %}
+          </label>
+          {{ campo }}
+          {% if campo.help_text %}
+            <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
+              {{ campo.help_text }}
+            </p>
+          {% endif %}
+          {% if campo.errors %}
+            <div id="erro-{{ campo.name }}">
+              {% for erro in campo.errors %}
+                <p role="alert" class="text-sm text-error">{{ erro }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+
+      <button type="submit" class="btn btn-primary w-full">Entrar</button>
+    </form>
+
+    {% comment %}
+      `.btn.btn-link` (não só `.link`): a regra de alvo de toque de
+      entrada.css (`a.btn { min-height: 2.75rem; min-width: 2.75rem }`) só
+      cobre âncoras com a classe `.btn` — um `<a class="link">` solto, fora
+      de um parágrafo de prosa, mede 24px de altura e reprova
+      tests/test_toque.py (achado nesta tarefa). `.btn-link` mantém a
+      aparência de link (sem fundo, sublinhado) com a caixa de um botão.
+    {% endcomment %}
+    <a href="{% url 'password_reset' %}" class="btn btn-link mt-4 px-0">Esqueci minha senha</a>
+  </article>
+{% endblock %}
