@@ -43,12 +43,13 @@ class Command(BaseCommand):
             self._semear(opcoes)
         except IntegrityError as erro:
             # O caso mais provável na prática: o CPF informado já pertence a
-            # outra conta (o e-mail duplicado o get_or_create já resolve sem
-            # tocar o banco duas vezes; CPF só o banco garante, via
-            # unique=True em models.py). Comando operacional, rodado por
-            # quem instala o sistema: um CommandError vira uma mensagem
-            # limpa no terminal, sem stack trace — um IntegrityError cru não
-            # diria a ela o que fazer a seguir.
+            # outra conta (e-mail duplicado não chega mais aqui — a busca do
+            # coordenador é __iexact, ver `_semear_coordenador`; CPF só o
+            # banco garante, via unique=True em models.py). Comando
+            # operacional, rodado por quem instala o sistema: um
+            # CommandError vira uma mensagem limpa no terminal, sem stack
+            # trace — um IntegrityError cru não diria a ela o que fazer a
+            # seguir.
             raise CommandError(
                 "Não foi possível semear o sistema: o CPF informado para o "
                 "coordenador provavelmente já pertence a outra conta."
@@ -89,16 +90,48 @@ class Command(BaseCommand):
             self.stdout.write(f"Conta SUGRAD já existe: {sugrad.email}")
 
     def _semear_coordenador(self, opcoes):
-        coordenadora, criada = Usuario.objects.get_or_create(
-            email=opcoes["email_coordenador"],
-            defaults={
-                "nome_completo": opcoes["nome_coordenador"],
-                "cpf": opcoes["cpf_coordenador"],
-                "papel": Usuario.PROFESSOR,
-                "password": "",
-            },
-        )
+        # E-mail é a chave natural de login: normalizamos e buscamos por
+        # `__iexact`, como `services.convidar` e
+        # `GerenciadorUsuario.get_by_natural_key` já fazem em todo o projeto
+        # (achado da revisão 1). Um `get_or_create(email=opcoes[...])` sem
+        # isto compara com sensibilidade a maiúsculas: rodar o comando de
+        # novo com outra grafia da mesma conta ("Coord@ufsm.br" depois
+        # "coord@ufsm.br") não encontraria a conta existente, tentaria criar
+        # outra e colidiria no unique=True do banco — um IntegrityError que o
+        # `except` em `handle()` relataria, errado, como CPF duplicado.
+        email = opcoes["email_coordenador"].strip().lower()
+        coordenadora = Usuario.objects.filter(email__iexact=email).first()
+        ja_e_coordenador = coordenadora is not None and coordenadora.is_coordenador
+
+        # Regra de negócio inegociável nº 2 (CLAUDE.md): no máximo 4
+        # coordenadores, e quem nomeia coordenadores DEPOIS do primeiro é o
+        # painel da coordenação (`services.promover_a_coordenador`, que
+        # aplica `LIMITE_COORDENADORES`), não este comando. Sem esta guarda,
+        # rodar `semear_sistema` de novo, num sistema já em uso, com um
+        # --email-coordenador diferente, criava e promovia incondicionalmente
+        # mais uma pessoa — um quinto coordenador não esbarraria em teto
+        # nenhum, porque este comando nunca o consulta (achado da revisão 1:
+        # o cenário é alcançável — troca de responsável, reinstalação
+        # parcial, script de bootstrap reaproveitado — não teórico). O caso
+        # idempotente segue liberado: só recusamos um alvo NOVO quando já
+        # existe alguém coordenando; o próprio alvo, se já for coordenador,
+        # nunca cai aqui.
+        if not ja_e_coordenador and Usuario.objects.filter(is_coordenador=True).exists():
+            raise CommandError(
+                "O sistema já tem coordenador(a). semear_sistema cria apenas "
+                "o primeiro, numa instalação nova; para nomear mais alguém, "
+                "use o painel da coordenação."
+            )
+
+        criada = coordenadora is None
         if criada:
+            coordenadora = Usuario.objects.create(
+                email=email,
+                nome_completo=opcoes["nome_coordenador"],
+                cpf=opcoes["cpf_coordenador"],
+                papel=Usuario.PROFESSOR,
+                password="",
+            )
             senha = secrets.token_urlsafe(16)
             coordenadora.set_password(senha)
             coordenadora.save(update_fields=["password"])
@@ -124,11 +157,8 @@ class Command(BaseCommand):
         # existe exatamente porque ainda não existe NENHUM coordenador — é o
         # ovo-e-galinha que a Tarefa 12 resolve. Por isso os campos são
         # atribuídos diretamente aqui, fora da camada de serviço, só neste
-        # comando de bootstrap. Também não checamos `LIMITE_COORDENADORES`
-        # (services.py): este comando promove no máximo uma conta, a indicada
-        # em --email-coordenador, numa instalação nova com zero
-        # coordenadores — não há como esbarrar no teto de 4 promovendo uma
-        # única pessoa.
+        # comando de bootstrap; a guarda acima é que garante que isto só
+        # acontece para o primeiro coordenador do sistema.
         if not coordenadora.is_coordenador:
             coordenadora.is_coordenador = True
             coordenadora.is_staff = True
