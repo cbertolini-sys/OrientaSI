@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Meu perfil{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Meu perfil</h1>
+    <p class="mt-2">{{ user.nome_completo }} — {{ user.email }}</p>
+
+    <form method="post" enctype="multipart/form-data" class="mt-6 space-y-4" novalidate>
+      {% csrf_token %}
+
+      {% if formulario.non_field_errors %}
+        {% comment %}
+          Mesmo padrão de aceitar_convite.html e login.html: tabindex="-1" +
+          autofocus move o foco do teclado para o resumo do erro depois de um
+          POST inválido (a página recarrega inteira, não há HTMX aqui), em
+          vez de deixar o foco voltar ao topo do documento sem nenhum sinal.
+        {% endcomment %}
+        <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
+          <p>Corrija os campos indicados abaixo antes de continuar.</p>
+          {% for erro in formulario.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      {% for campo in formulario %}
+        {% if campo.name == "areas" %}
+          {% comment %}
+            <fieldset>/<legend> em vez do <label> usado pelos outros campos:
+            sem um rótulo de grupo, o axe aponta que o conjunto de caixas de
+            seleção não tem nome de grupo, e um leitor de tela anuncia cada
+            área ("Redes", "Inteligência Artificial"...) sem dizer a que
+            pergunta elas respondem.
+          {% endcomment %}
+          <fieldset class="flex flex-col gap-1">
+            <legend class="font-medium text-base-content">{{ campo.label }}</legend>
+            {{ campo }}
+            {% if campo.errors %}
+              <div id="erro-{{ campo.name }}">
+                {% for erro in campo.errors %}
+                  <p role="alert" class="text-sm text-error">{{ erro }}</p>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </fieldset>
+        {% else %}
+          <div class="flex flex-col gap-1">
+            {% comment %}
+              Deliberadamente sem as classes DaisyUI `.label`/`.label-text`
+              (achado da T8): na v5, `.label` esmaece a cor do texto
+              (color-mix a 60%) e derruba o contraste do rótulo para 4.38:1,
+              abaixo do mínimo de 4.5:1 do WCAG 2 AA. `text-base-content` é a
+              cor de texto padrão do tema, com contraste alto de propósito.
+            {% endcomment %}
+            <label class="font-medium text-base-content" for="{{ campo.id_for_label }}">
+              {{ campo.label }}{% if campo.field.required %} <span aria-hidden="true">*</span>
+                <span class="sr-only">(obrigatório)</span>{% endif %}
+            </label>
+            {{ campo }}
+            {% if campo.help_text %}
+              <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
+                {{ campo.help_text }}
+              </p>
+            {% endif %}
+            {% if campo.errors %}
+              <div id="erro-{{ campo.name }}">
+                {% for erro in campo.errors %}
+                  <p role="alert" class="text-sm text-error">{{ erro }}</p>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+
+      <button type="submit" class="btn btn-primary w-full">Salvar</button>
+    </form>
+  </article>
+{% endblock %}

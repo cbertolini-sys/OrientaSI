@@ -3,7 +3,7 @@ from django.contrib.auth.forms import AuthenticationForm, PasswordResetForm, Set
 from django.contrib.auth.password_validation import validate_password
 
 from apps.comum.validators import valida_extensao_imagem, valida_tamanho_arquivo
-from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import valida_cpf
 
 
@@ -214,3 +214,43 @@ class FormularioDefinirNovaSenha(MisturaAcessibilidadeFormulario, SetPasswordFor
     recuperação. Os rótulos e o texto de ajuda (regras de senha) já vêm
     corretos e traduzidos do Django; só recebe estilo e acessibilidade do
     mixin."""
+
+
+class FormularioPerfil(MisturaAcessibilidadeFormulario, forms.Form):
+    """Campos que qualquer pessoa (aluno ou professor) mantém sobre si mesma
+    na tela de perfil (T10). `FormularioPerfilProfessor`, abaixo, acrescenta
+    o campo de áreas, exclusivo de professor."""
+
+    telefone = forms.CharField(
+        label="Telefone",
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(attrs={"autocomplete": "tel"}),
+    )
+    foto = forms.ImageField(
+        label="Foto",
+        required=False,
+        validators=[valida_extensao_imagem, valida_tamanho_arquivo],
+        # Sem autocomplete: a lista de "input purposes" do WCAG 2.1 AA
+        # (critério 1.3.5) não tem um token para upload de arquivo — "photo"
+        # não é um valor reconhecido de autocomplete (essa combinação já
+        # existia, por engano, em `FormularioConvidado.foto`, mas não é
+        # replicada aqui).
+    )
+
+
+class FormularioPerfilProfessor(FormularioPerfil):
+    """Acrescenta a escolha das áreas de atuação, exclusiva do professor
+    (`PerfilProfessor.areas`, T6). O widget é `CheckboxSelectMultiple`: o
+    template (`templates/contas/perfil.html`) envolve este campo num
+    `<fieldset>`/`<legend>` em vez do `<label>` usado pelos demais campos —
+    sem isso, o axe aponta que o grupo de caixas de seleção não tem rótulo
+    de grupo (regra `aria-input-field-name`/agrupamento), e um leitor de
+    tela anuncia cada opção sem dizer a que pergunta ela responde."""
+
+    areas = forms.ModelMultipleChoiceField(
+        label="Áreas de atuação",
+        queryset=Area.objects.all(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )

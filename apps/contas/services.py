@@ -118,6 +118,28 @@ def _aceitar_convite_atomico(token, dados):
     return usuario
 
 
+@transaction.atomic
+def atualiza_perfil(usuario, telefone, areas=None, foto=None):
+    """Atualiza os dados que a própria pessoa mantém sobre si.
+
+    `areas` só é aplicado a professores (spec: só professor tem
+    `PerfilProfessor.areas`) — passar `areas` para um aluno é
+    silenciosamente ignorado, não é um erro: a view nunca envia `areas` para
+    quem não é professor, porque `FormularioPerfil` (usado pelo aluno) não
+    tem esse campo.
+    """
+    usuario.telefone = telefone
+    campos = ["telefone"]
+    if foto:
+        usuario.foto = foto
+        campos.append("foto")
+    usuario.save(update_fields=campos)
+
+    if areas is not None and usuario.papel == Usuario.PROFESSOR:
+        usuario.perfil_professor.areas.set(areas)
+    return usuario
+
+
 def aceitar_convite(token, dados):
     """Cria o Usuario e o perfil correspondente a partir de um convite válido.
 
