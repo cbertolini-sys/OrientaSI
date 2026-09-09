@@ -122,3 +122,20 @@ def test_matricula_duplicada_via_view_nao_derruba_com_500(client, coordenadora):
     assert resposta.status_code == 200
     assert "matrícula" in resposta.content.decode().lower()
     assert not Usuario.objects.filter(email="segundo@ufsm.br").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_foco_vai_para_o_resumo_de_erros_apos_post_invalido(page, live_server, coordenadora):
+    """Depois de um POST inválido a página inteira recarrega (não há HTMX aqui):
+    sem mover o foco, quem navega só por teclado ou leitor de tela não recebe
+    nenhum sinal de que algo deu errado além do role="alert", que só é ouvido
+    por quem já estiver com o foco nele no instante em que a página carrega."""
+    cria_convite(coordenadora, Usuario.ALUNO, "foco@ufsm.br", "token-foco")
+
+    page.goto(f"{live_server.url}/convite/token-foco/")
+    page.click("button[type=submit]")  # formulário vazio: dispara os erros obrigatórios
+
+    ativo = page.evaluate("document.activeElement.id")
+    assert (
+        ativo == "resumo-erros"
+    ), f"Depois do POST inválido, o foco deveria estar em #resumo-erros, e está em {ativo!r}."
