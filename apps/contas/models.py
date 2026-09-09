@@ -83,3 +83,62 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f"{self.nome_completo} <{self.email}>"
+
+
+class Area(models.Model):
+    """Vocabulário controlado de áreas de atuação, mantido pela coordenação.
+
+    Vive em contas e não em projetos porque é a única direção acíclica: projetos
+    já dependerá de contas (todo projeto aponta para um Usuario). Spec §5.4.
+    """
+
+    nome = models.CharField("nome", max_length=120, unique=True)
+    descricao = models.TextField("descrição", blank=True)
+
+    class Meta:
+        verbose_name = "área"
+        verbose_name_plural = "áreas"
+        ordering = ["nome"]
+
+    def __str__(self):
+        return self.nome
+
+
+class PerfilAluno(models.Model):
+    usuario = models.OneToOneField(
+        Usuario,
+        on_delete=models.CASCADE,
+        related_name="perfil_aluno",
+        verbose_name="usuário",
+    )
+    matricula = models.CharField("matrícula", max_length=20, unique=True)
+
+    class Meta:
+        verbose_name = "perfil de aluno"
+        verbose_name_plural = "perfis de alunos"
+
+    def __str__(self):
+        return f"{self.usuario.nome_completo} ({self.matricula})"
+
+
+class PerfilProfessor(models.Model):
+    usuario = models.OneToOneField(
+        Usuario,
+        on_delete=models.CASCADE,
+        related_name="perfil_professor",
+        verbose_name="usuário",
+    )
+    siape = models.CharField("SIAPE", max_length=20, unique=True)
+    areas = models.ManyToManyField(
+        Area,
+        blank=True,
+        related_name="professores",
+        verbose_name="áreas de atuação",
+    )
+
+    class Meta:
+        verbose_name = "perfil de professor"
+        verbose_name_plural = "perfis de professores"
+
+    def __str__(self):
+        return f"{self.usuario.nome_completo} (SIAPE {self.siape})"

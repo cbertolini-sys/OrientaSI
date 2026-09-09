@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 
-from apps.contas.models import Usuario
+from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 
 
 class FormularioCriacaoUsuario(UserCreationForm):
@@ -62,3 +62,13 @@ class UsuarioAdmin(UserAdmin):
             },
         ),
     )
+
+
+@admin.register(Area)
+class AreaAdmin(admin.ModelAdmin):
+    list_display = ["nome"]
+    search_fields = ["nome"]
+
+
+admin.site.register(PerfilAluno)
+admin.site.register(PerfilProfessor)
