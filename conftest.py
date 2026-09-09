@@ -68,6 +68,14 @@ ROTAS = [
     "/convite/rota-para-teste-de-acessibilidade/",
     "/contas/login/",
     "/contas/password_reset/",
+    # done/complete são páginas estáticas (sem formulário, sem estado) —
+    # cobertura de graça, sem precisar de fixture nenhuma. password_reset_confirm
+    # fica de fora: exige um uidb64/token real e válido, que só existe depois de
+    # um fluxo de recuperação de senha de verdade (ver
+    # apps/contas/tests/test_autenticacao.py,
+    # test_fluxo_completo_de_recuperacao_de_senha_ate_novo_login).
+    "/contas/password_reset/concluido/",
+    "/contas/reset/concluido/",
 ]
 
 
@@ -112,6 +120,8 @@ SELETOR_POR_ROTA = {
     "/convite/rota-para-teste-de-acessibilidade/": "form",
     "/contas/login/": "form",
     "/contas/password_reset/": "form",
+    "/contas/password_reset/concluido/": "h1",
+    "/contas/reset/concluido/": "h1",
 }
 
 

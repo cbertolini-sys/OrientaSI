@@ -2,6 +2,7 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
+from apps.contas.admin import FormularioCriacaoUsuario
 from apps.contas.models import Usuario
 from apps.contas.validators import valida_cpf
 
@@ -56,6 +57,63 @@ def test_conta_sugrad_e_unica():
             papel=Usuario.SUGRAD,
             cpf=None,
         )
+
+
+@pytest.mark.django_db
+def test_email_e_normalizado_tambem_pelo_caminho_do_admin():
+    """`GerenciadorUsuario._criar` (T7) só normaliza quem passa por
+    `create_user`/`create_superuser`. O admin grava pelo `ModelForm.save()`,
+    que chama `Usuario(...).save()` direto — sem esta cobertura, o sinal
+    `normaliza_email_do_usuario` (apps/contas/signals.py) seria a única
+    coisa evitando duas grafias da mesma conta (revisão 1 da T9)."""
+    formulario = FormularioCriacaoUsuario(
+        data={
+            "email": "Ana@UFSM.br",
+            "nome_completo": "Ana",
+            "cpf": "52998224725",
+            "password1": "senha-bem-forte-123",
+            "password2": "senha-bem-forte-123",
+        }
+    )
+    assert formulario.is_valid(), formulario.errors
+    usuario = formulario.save()
+    assert usuario.email == "ana@ufsm.br"
+
+
+@pytest.mark.django_db
+def test_grafia_diferente_do_mesmo_email_pelo_admin_e_recusada_pelo_banco():
+    """Reproduz o bug real da revisão 1 da T9: a primeira conta é criada
+    pelo caminho normal (`create_user`, já normalizava desde a T7); a
+    segunda tenta entrar pelo caminho do admin (`ModelForm.save()`, que
+    NÃO passa por `create_user`) com uma grafia em maiúsculas que a
+    validação de unicidade do próprio formulário (comparação exata) não
+    pega. Sem o sinal `normaliza_email_do_usuario`
+    (apps/contas/signals.py), esta segunda gravação criava uma duplicata
+    silenciosa e `get_by_natural_key` (busca `__iexact`) levantava
+    `MultipleObjectsReturned` — 500 — ao autenticar qualquer uma das duas
+    contas."""
+    Usuario.objects.create_user(
+        email="ana@ufsm.br",
+        password="senha-bem-forte-123",
+        nome_completo="Ana",
+        cpf="52998224725",
+    )
+    formulario = FormularioCriacaoUsuario(
+        data={
+            "email": "ANA@UFSM.BR",
+            "nome_completo": "Ana Outra",
+            "cpf": "11144477735",
+            "password1": "senha-bem-forte-456",
+            "password2": "senha-bem-forte-456",
+        }
+    )
+    # A validação de unicidade do form é exata: "ANA@UFSM.BR" não bate com o
+    # "ana@ufsm.br" já gravado, então o form passa — é o banco, com o e-mail
+    # já normalizado pelo sinal antes do INSERT, que precisa barrar isto.
+    assert formulario.is_valid(), formulario.errors
+    with pytest.raises(IntegrityError), transaction.atomic():
+        formulario.save()
+    assert Usuario.objects.filter(email__iexact="ana@ufsm.br").count() == 1
 
 
 @pytest.mark.django_db

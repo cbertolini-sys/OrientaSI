@@ -183,12 +183,19 @@ class FormularioLogin(MisturaAcessibilidadeFormulario, AuthenticationForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        campo_usuario = self.fields["username"]
         # `AuthenticationForm` marca o campo de e-mail com autofocus. Isso
         # rouba o foco do primeiro Tab assim que a página carrega, então a
         # primeira tabulação nunca alcança o link "Pular para o conteúdo" de
         # base.html (tests/test_teclado.py, achado nesta tarefa) — o
         # navegador já colocou o foco adiante dele antes de qualquer Tab.
-        self.fields["username"].widget.attrs.pop("autofocus", None)
+        campo_usuario.widget.attrs.pop("autofocus", None)
+        # `UsernameField` usa `TextInput` (type="text"). Como o identificador
+        # é sempre um e-mail (USERNAME_FIELD), forçar type="email" abre o
+        # teclado certo no celular (o projeto é mobile-first) — não é uma
+        # exigência do WCAG, mas revisão 1 da T9 apontou a inconsistência com
+        # o campo da tela de recuperação, que já usa EmailInput.
+        campo_usuario.widget.input_type = "email"
 
 
 class FormularioRecuperarSenha(MisturaAcessibilidadeFormulario, PasswordResetForm):

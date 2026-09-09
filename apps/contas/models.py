@@ -31,7 +31,18 @@ class GerenciadorUsuario(BaseUserManager):
         # quem se cadastrou como "Ana@ufsm.br" está gravado como
         # "ana@ufsm.br", e digitar o e-mail com maiúsculas no login não
         # encontraria a conta sem esta sobrescrita.
-        return self.get(**{f"{self.model.USERNAME_FIELD}__iexact": email})
+        try:
+            return self.get(**{f"{self.model.USERNAME_FIELD}__iexact": email})
+        except self.model.MultipleObjectsReturned:
+            # Defesa em profundidade: o sinal `normaliza_email_do_usuario`
+            # (apps/contas/signals.py) impede gravações novas com grafias
+            # duplicadas, mas não apaga duplicatas que já existissem no
+            # banco antes dele existir. Cair para a busca exata evita um 500
+            # imprevisível (achado na revisão 1 da T9) e autentica quem
+            # digitou a grafia exatamente como está gravada; quem digitar
+            # outra grafia recebe a mensagem normal de credenciais
+            # inválidas, não um erro de servidor.
+            return self.get(**{self.model.USERNAME_FIELD: email})
 
     def create_user(self, email, password=None, **extra):
         extra.setdefault("papel", Usuario.PROFESSOR)
