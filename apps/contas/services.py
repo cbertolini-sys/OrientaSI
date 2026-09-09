@@ -122,11 +122,17 @@ def _aceitar_convite_atomico(token, dados):
 def atualiza_perfil(usuario, telefone, areas=None, foto=None):
     """Atualiza os dados que a própria pessoa mantém sobre si.
 
-    `areas` só é aplicado a professores (spec: só professor tem
-    `PerfilProfessor.areas`) — passar `areas` para um aluno é
-    silenciosamente ignorado, não é um erro: a view nunca envia `areas` para
-    quem não é professor, porque `FormularioPerfil` (usado pelo aluno) não
-    tem esse campo.
+    `areas` só é aplicado a quem **tem** `PerfilProfessor` — a checagem é
+    `hasattr(usuario, "perfil_professor")`, não `usuario.papel ==
+    Usuario.PROFESSOR`: o papel `PROFESSOR` é o padrão de
+    `Usuario.objects.create_user`/`create_superuser`
+    (`GerenciadorUsuario`), mas nada cria `PerfilProfessor` automaticamente,
+    e `usuario.perfil_professor` levanta `RelatedObjectDoesNotExist` para
+    quem tem o papel mas não o perfil (o superusuário criado por
+    `createsuperuser`, por exemplo). Passar `areas` para quem não tem
+    `PerfilProfessor` é silenciosamente ignorado, não é um erro: a view só
+    envia `areas` a quem `FormularioPerfilProfessor` atende, e essa escolha
+    de formulário já usa a mesma condição de `hasattr`.
     """
     usuario.telefone = telefone
     campos = ["telefone"]
@@ -135,7 +141,7 @@ def atualiza_perfil(usuario, telefone, areas=None, foto=None):
         campos.append("foto")
     usuario.save(update_fields=campos)
 
-    if areas is not None and usuario.papel == Usuario.PROFESSOR:
+    if areas is not None and hasattr(usuario, "perfil_professor"):
         usuario.perfil_professor.areas.set(areas)
     return usuario
 

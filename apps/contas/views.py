@@ -50,11 +50,22 @@ def aceitar_convite(request, token):
 
 @login_required
 def perfil(request):
-    """Tela em que a pessoa autenticada mantém os próprios dados. Professor
-    recebe também o campo de áreas de atuação; aluno não (não existe
-    `PerfilAluno.areas` — spec §5.4, só professor tem área de atuação)."""
-    e_professor = request.user.papel == Usuario.PROFESSOR
-    Formulario = FormularioPerfilProfessor if e_professor else FormularioPerfil
+    """Tela em que a pessoa autenticada mantém os próprios dados. Quem tem
+    `PerfilProfessor` recebe também o campo de áreas de atuação; quem não
+    tem, não.
+
+    A condição é a **existência do perfil** (`hasattr`), não o `papel`: o
+    papel padrão de `Usuario.objects.create_user`/`create_superuser` é
+    `PROFESSOR` (`apps/contas/models.py::GerenciadorUsuario`), mas nada cria
+    `PerfilProfessor` automaticamente — nem o `createsuperuser` que o
+    `CLAUDE.md` manda rodar, nem a conta da coordenação (que a Tarefa 11 vai
+    autenticar). Usar `request.user.papel == Usuario.PROFESSOR` como
+    condição, como o brief sugeria, levava a `RelatedObjectDoesNotExist` (500)
+    ao tentar ler `request.user.perfil_professor.areas` de quem tem o papel
+    mas não o perfil.
+    """
+    tem_perfil_professor = hasattr(request.user, "perfil_professor")
+    Formulario = FormularioPerfilProfessor if tem_perfil_professor else FormularioPerfil
 
     if request.method == "POST":
         formulario = Formulario(request.POST, request.FILES)
@@ -69,7 +80,7 @@ def perfil(request):
             return redirect("contas:perfil")
     else:
         inicial = {"telefone": request.user.telefone}
-        if e_professor:
+        if tem_perfil_professor:
             inicial["areas"] = request.user.perfil_professor.areas.all()
         formulario = Formulario(initial=inicial)
 

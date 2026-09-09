@@ -6,23 +6,16 @@ de acessibilidade WCAG 2.5.5)."""
 
 import pytest
 
-# [tabindex]:not([tabindex="-1"]) exclui alvos de foco puramente programático
-# (ex.: <main tabindex="-1">, usado só para mover o foco do teclado após o
-# link de pular — nunca um alvo de toque real) mas cobre widgets customizados
-# com tabindex="0" (menus, abas, checklists — o formato que as Tarefas 8-11
-# vão usar). summary e os role=* cobrem <details>/<summary> e os padrões ARIA
-# de menu, aba e checkbox construídos sem elemento nativo.
-INTERATIVOS = (
-    "a, button, input:not([type=hidden]), select, textarea, summary, "
-    "[tabindex]:not([tabindex='-1']), "
-    "[role=button], [role=link], [role=checkbox], [role=tab], [role=menuitem]"
-)
+from conftest import LARGURAS_TESTADAS, SELETOR_INTERATIVOS
 
-# Medir só no viewport padrão de testes (1280px) deixava passar um botão que
-# encolhe no mobile: alvo de toque é uma exigência de tela pequena, e o
-# projeto é mobile-first (spec: "Interface 100% responsiva"). 360px é o
-# mesmo mínimo de tela usado por test_responsivo.py.
-LARGURAS_TESTADAS = [1280, 360]
+# `SELETOR_INTERATIVOS` e `LARGURAS_TESTADAS` vivem em conftest.py (extraídos
+# na revisão 1 da T10, quando a primeira suíte de rota autenticada precisou
+# dos mesmos dois valores) — ver lá a explicação de cada trecho do seletor
+# ([tabindex]:not([tabindex="-1"]) exclui alvos de foco puramente
+# programático mas cobre widgets customizados; summary e os role=* cobrem
+# <details>/<summary> e os padrões ARIA construídos sem elemento nativo) e da
+# escolha das duas larguras (1280px padrão + 360px, mínimo mobile-first,
+# mesmo usado por test_responsivo.py).
 
 
 def _eh_link_inline_em_prosa(elemento):
@@ -52,7 +45,7 @@ def test_alvos_de_toque_tem_ao_menos_44px(page, live_server, rota, largura):
     page.set_viewport_size({"width": largura, "height": 800})
     page.goto(f"{live_server.url}{rota}")
     pequenos = []
-    for elemento in page.query_selector_all(INTERATIVOS):
+    for elemento in page.query_selector_all(SELETOR_INTERATIVOS):
         if not elemento.is_visible():
             continue
         if _eh_link_inline_em_prosa(elemento):

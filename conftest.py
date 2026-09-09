@@ -2,6 +2,8 @@ import hashlib
 import os
 
 import pytest
+from django.conf import settings
+from django.test import Client
 from django.utils import timezone
 
 
@@ -56,6 +58,55 @@ def midia_temporaria(settings, tmp_path):
         **settings.STORAGES,
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     }
+
+
+# Regras do axe-core (WCAG 2.1 A/AA), larguras e seletor de alvos interativos
+# usados por toda suíte de acessibilidade/toque baseada em Playwright — tanto
+# a suíte global sobre rotas anônimas (tests/test_acessibilidade.py,
+# test_toque.py) quanto qualquer suíte de rota autenticada (a partir da T10,
+# ver `autentica_no_navegador` abaixo). Centralizados aqui (revisão 1 da T10)
+# para não haver uma segunda cópia por tarefa: antes desta extração,
+# apps/contas/tests/test_perfil_acessibilidade.py duplicava as três
+# constantes de tests/test_acessibilidade.py e tests/test_toque.py.
+REGRAS_AXE = {"runOnly": {"type": "tag", "values": ["wcag2a", "wcag2aa", "wcag21aa"]}}
+LARGURAS_TESTADAS = [1280, 360]
+SELETOR_INTERATIVOS = (
+    "a, button, input:not([type=hidden]), select, textarea, summary, "
+    "[tabindex]:not([tabindex='-1']), "
+    "[role=button], [role=link], [role=checkbox], [role=tab], [role=menuitem]"
+)
+
+
+@pytest.fixture
+def autentica_no_navegador(page, live_server):
+    """Fábrica: devolve uma função que autentica `page` (Playwright) como o
+    `Usuario` que ela recebe.
+
+    Extraída para cá na revisão 1 da T10: `/perfil/` foi a primeira rota
+    autenticada do projeto, e sua suíte de acessibilidade
+    (`apps/contas/tests/test_perfil_acessibilidade.py`) precisava navegar já
+    logada — as quatro suítes globais (`tests/test_acessibilidade.py` e
+    companhia) navegam sempre anônimas, então não serviam. Qualquer suíte de
+    acessibilidade de uma rota autenticada futura (T11 em diante) deve reusar
+    esta fábrica em vez de reimplementar login + injeção de cookie.
+
+    Mecanismo: `django.test.Client().force_login(usuario)` grava a sessão
+    diretamente no banco de teste, sem passar pelo formulário de login; o
+    cookie de sessão resultante (`settings.SESSION_COOKIE_NAME`) é injetado
+    no contexto do Playwright, para que a navegação real do navegador chegue
+    com a sessão já aberta.
+    """
+
+    def _autentica(usuario):
+        cliente = Client()
+        cliente.force_login(usuario)
+        cookie = cliente.cookies[settings.SESSION_COOKIE_NAME]
+        page.context.add_cookies(
+            [{"name": settings.SESSION_COOKIE_NAME, "value": cookie.value, "url": live_server.url}]
+        )
+        return page
+
+    return _autentica
 
 
 # Lista única de rotas submetidas à suíte de acessibilidade, toque, responsividade

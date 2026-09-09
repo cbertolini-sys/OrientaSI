@@ -10,12 +10,22 @@
     <form method="post" enctype="multipart/form-data" class="mt-6 space-y-4" novalidate>
       {% csrf_token %}
 
-      {% if formulario.non_field_errors %}
+      {% if formulario.errors %}
         {% comment %}
-          Mesmo padrão de aceitar_convite.html e login.html: tabindex="-1" +
-          autofocus move o foco do teclado para o resumo do erro depois de um
-          POST inválido (a página recarrega inteira, não há HTMX aqui), em
-          vez de deixar o foco voltar ao topo do documento sem nenhum sinal.
+          `formulario.errors` (não `formulario.non_field_errors`, achado da
+          revisão 1): `FormularioPerfil` não faz validação entre campos —
+          os únicos erros possíveis (extensão de imagem inválida, arquivo
+          acima do limite) são erros DE CAMPO, e `non_field_errors` fica
+          sempre vazio aqui. Com a condição errada, o resumo nunca aparecia,
+          o foco ficava no topo do documento depois de um POST inválido, e
+          o `role="alert"` de cada campo (abaixo) não é anunciado de forma
+          confiável para quem não está com o foco nele no instante do erro.
+
+          Mesmo padrão de aceitar_convite.html e login.html quanto ao foco:
+          tabindex="-1" + autofocus move o foco do teclado para o resumo do
+          erro depois de um POST inválido (a página recarrega inteira, não
+          há HTMX aqui), em vez de deixar o foco voltar ao topo do documento
+          sem nenhum sinal.
         {% endcomment %}
         <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
           <p>Corrija os campos indicados abaixo antes de continuar.</p>
@@ -27,10 +37,18 @@
         {% if campo.name == "areas" %}
           {% comment %}
             <fieldset>/<legend> em vez do <label> usado pelos outros campos:
-            sem um rótulo de grupo, o axe aponta que o conjunto de caixas de
-            seleção não tem nome de grupo, e um leitor de tela anuncia cada
-            área ("Redes", "Inteligência Artificial"...) sem dizer a que
-            pergunta elas respondem.
+            sem um rótulo de grupo, um leitor de tela anuncia cada área
+            ("Redes", "Inteligência Artificial"...) sem dizer a que pergunta
+            elas respondem — a pessoa ouve os nomes soltos.
+
+            O axe-core NÃO aponta essa ausência (rodei o mesmo Axe().run com
+            as tags wcag2a/wcag2aa/wcag21aa contra o markup sem <fieldset>:
+            zero violações — as regras checkboxgroup/radiogroup que
+            cobririam isso foram removidas do axe-core 4). Por isso este
+            <fieldset>/<legend> tem uma trava própria, que não depende do
+            axe: apps/contas/tests/test_perfil_view.py::
+            test_form_professor_tem_fieldset_e_legend_para_areas afirma a
+            presença dos dois diretamente no HTML.
           {% endcomment %}
           <fieldset class="flex flex-col gap-1">
             <legend class="font-medium text-base-content">{{ campo.label }}</legend>

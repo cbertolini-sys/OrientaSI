@@ -240,13 +240,24 @@ class FormularioPerfil(MisturaAcessibilidadeFormulario, forms.Form):
 
 
 class FormularioPerfilProfessor(FormularioPerfil):
-    """Acrescenta a escolha das áreas de atuação, exclusiva do professor
-    (`PerfilProfessor.areas`, T6). O widget é `CheckboxSelectMultiple`: o
-    template (`templates/contas/perfil.html`) envolve este campo num
-    `<fieldset>`/`<legend>` em vez do `<label>` usado pelos demais campos —
-    sem isso, o axe aponta que o grupo de caixas de seleção não tem rótulo
-    de grupo (regra `aria-input-field-name`/agrupamento), e um leitor de
-    tela anuncia cada opção sem dizer a que pergunta ela responde."""
+    """Acrescenta a escolha das áreas de atuação, exclusiva de quem tem
+    `PerfilProfessor` (`PerfilProfessor.areas`, T6). O widget é
+    `CheckboxSelectMultiple`: o template (`templates/contas/perfil.html`)
+    envolve este campo num `<fieldset>`/`<legend>` em vez do `<label>` usado
+    pelos demais campos.
+
+    Sem o `<fieldset>`/`<legend>`, um leitor de tela anuncia cada opção
+    ("Redes", "Inteligência Artificial"...) sem dizer a que pergunta elas
+    respondem — a pessoa ouve os nomes soltos, sem saber que são escolhas de
+    área de atuação. **O axe-core (rodado com as tags wcag2a/wcag2aa/wcag21aa,
+    as mesmas de `tests/test_acessibilidade.py`) não aponta essa ausência**:
+    as regras `checkboxgroup`/`radiogroup` que cobririam isso foram removidas
+    do axe-core 4 (confirmado rodando o mesmo `Axe().run` contra o markup sem
+    `<fieldset>`: zero violações). Por isso
+    `apps/contas/tests/test_perfil_view.py::test_form_professor_tem_fieldset_e_legend_para_areas`
+    afirma a presença do `<fieldset>`/`<legend>` diretamente no HTML — é a
+    única rede de segurança contra a remoção deste elemento, o axe não
+    cobre."""
 
     areas = forms.ModelMultipleChoiceField(
         label="Áreas de atuação",

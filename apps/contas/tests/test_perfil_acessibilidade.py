@@ -10,35 +10,28 @@ Tarefa 8 corrigiu: suíte verde medindo a página errada, ver
 `tests/test_rotas.py`).
 
 Este arquivo repete, só para `/perfil/`, as mesmas verificações que as
-quatro suítes fazem para as rotas anônimas, autenticando antes de navegar:
-login via `django.test.Client` (que cria a sessão no banco de teste) e
-injeção do cookie de sessão resultante no contexto do Playwright — a
-navegação real do navegador chega com a sessão já aberta, sem precisar
-preencher o formulário de login na tela.
+quatro suítes fazem para as rotas anônimas, autenticando antes de navegar
+via `autentica_no_navegador` (conftest.py, extraída nesta revisão para que
+qualquer rota autenticada futura reuse o mesmo mecanismo).
 
-Cobre as duas variantes do formulário (professor, com o campo de áreas
-dentro do `<fieldset>`; aluno, sem ele) porque o achado mais provável desta
-tarefa — o grupo de caixas de seleção sem `<legend>` — só existe na
-variante do professor.
+**Âncora de identidade (achado da revisão 1):** um probe anônimo contra
+`/perfil/` mostrou que o Playwright segue o redirecionamento 302 para
+`/contas/login/?next=/perfil/` e devolve `status == 200` — e a tela de login
+já tem `form`, exatamente um `<h1>` e a primeira tabulação alcança
+`#conteudo`. Ou seja: as seis verificações desta suíte passariam **mesmo
+medindo a página errada**, exatamente como `tests/test_rotas.py` existe para
+evitar na suíte anônima. Por isso `_confirma_que_esta_no_perfil` roda logo
+após cada `goto`, antes de qualquer outra asserção: confirma a URL final
+(`/perfil/`, não `/contas/login/...`) e o texto do `<h1>` (“Meu perfil”, que
+não existe na tela de login). Na variante do professor, exige também um
+`<legend>` na página — a tela de login nunca tem um.
 """
 
 import pytest
 from axe_playwright_python.sync_playwright import Axe
-from django.conf import settings
-from django.test import Client
 
 from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
-
-REGRAS = {"runOnly": {"type": "tag", "values": ["wcag2a", "wcag2aa", "wcag21aa"]}}
-LARGURAS_TESTADAS = [1280, 360]
-
-# Mesma lista de tests/test_toque.py: alvos interativos considerados pela
-# verificação de tamanho mínimo de toque (WCAG 2.5.5).
-INTERATIVOS = (
-    "a, button, input:not([type=hidden]), select, textarea, summary, "
-    "[tabindex]:not([tabindex='-1']), "
-    "[role=button], [role=link], [role=checkbox], [role=tab], [role=menuitem]"
-)
+from conftest import LARGURAS_TESTADAS, REGRAS_AXE, SELETOR_INTERATIVOS
 
 
 def _cria_professor():
@@ -66,39 +59,51 @@ def _cria_aluno():
 
 
 @pytest.fixture(params=["professor", "aluno"])
-def usuario_perfil(request, db):
-    return _cria_professor() if request.param == "professor" else _cria_aluno()
+def papel_usuario(request):
+    return request.param
 
 
 @pytest.fixture
-def pagina_autenticada(page, live_server, usuario_perfil):
-    """Devolve `page` com a sessão de `usuario_perfil` já aberta.
+def usuario_perfil(papel_usuario, db):
+    return _cria_professor() if papel_usuario == "professor" else _cria_aluno()
 
-    `Client.force_login` grava a sessão diretamente no banco (sem passar pelo
-    formulário de login); o cookie de sessão resultante é injetado no
-    contexto do Playwright antes de qualquer navegação, para que
-    `page.goto("/perfil/")` chegue autenticada.
-    """
-    cliente = Client()
-    cliente.force_login(usuario_perfil)
-    cookie = cliente.cookies[settings.SESSION_COOKIE_NAME]
-    page.context.add_cookies(
-        [{"name": settings.SESSION_COOKIE_NAME, "value": cookie.value, "url": live_server.url}]
+
+@pytest.fixture
+def pagina_autenticada(autentica_no_navegador, usuario_perfil):
+    return autentica_no_navegador(usuario_perfil)
+
+
+def _confirma_que_esta_no_perfil(page, papel_usuario):
+    """Âncora de identidade: sem isto, um defeito no cookie de sessão, no
+    nome da sessão, no `live_server.url` ou no próprio `login_required`
+    deixaria esta suíte inteira verde medindo `/contas/login/` (ver
+    docstring do módulo)."""
+    assert page.url.endswith("/perfil/"), (
+        f"esperava terminar navegação em /perfil/, e a URL final foi {page.url!r} "
+        f"— provável redirecionamento para o login (autenticação não pegou)."
     )
-    return page
+    assert "Meu perfil" in page.inner_text(
+        "h1"
+    ), f"esperava <h1> com 'Meu perfil', e o texto foi {page.inner_text('h1')!r}."
+    if papel_usuario == "professor":
+        assert page.query_selector("legend") is not None, (
+            "variante do professor deveria ter um <legend> (grupo de áreas), "
+            "e nenhum foi encontrado — página errada ou fieldset ausente."
+        )
 
 
 @pytest.mark.django_db(transaction=True)
-def test_perfil_responde_200_autenticado(pagina_autenticada, live_server):
+def test_perfil_responde_200_autenticado(pagina_autenticada, live_server, papel_usuario):
     resposta = pagina_autenticada.goto(f"{live_server.url}/perfil/")
     assert resposta.status == 200
-    assert pagina_autenticada.query_selector("form") is not None
+    _confirma_que_esta_no_perfil(pagina_autenticada, papel_usuario)
 
 
 @pytest.mark.django_db(transaction=True)
-def test_perfil_nao_viola_wcag(pagina_autenticada, live_server):
+def test_perfil_nao_viola_wcag(pagina_autenticada, live_server, papel_usuario):
     pagina_autenticada.goto(f"{live_server.url}/perfil/")
-    resultados = Axe().run(pagina_autenticada, options=REGRAS)
+    _confirma_que_esta_no_perfil(pagina_autenticada, papel_usuario)
+    resultados = Axe().run(pagina_autenticada, options=REGRAS_AXE)
     assert resultados.violations_count == 0, (
         f"/perfil/ viola {resultados.violations_count} regra(s) WCAG 2.1 A/AA "
         f"(regra, seletor e trecho do HTML abaixo — corrija o template ou o CSS):\n"
@@ -107,15 +112,17 @@ def test_perfil_nao_viola_wcag(pagina_autenticada, live_server):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_perfil_tem_exatamente_um_h1_visivel(pagina_autenticada, live_server):
+def test_perfil_tem_exatamente_um_h1_visivel(pagina_autenticada, live_server, papel_usuario):
     pagina_autenticada.goto(f"{live_server.url}/perfil/")
+    _confirma_que_esta_no_perfil(pagina_autenticada, papel_usuario)
     h1s = [h for h in pagina_autenticada.query_selector_all("h1") if h.is_visible()]
     assert len(h1s) == 1, f"/perfil/ deveria ter exatamente um <h1> visível, e tem {len(h1s)}."
 
 
 @pytest.mark.django_db(transaction=True)
-def test_primeira_tabulacao_alcanca_o_link_de_pular(pagina_autenticada, live_server):
+def test_primeira_tabulacao_alcanca_o_link_de_pular(pagina_autenticada, live_server, papel_usuario):
     pagina_autenticada.goto(f"{live_server.url}/perfil/")
+    _confirma_que_esta_no_perfil(pagina_autenticada, papel_usuario)
     pagina_autenticada.keyboard.press("Tab")
     focado = pagina_autenticada.evaluate("document.activeElement.getAttribute('href')")
     assert focado == "#conteudo", (
@@ -126,11 +133,12 @@ def test_primeira_tabulacao_alcanca_o_link_de_pular(pagina_autenticada, live_ser
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
-def test_alvos_de_toque_tem_ao_menos_44px(pagina_autenticada, live_server, largura):
+def test_alvos_de_toque_tem_ao_menos_44px(pagina_autenticada, live_server, papel_usuario, largura):
     pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
     pagina_autenticada.goto(f"{live_server.url}/perfil/")
+    _confirma_que_esta_no_perfil(pagina_autenticada, papel_usuario)
     pequenos = []
-    for elemento in pagina_autenticada.query_selector_all(INTERATIVOS):
+    for elemento in pagina_autenticada.query_selector_all(SELETOR_INTERATIVOS):
         if not elemento.is_visible():
             continue
         caixa = elemento.bounding_box()
@@ -145,9 +153,10 @@ def test_alvos_de_toque_tem_ao_menos_44px(pagina_autenticada, live_server, largu
 
 
 @pytest.mark.django_db(transaction=True)
-def test_sem_rolagem_horizontal_em_360px(pagina_autenticada, live_server):
+def test_sem_rolagem_horizontal_em_360px(pagina_autenticada, live_server, papel_usuario):
     pagina_autenticada.set_viewport_size({"width": 360, "height": 800})
     pagina_autenticada.goto(f"{live_server.url}/perfil/")
+    _confirma_que_esta_no_perfil(pagina_autenticada, papel_usuario)
     largura_conteudo = pagina_autenticada.evaluate("document.documentElement.scrollWidth")
     largura_janela = pagina_autenticada.evaluate("document.documentElement.clientWidth")
     assert largura_conteudo <= largura_janela + 1, (
