@@ -99,3 +99,18 @@ def convite_das_rotas(db):
 @pytest.fixture(params=ROTAS)
 def rota(request, convite_das_rotas):
     return request.param
+
+
+# Seletor presente só na página certa de cada rota, usado por
+# tests/test_rotas.py para provar que uma rota quebrada (ex.: caiu para 404
+# porque a fixture parou de semear o convite, ou o token mudou) reprova a
+# suíte em vez de continuar verde medindo a página de erro por engano.
+SELETOR_POR_ROTA = {
+    "/": "h1",
+    "/convite/rota-para-teste-de-acessibilidade/": "form",
+}
+
+
+@pytest.fixture
+def seletor_da_rota(rota):
+    return SELETOR_POR_ROTA[rota]

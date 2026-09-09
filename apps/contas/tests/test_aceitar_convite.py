@@ -2,7 +2,6 @@ import hashlib
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.contas import services
@@ -22,8 +21,14 @@ def coordenadora(db):
 
 
 def cria_convite(coordenadora, papel, email="novo@ufsm.br"):
-    """Cria o convite direto no banco para termos o token em claro no teste."""
-    token = "token-de-teste-previsivel"
+    """Cria o convite direto no banco para termos o token em claro no teste.
+
+    O token deriva do e-mail (e não é mais fixo) para permitir criar mais de um
+    convite na mesma função de teste sem colidir em `token_hash`, que é
+    `unique=True` (ex.: test_token_invalido_expirado_e_usado_dao_a_mesma_mensagem,
+    que precisa de um convite usado E de um expirado).
+    """
+    token = f"token-de-teste-previsivel-{email}"
     convite = Convite.objects.create(
         email=email,
         papel=papel,
@@ -73,17 +78,21 @@ def test_aceitar_cria_perfil_de_professor(coordenadora):
 
 @pytest.mark.django_db
 def test_token_invalido_expirado_e_usado_dao_a_mesma_mensagem(coordenadora):
-    convite, token = cria_convite(coordenadora, Usuario.ALUNO)
-    services.aceitar_convite(token, DADOS_ALUNO)
+    _, token_usado = cria_convite(coordenadora, Usuario.ALUNO, "usado@ufsm.br")
+    services.aceitar_convite(token_usado, DADOS_ALUNO)
+
+    expirado, token_expirado = cria_convite(coordenadora, Usuario.ALUNO, "expirado@ufsm.br")
+    expirado.expira_em = timezone.now() - timezone.timedelta(seconds=1)
+    expirado.save(update_fields=["expira_em"])
 
     mensagens = []
-    for tentativa in ["token-que-nao-existe", token]:
+    for tentativa in ["token-que-nao-existe", token_usado, token_expirado]:
         with pytest.raises(ValidationError) as erro:
             services.aceitar_convite(tentativa, DADOS_ALUNO)
         mensagens.append(str(erro.value))
 
-    assert mensagens[0] == mensagens[1], (
-        "Token inexistente e token já usado devem produzir a mesma mensagem: "
+    assert mensagens[0] == mensagens[1] == mensagens[2], (
+        "Token inexistente, expirado e já usado devem produzir a mesma mensagem: "
         "a diferença entre eles não é informação que o solicitante precise ter."
     )
 
@@ -100,7 +109,16 @@ def test_convite_expirado_e_recusado(coordenadora):
 
 @pytest.mark.django_db
 def test_falha_no_perfil_nao_deixa_usuario_orfao(coordenadora):
-    """A transação é atômica: matrícula duplicada não pode deixar um Usuario solto."""
+    """A transação é atômica: matrícula duplicada não pode deixar um Usuario solto.
+
+    `aceitar_convite` converte o IntegrityError da colisão em ValidationError
+    (rede de segurança contra corrida — ver services.py), mas a garantia que
+    este teste prova é outra: mesmo com a conversão, nenhum Usuario órfão
+    sobra. Se alguém remover o `@transaction.atomic` de
+    `_aceitar_convite_atomico` mas mantiver o try/except aqui, o Usuario da
+    tentativa "dois@ufsm.br" seria criado e ficaria — o único jeito de este
+    teste continuar verde é a transação de fato desfazer os dois passos.
+    """
     _, token_um = cria_convite(coordenadora, Usuario.ALUNO, "um@ufsm.br")
     services.aceitar_convite(token_um, DADOS_ALUNO)
 
@@ -113,7 +131,26 @@ def test_falha_no_perfil_nao_deixa_usuario_orfao(coordenadora):
     )
     dados = {**DADOS_ALUNO, "cpf": "11144477735"}  # matrícula continua repetida
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValidationError):
         services.aceitar_convite("outro-token", dados)
 
     assert not Usuario.objects.filter(email="dois@ufsm.br").exists()
+
+
+@pytest.mark.django_db
+def test_aceitar_convite_bloqueia_a_linha_do_convite(coordenadora):
+    """`busca_convite_valido(..., para_atualizacao=True)` deve emitir SELECT ... FOR
+    UPDATE: sem o bloqueio, dois aceites simultâneos do mesmo token passariam
+    ambos pela checagem de validade antes que o primeiro gravasse `usado_em`."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    convite, token = cria_convite(coordenadora, Usuario.ALUNO)
+
+    with CaptureQueriesContext(connection) as capturado:
+        services.aceitar_convite(token, DADOS_ALUNO)
+
+    assert any("FOR UPDATE" in query["sql"].upper() for query in capturado.captured_queries), (
+        "Nenhuma consulta capturada usou SELECT ... FOR UPDATE — o convite não "
+        "está sendo bloqueado durante o aceite."
+    )

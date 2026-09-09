@@ -77,6 +77,28 @@
   <div id="anuncios" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
   {% comment %}
+    Mensagens do django.contrib.messages (messages.success/error/... nas
+    views). Região própria, distinta de #anuncios: #anuncios é o canal de
+    anúncio do HTMX (trocas parciais via hx-swap-oob), enquanto esta é
+    renderizada no carregamento normal da página, junto com o conteúdo —
+    misturar as duas faria uma tela sem HTMX (como esta) depender de um
+    contêiner pensado para outra tecnologia, e uma tela com HTMX correria o
+    risco de um swap parcial apagar mensagens desta lista sem querer.
+
+    Contrato para as Tarefas 9-11, que também usam messages.success/error:
+    nenhuma precisa recriar este bloco — é só chamar messages.* na view.
+  {% endcomment %}
+  {% if messages %}
+    <div role="status" aria-live="polite" class="mx-auto max-w-5xl space-y-2 px-4 pt-4">
+      {% for message in messages %}
+        <div class="alert {% if message.tags == 'success' %}alert-success{% elif message.tags == 'error' %}alert-error{% elif message.tags == 'warning' %}alert-warning{% else %}alert-info{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% comment %}
     tabindex=-1 não é enfeite: sem ele, Safari e Chrome rolam até a âncora mas
     não movem o foco, e a pessoa continua tabulando dentro do cabeçalho.
   {% endcomment %}
