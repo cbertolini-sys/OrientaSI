@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Concluir cadastro{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Concluir cadastro</h1>
+    <p class="mt-2">
+      Convite para <strong>{{ convite.email }}</strong>
+      como {{ convite.get_papel_display|lower }}.
+    </p>
+
+    <form method="post" enctype="multipart/form-data" class="mt-6 space-y-4" novalidate>
+      {% csrf_token %}
+
+      {% if formulario.non_field_errors %}
+        <div role="alert" class="alert alert-error">
+          {% for erro in formulario.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      {% for campo in formulario %}
+        <div class="flex flex-col gap-1">
+          {% comment %}
+            Deliberadamente sem as classes DaisyUI `.label`/`.label-text`: na
+            versão 5 do DaisyUI, `.label` aplica um esmaecimento de cor
+            (color-mix a 60% de opacidade) pensado para rótulos secundários
+            dentro de um `.input` — não para o rótulo principal de um campo.
+            Aplicado aqui, esse esmaecimento derrubava o contraste do texto
+            para 4.38:1 (abaixo do mínimo de 4.5:1 do WCAG 2 AA), como o
+            axe-core apontou na primeira execução desta suíte. `text-base-content`
+            é a cor de texto padrão do tema, com contraste alto de propósito.
+          {% endcomment %}
+          <label class="font-medium text-base-content" for="{{ campo.id_for_label }}">
+            {{ campo.label }}{% if campo.field.required %} <span aria-hidden="true">*</span>
+              <span class="sr-only">(obrigatório)</span>{% endif %}
+          </label>
+          {{ campo }}
+          {% if campo.help_text %}
+            <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
+              {{ campo.help_text }}
+            </p>
+          {% endif %}
+          {% for erro in campo.errors %}
+            <p role="alert" class="text-sm text-error">{{ erro }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+
+      <button type="submit" class="btn btn-primary w-full">Concluir cadastro</button>
+    </form>
+  </article>
+{% endblock %}

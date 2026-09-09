@@ -10,6 +10,7 @@ from apps.contas import permissions
 from apps.contas.models import Convite, Usuario
 
 MSG_SOMENTE_COORDENACAO = "Somente a coordenação envia convites."
+MENSAGEM_CONVITE_INVALIDO = "Convite inválido, expirado ou já utilizado."
 
 
 def _hash(token):
@@ -65,3 +66,50 @@ def reenviar_convite(convite, por):
     convite.expira_em = timezone.now()
     convite.save(update_fields=["expira_em"])
     return convidar(convite.email, convite.papel, por=por)
+
+
+def busca_convite_valido(token):
+    """Devolve o convite válido ou levanta a mensagem genérica.
+
+    Token inexistente, expirado e já usado produzem a MESMA mensagem: distingui-los
+    entregaria ao solicitante informação que ele não precisa ter (spec §6.2).
+    """
+    convite = Convite.objects.filter(token_hash=_hash(token)).first()
+    if convite is None or not convite.esta_valido():
+        raise ValidationError(MENSAGEM_CONVITE_INVALIDO)
+    return convite
+
+
+@transaction.atomic
+def aceitar_convite(token, dados):
+    """Cria o Usuario e o perfil correspondente a partir de um convite válido.
+
+    Atômica de propósito: se a criação do perfil falhar (matrícula ou SIAPE
+    duplicados, por exemplo), a transação desfaz também o Usuario recém-criado —
+    nunca pode sobrar uma conta sem perfil.
+    """
+    from apps.contas.models import PerfilAluno, PerfilProfessor
+
+    convite = busca_convite_valido(token)
+
+    usuario = Usuario.objects.create_user(
+        email=convite.email,
+        password=dados["senha"],
+        nome_completo=dados["nome_completo"],
+        cpf=dados["cpf"],
+        telefone=dados.get("telefone", ""),
+        papel=convite.papel,
+    )
+    if dados.get("foto"):
+        usuario.foto = dados["foto"]
+        usuario.save(update_fields=["foto"])
+
+    if convite.papel == Usuario.ALUNO:
+        PerfilAluno.objects.create(usuario=usuario, matricula=dados["matricula"])
+    else:
+        PerfilProfessor.objects.create(usuario=usuario, siape=dados["siape"])
+
+    convite.usado_em = timezone.now()
+    convite.usuario_criado = usuario
+    convite.save(update_fields=["usado_em", "usuario_criado"])
+    return usuario

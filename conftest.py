@@ -1,6 +1,8 @@
+import hashlib
 import os
 
 import pytest
+from django.utils import timezone
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -63,9 +65,37 @@ def midia_temporaria(settings, tmp_path):
 # acrescenta sua rota a esta lista (spec §10.1).
 ROTAS = [
     "/",
+    "/convite/rota-para-teste-de-acessibilidade/",
 ]
 
 
+@pytest.fixture
+def convite_das_rotas(db):
+    """A rota de convite da suíte precisa de um convite válido para responder 200.
+
+    NÃO é autouse: se fosse, o usuário que ela cria colidiria em CPF e e-mail com as
+    fixtures de apps/contas/tests/, e a suíte inteira quebraria por IntegrityError.
+    Só quem pede `rota` recebe esta semeadura.
+    """
+    from apps.contas.models import Convite, Usuario
+
+    coordenadora = Usuario.objects.create_user(
+        email="coord-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Coordenação",
+        cpf="39053344705",
+        is_coordenador=True,
+        is_staff=True,
+    )
+    Convite.objects.create(
+        email="convidado-fixture@ufsm.br",
+        papel=Usuario.ALUNO,
+        token_hash=hashlib.sha256(b"rota-para-teste-de-acessibilidade").hexdigest(),
+        criado_por=coordenadora,
+        expira_em=timezone.now() + timezone.timedelta(days=7),
+    )
+
+
 @pytest.fixture(params=ROTAS)
-def rota(request):
+def rota(request, convite_das_rotas):
     return request.param

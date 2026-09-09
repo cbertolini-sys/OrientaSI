@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Convite inválido{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Convite inválido</h1>
+    <p class="mt-4">{{ mensagem }}</p>
+    <p class="mt-2">Peça à coordenação do curso o reenvio do convite.</p>
+    <a href="{% url 'inicio' %}" class="btn btn-primary mt-6">Voltar ao início</a>
+  </article>
+{% endblock %}
