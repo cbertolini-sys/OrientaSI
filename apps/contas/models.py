@@ -13,7 +13,12 @@ class GerenciadorUsuario(BaseUserManager):
     def _criar(self, email, password, **extra):
         if not email:
             raise ValueError("O e-mail é obrigatório.")
-        usuario = self.model(email=self.normalize_email(email), **extra)
+        # E-mail é o identificador de login (USERNAME_FIELD): minusculizamos o
+        # endereço inteiro, não só o domínio como normalize_email faz sozinho,
+        # porque nenhum provedor real trata "Prof@" e "prof@" como contas
+        # diferentes — sem isto, duas grafias da mesma pessoa passariam pelo
+        # unique=True e criariam contas duplicadas.
+        usuario = self.model(email=self.normalize_email(email).lower(), **extra)
         usuario.set_password(password)
         usuario.save(using=self._db)
         return usuario
@@ -148,7 +153,10 @@ class PerfilProfessor(models.Model):
 class Convite(models.Model):
     PAPEIS_CONVIDAVEIS = [(Usuario.ALUNO, "Aluno"), (Usuario.PROFESSOR, "Professor")]
 
-    email = models.EmailField("e-mail")
+    # Índice porque o serviço filtra por e-mail a cada convite novo (checagem
+    # de conta e de convite ativo) — sem índice, essa consulta varre a tabela
+    # inteira a cada convidar().
+    email = models.EmailField("e-mail", db_index=True)
     papel = models.CharField("papel", max_length=10, choices=PAPEIS_CONVIDAVEIS)
     # Guardamos o hash, nunca o token em claro: se o banco vazar, os convites
     # pendentes não são utilizáveis (spec §5.5).

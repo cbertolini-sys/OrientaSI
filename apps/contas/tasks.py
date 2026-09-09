@@ -5,7 +5,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60, retry_backoff=True)
+@shared_task(bind=True, max_retries=3)
 def enviar_convite(self, convite_id, token):
     from apps.contas.models import Convite
 
@@ -27,4 +27,6 @@ def enviar_convite(self, convite_id, token):
             recipient_list=[convite.email],
         )
     except Exception as erro:  # noqa: BLE001 — repetimos qualquer falha de entrega
-        raise self.retry(exc=erro) from erro
+        # `retry_backoff` do decorator só vale para autoretry_for; com retry()
+        # manual, o backoff exponencial precisa vir explícito no countdown.
+        raise self.retry(exc=erro, countdown=60 * 2**self.request.retries) from erro
