@@ -12,6 +12,13 @@ from apps.contas.models import Convite, Usuario
 MSG_SOMENTE_COORDENACAO = "Somente a coordenação envia convites."
 MENSAGEM_CONVITE_INVALIDO = "Convite inválido, expirado ou já utilizado."
 
+# Teto de coordenadores do sistema (CLAUDE.md, "Regras de Negócio
+# Inegociáveis" item 2). Vive aqui, não em `Usuario`, porque é regra de
+# negócio, não invariante de dado — a constraint do model
+# (`coordenador_e_professor`, em `models.py`) cobre "todo coordenador é
+# professor"; a contagem máxima é comportamento de serviço.
+LIMITE_COORDENADORES = 4
+
 
 def _hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
@@ -168,3 +175,62 @@ def aceitar_convite(token, dados):
             "Não foi possível concluir o cadastro: um dos dados informados "
             "(CPF, matrícula ou SIAPE) já está em uso."
         ) from erro
+
+
+@transaction.atomic
+def promover_a_coordenador(usuario, por):
+    """Promove `usuario` a coordenador(a), sob o teto de `LIMITE_COORDENADORES`.
+
+    O `select_for_update` não é decoração: promover é um UPDATE de uma linha que
+    passa a integrar o próprio conjunto travado (`is_coordenador=True`), então duas
+    promoções simultâneas se serializam — a segunda só prossegue depois que a
+    primeira grava, e relê a contagem já atualizada. Sem o bloqueio, duas
+    requisições concorrentes poderiam ler "3 coordenadores" ao mesmo tempo e as
+    duas promoverem, ultrapassando o teto.
+    """
+    permissions.garante(permissions.pode_promover(por), "Somente a coordenação promove.")
+
+    if usuario.papel != Usuario.PROFESSOR:
+        raise ValidationError("Somente professores podem ser coordenadores.")
+    if usuario.is_coordenador:
+        raise ValidationError(f"{usuario.nome_completo} já é coordenador(a).")
+
+    atuais = list(Usuario.objects.select_for_update().filter(is_coordenador=True))
+    if len(atuais) >= LIMITE_COORDENADORES:
+        raise ValidationError(
+            f"O sistema admite no máximo {LIMITE_COORDENADORES} coordenadores. "
+            "Revogue a coordenação de alguém antes de nomear outra pessoa."
+        )
+
+    usuario.is_coordenador = True
+    usuario.is_staff = True
+    usuario.save(update_fields=["is_coordenador", "is_staff"])
+    return usuario
+
+
+@transaction.atomic
+def revogar_coordenacao(usuario, por):
+    """Revoga a coordenação de `usuario`, recusando deixar o sistema sem
+    nenhum coordenador.
+
+    Mesmo raciocínio de `select_for_update` que `promover_a_coordenador`: a
+    contagem de coordenadores travada evita que duas revogações simultâneas
+    (por exemplo, duas pessoas revogando coordenadores diferentes ao mesmo
+    tempo, quando restam só dois) derrubem o sistema a zero coordenadores.
+    """
+    permissions.garante(permissions.pode_promover(por), "Somente a coordenação revoga.")
+
+    if not usuario.is_coordenador:
+        raise ValidationError(f"{usuario.nome_completo} não é coordenador(a).")
+
+    atuais = list(Usuario.objects.select_for_update().filter(is_coordenador=True))
+    if len(atuais) <= 1:
+        raise ValidationError(
+            "Este é o último coordenador do sistema. Nomeie outro antes de revogar "
+            "esta coordenação."
+        )
+
+    usuario.is_coordenador = False
+    usuario.is_staff = False
+    usuario.save(update_fields=["is_coordenador", "is_staff"])
+    return usuario

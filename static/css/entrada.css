@@ -76,14 +76,19 @@
    DaisyUI (via --size-field/--size-selector acima) quanto qualquer campo ou
    link simples sem essas classes: input:not([type="hidden"]) inclui
    checkbox/radio nativos, texto, email etc.; textarea e select ficam
-   explícitos porque nem todo campo recebe a classe do DaisyUI. */
+   explícitos porque nem todo campo recebe a classe do DaisyUI. `summary`
+   entrou na T11: o painel da coordenação usa <details>/<summary> como
+   disclosure nativo (sem JS) para a confirmação de promover/revogar, e
+   `tests/test_toque.py`/`SELETOR_INTERATIVOS` (conftest.py) já mediam esse
+   elemento antes mesmo de existir uma tela que o usasse. */
 @layer base {
   button,
   [role="button"],
   a.btn,
   input:not([type="hidden"]),
   textarea,
-  select {
+  select,
+  summary {
     min-height: 2.75rem;
     min-width: 2.75rem;
   }

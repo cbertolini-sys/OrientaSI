@@ -3,7 +3,7 @@ from django.contrib.auth.forms import AuthenticationForm, PasswordResetForm, Set
 from django.contrib.auth.password_validation import validate_password
 
 from apps.comum.validators import valida_extensao_imagem, valida_tamanho_arquivo
-from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+from apps.contas.models import Area, Convite, PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import valida_cpf
 
 
@@ -265,3 +265,25 @@ class FormularioPerfilProfessor(FormularioPerfil):
         required=False,
         widget=forms.CheckboxSelectMultiple,
     )
+
+
+class FormularioConvite(MisturaAcessibilidadeFormulario, forms.Form):
+    """Formulário de convite do painel da coordenação (T11). `papel` reusa
+    `Convite.PAPEIS_CONVIDAVEIS` (só aluno/professor — SUGRAD nunca é
+    convidado, ver `services.convidar`) em vez de repetir a lista, para as
+    duas opções nunca divergirem. Herda `MisturaAcessibilidadeFormulario`
+    pelo mesmo motivo de `FormularioPerfil` (T10): mesma ligação de
+    aria-invalid/aria-describedby depois da validação, sem duplicar a
+    lógica."""
+
+    email = forms.EmailField(label="E-mail")
+    papel = forms.ChoiceField(label="Papel", choices=Convite.PAPEIS_CONVIDAVEIS)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # `aplica_estilo` (chamado por `MisturaAcessibilidadeFormulario.__init__`)
+        # não trata `Select` (só campos de texto e upload): o <select> do
+        # papel precisa da classe do DaisyUI 5 à parte. Sem sufixo
+        # "-bordered", igual a `.input`/`.file-input` — a v5 já nasce com
+        # borda visível.
+        self.fields["papel"].widget.attrs.setdefault("class", "select w-full")

@@ -34,7 +34,7 @@
   </a>
 
   <header class="bg-base-100 shadow-sm">
-    <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-3">
       <a href="{% url 'inicio' %}" class="flex items-center">
         {% comment %}
           orientasi-marca.png original tem 1408x768 (1,6MB); orientasi-marca-cabecalho.png
@@ -48,12 +48,33 @@
       {% comment %}
         T9 preenche o essencial (entrar/sair); as Tarefas 10-11 acrescentam os
         links de cada perfil (aluno, orientador, coordenador) a este bloco.
+        T11 acrescenta "Painel da coordenação", visível só para quem tem
+        `is_coordenador` — sem ele, a tela só seria alcançável digitando a
+        URL na barra de endereços, o mesmo problema que a T10 corrigiu para
+        "Meu perfil".
       {% endcomment %}
       <nav aria-label="Principal">
         {% block navegacao %}
-          <ul class="flex items-center gap-2">
+          {% comment %}
+            flex-wrap na `<ul>` e no contêiner do cabeçalho (acima): achado
+            desta tarefa (T11) ao acrescentar "Painel da coordenação" — com
+            quatro itens (nome + três ações) numa única linha sem quebra, o
+            cabeçalho ultrapassava 360px de largura e
+            tests/test_coordenacao_acessibilidade.py::
+            test_sem_rolagem_horizontal_em_360px reprovava. Sem flex-wrap,
+            qualquer papel com mais de dois botões no cabeçalho no futuro
+            reproduziria o mesmo estouro.
+          {% endcomment %}
+          <ul class="flex flex-wrap items-center gap-2">
             {% if user.is_authenticated %}
               <li><span class="px-2">{{ user.nome_completo }}</span></li>
+              {% if user.is_coordenador %}
+                <li>
+                  <a href="{% url 'contas:painel' %}" class="btn btn-ghost">
+                    Painel da coordenação
+                  </a>
+                </li>
+              {% endif %}
               <li><a href="{% url 'contas:perfil' %}" class="btn btn-ghost">Meu perfil</a></li>
               <li>
                 <form method="post" action="{% url 'logout' %}">

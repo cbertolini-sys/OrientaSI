@@ -1,0 +1,41 @@
+{% comment %}
+  Partial extraído de painel_coordenacao.html (T11): a tabela de convites
+  enviados, dentro de um contêiner com rolagem própria (overflow-x: auto).
+  Sem esse contêiner, a tabela força rolagem horizontal na página inteira a
+  360px, e tests/test_responsivo.py reprova — o projeto é mobile-first
+  (CLAUDE.md). Espera `convites` no contexto (lista de `Convite`).
+
+  `<th>` recebe `text-base-content` explícito pelo mesmo motivo de `.label`
+  em perfil.html/aceitar_convite.html/login.html (achado da T8, repetido
+  aqui pelo axe-core desta tarefa): o `.table` do DaisyUI 5 colore o
+  cabeçalho com `color-mix(... base-content 60% ...)`, o que mede 4.38:1 —
+  abaixo do mínimo de 4.5:1 do WCAG 2 AA. `text-base-content` é a cor de
+  texto padrão do tema, com contraste alto de propósito.
+{% endcomment %}
+<div class="mt-4 overflow-x-auto">
+  <table class="table">
+    <caption class="sr-only">Convites enviados, do mais recente ao mais antigo</caption>
+    <thead>
+      <tr>
+        <th scope="col" class="text-base-content">E-mail</th>
+        <th scope="col" class="text-base-content">Papel</th>
+        <th scope="col" class="text-base-content">Situação</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for convite in convites %}
+        <tr>
+          <td>{{ convite.email }}</td>
+          <td>{{ convite.get_papel_display }}</td>
+          <td>
+            {% if convite.usado_em %}Aceito
+            {% elif convite.esta_valido %}Pendente
+            {% else %}Expirado{% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="3">Nenhum convite enviado ainda.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

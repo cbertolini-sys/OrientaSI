@@ -2,16 +2,19 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.shortcuts import redirect, render
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 
-from apps.contas import services
+from apps.contas import permissions, services
 from apps.contas.forms import (
     FormularioAlunoConvidado,
+    FormularioConvite,
     FormularioPerfil,
     FormularioPerfilProfessor,
     FormularioProfessorConvidado,
 )
-from apps.contas.models import Usuario
+from apps.contas.models import Convite, Usuario
 
 
 def aceitar_convite(request, token):
@@ -85,3 +88,101 @@ def perfil(request):
         formulario = Formulario(initial=inicial)
 
     return render(request, "contas/perfil.html", {"formulario": formulario})
+
+
+@login_required
+def painel(request):
+    """Painel da coordenação: envio de convites e a interface das duas regras
+    inegociáveis do projeto (CLAUDE.md), promover e revogar — ver `promover`
+    e `revogar` abaixo. Toda regra de negócio (teto de coordenadores, trava
+    do último coordenador, validação de convite) vive em `services`; esta
+    view só orquestra formulário, chamada ao serviço e mensagem de
+    resultado.
+    """
+    permissions.garante(
+        permissions.pode_convidar(request.user), "Esta área é exclusiva da coordenação."
+    )
+
+    formulario = FormularioConvite(request.POST or None)
+    if request.method == "POST" and formulario.is_valid():
+        try:
+            services.convidar(
+                formulario.cleaned_data["email"],
+                formulario.cleaned_data["papel"],
+                por=request.user,
+            )
+        except ValidationError as erro:
+            formulario.add_error("email", erro.messages[0])
+        else:
+            messages.success(request, "Convite enviado.")
+            return redirect("contas:painel")
+
+    return render(
+        request,
+        "contas/painel_coordenacao.html",
+        {
+            "formulario": formulario,
+            "convites": Convite.objects.select_related("criado_por")[:50],
+            "coordenadores": Usuario.objects.filter(is_coordenador=True),
+            # `Usuario.Meta.ordering = ["nome_completo"]` já ordena; sem
+            # order_by explícito aqui de propósito, para não duplicar o que
+            # o model já garante.
+            "candidatos_promocao": Usuario.objects.filter(
+                papel=Usuario.PROFESSOR, is_coordenador=False
+            )[:50],
+            "limite": services.LIMITE_COORDENADORES,
+        },
+    )
+
+
+def _usuario_do_post(request):
+    """Converte `usuario_id` do POST num `Usuario`, ou levanta 404.
+
+    Guarda de tipo, não regra de negócio: `Usuario.pk` é inteiro, e um
+    `usuario_id` não numérico (formulário adulterado) faria
+    `get_object_or_404` propagar um `ValueError` cru (500) em vez de um 404
+    — o `get_object_or_404` do Django só converte `DoesNotExist` em
+    `Http404`, não `ValueError`.
+    """
+    usuario_id = request.POST.get("usuario_id", "")
+    if not usuario_id.isdigit():
+        raise Http404("Usuário inválido.")
+    return get_object_or_404(Usuario, pk=usuario_id)
+
+
+@login_required
+@require_POST
+def promover(request):
+    """Promove a coordenador(a) o usuário indicado pelo formulário de
+    confirmação do painel. `services.promover_a_coordenador` aplica o teto
+    de `LIMITE_COORDENADORES` coordenadores e a permissão (só coordenação
+    promove) — aqui só convertemos o resultado em mensagem visível na tela,
+    a "mensagem clara" que os critérios de aceitação exigem para a quinta
+    promoção recusada.
+    """
+    alvo = _usuario_do_post(request)
+    try:
+        services.promover_a_coordenador(alvo, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, f"{alvo.nome_completo} agora é coordenador(a).")
+    return redirect("contas:painel")
+
+
+@login_required
+@require_POST
+def revogar(request):
+    """Revoga a coordenação do usuário indicado pelo formulário de
+    confirmação do painel. `services.revogar_coordenacao` recusa deixar o
+    sistema sem nenhum coordenador — aqui só convertemos essa recusa em
+    mensagem visível, a "mensagem clara" que os critérios de aceitação
+    exigem para a revogação do último coordenador."""
+    alvo = _usuario_do_post(request)
+    try:
+        services.revogar_coordenacao(alvo, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, f"A coordenação de {alvo.nome_completo} foi revogada.")
+    return redirect("contas:painel")
