@@ -127,3 +127,43 @@ def test_aluno_nao_pode_ser_coordenador():
             cpf="52998224725",
             is_coordenador=True,
         )
+
+
+@pytest.mark.django_db
+def test_get_by_natural_key_com_duplicatas_legadas_retorna_grafia_exata():
+    """Testa o ramo defensivo de `get_by_natural_key`: quando duas linhas com
+    o mesmo e-mail em grafias diferentes existem (duplicata legada), a busca
+    `__iexact` levantaria `MultipleObjectsReturned`. A captura defensiva cai
+    para busca exata e autentica quem digitou a grafia exatamente como está
+    gravada (spec §9, defesa em profundidade contra duplicatas pré-existentes).
+
+    O sinal `normaliza_email_do_usuario` (apps/contas/signals.py) impede
+    que duplicatas sejam criadas pelo caminho normal (`save()`), mas não apaga
+    as que já existissem. Simulamos a duplicata legada aqui com `bulk_create`,
+    que contorna o sinal de propósito — reproduz exatamente o vetor pelo qual
+    uma duplicata poderia aparecer no banco real."""
+    # Cria duas linhas com o mesmo e-mail em grafias diferentes, contornando
+    # o sinal (bulk_create não dispara pre_save).
+    usuario1 = Usuario(
+        email="dup@ufsm.br",
+        nome_completo="Primeira",
+        cpf="52998224725",
+        is_active=True,
+    )
+    usuario1.set_password("senha123")
+
+    usuario2 = Usuario(
+        email="DUP@ufsm.br",
+        nome_completo="Segunda",
+        cpf="11144477735",
+        is_active=True,
+    )
+    usuario2.set_password("senha456")
+
+    Usuario.objects.bulk_create([usuario1, usuario2])
+
+    # Sem a defesa, isto levantaria MultipleObjectsReturned (500).
+    # Com a defesa, cai para busca exata e retorna a grafia digitada.
+    resultado = Usuario.objects.get_by_natural_key("DUP@ufsm.br")
+    assert resultado.email == "DUP@ufsm.br"
+    assert resultado.nome_completo == "Segunda"
