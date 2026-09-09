@@ -11,8 +11,19 @@
   cabeçalho com `color-mix(... base-content 60% ...)`, o que mede 4.38:1 —
   abaixo do mínimo de 4.5:1 do WCAG 2 AA. `text-base-content` é a cor de
   texto padrão do tema, com contraste alto de propósito.
+
+  `tabindex="0"` + `role="region"` + `aria-labelledby` no contêiner de
+  rolagem: achado da revisão 1 (WCAG 2.1.1, nível A —
+  scrollable-region-focusable do axe-core). Este `<div>` vira uma região
+  com scroll próprio a 360px (é para isso que existe: sem ele a página
+  inteira rolaria na horizontal), mas sem nenhum conteúdo focável dentro e
+  sem `tabindex`, quem navega só por teclado não consegue alcançá-lo para
+  rolar. `tabindex="0"` sozinho já satisfaz a regra do axe, mas sem nome
+  acessível a região vira uma parada de tabulação anônima — por isso
+  `role="region"` + `aria-labelledby="titulo-convites"`, apontando para o
+  `<h2>` que a section já tem em painel_coordenacao.html.
 {% endcomment %}
-<div class="mt-4 overflow-x-auto">
+<div class="mt-4 overflow-x-auto" tabindex="0" role="region" aria-labelledby="titulo-convites">
   <table class="table">
     <caption class="sr-only">Convites enviados, do mais recente ao mais antigo</caption>
     <thead>

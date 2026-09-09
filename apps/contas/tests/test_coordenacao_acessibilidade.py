@@ -100,41 +100,57 @@ def test_painel_responde_200_autenticado(pagina_autenticada, live_server):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_painel_nao_viola_wcag_com_confirmacoes_fechadas(pagina_autenticada, live_server):
+@pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
+def test_painel_nao_viola_wcag_com_confirmacoes_fechadas(pagina_autenticada, live_server, largura):
+    """Parametrizado por `LARGURAS_TESTADAS` desde a revisão 1: a 1280px a
+    tabela de convites cabe sem rolar, e uma violação como
+    scrollable-region-focusable (WCAG 2.1.1) só se manifesta quando o
+    contêiner `overflow-x: auto` realmente estoura, o que só acontece a
+    360px. Rodar só no viewport padrão do Playwright deixava esse achado
+    (corrigido em `_lista_convites.html`) invisível para esta suíte."""
+    pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
     pagina_autenticada.goto(f"{live_server.url}/painel/")
     _confirma_que_esta_no_painel(pagina_autenticada)
     resultados = Axe().run(pagina_autenticada, options=REGRAS_AXE)
     assert resultados.violations_count == 0, (
-        f"/painel/ viola {resultados.violations_count} regra(s) WCAG 2.1 A/AA "
+        f"/painel/ a {largura}px viola {resultados.violations_count} regra(s) WCAG 2.1 A/AA "
         f"(regra, seletor e trecho do HTML abaixo — corrija o template ou o CSS):\n"
         f"{resultados.generate_report()}"
     )
 
 
 @pytest.mark.django_db(transaction=True)
-def test_painel_nao_viola_wcag_com_confirmacao_de_revogar_aberta(pagina_autenticada, live_server):
+@pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
+def test_painel_nao_viola_wcag_com_confirmacao_de_revogar_aberta(
+    pagina_autenticada, live_server, largura
+):
     """A confirmação de revogar só existe no DOM revelado depois do clique no
     <summary> — uma varredura que só visse o estado fechado nunca chegaria a
     ver o texto de confirmação nem o botão "Confirmar revogação"."""
+    pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
     pagina_autenticada.goto(f"{live_server.url}/painel/")
     _confirma_que_esta_no_painel(pagina_autenticada)
     pagina_autenticada.click("summary:has-text('Revogar coordenação')")
     resultados = Axe().run(pagina_autenticada, options=REGRAS_AXE)
     assert resultados.violations_count == 0, (
-        f"/painel/ (confirmação de revogar aberta) viola "
+        f"/painel/ a {largura}px (confirmação de revogar aberta) viola "
         f"{resultados.violations_count} regra(s) WCAG 2.1 A/AA:\n"
         f"{resultados.generate_report()}"
     )
 
 
 @pytest.mark.django_db(transaction=True)
-def test_painel_nao_viola_wcag_com_confirmacao_de_promover_aberta(pagina_autenticada, live_server):
+@pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
+def test_painel_nao_viola_wcag_com_confirmacao_de_promover_aberta(
+    pagina_autenticada, live_server, largura
+):
+    pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
     pagina_autenticada.goto(f"{live_server.url}/painel/")
     _confirma_que_esta_no_painel(pagina_autenticada)
     pagina_autenticada.click("summary:has-text('Promover a coordenador')")
     resultados = Axe().run(pagina_autenticada, options=REGRAS_AXE)
     assert resultados.violations_count == 0, (
-        f"/painel/ (confirmação de promover aberta) viola "
+        f"/painel/ a {largura}px (confirmação de promover aberta) viola "
         f"{resultados.violations_count} regra(s) WCAG 2.1 A/AA:\n"
         f"{resultados.generate_report()}"
     )

@@ -181,12 +181,33 @@ def aceitar_convite(token, dados):
 def promover_a_coordenador(usuario, por):
     """Promove `usuario` a coordenador(a), sob o teto de `LIMITE_COORDENADORES`.
 
-    O `select_for_update` não é decoração: promover é um UPDATE de uma linha que
-    passa a integrar o próprio conjunto travado (`is_coordenador=True`), então duas
-    promoções simultâneas se serializam — a segunda só prossegue depois que a
-    primeira grava, e relê a contagem já atualizada. Sem o bloqueio, duas
-    requisições concorrentes poderiam ler "3 coordenadores" ao mesmo tempo e as
-    duas promoverem, ultrapassando o teto.
+    O `select_for_update` trava TODOS os professores (`papel=PROFESSOR`), não só
+    quem já é coordenador — e essa é a correção de um defeito real encontrado na
+    revisão 1 desta tarefa. Uma primeira versão travava só `is_coordenador=True`,
+    copiando um raciocínio do plano original que estava errado: "promover é um
+    UPDATE de uma linha que passa a integrar o próprio conjunto travado, então
+    duas promoções simultâneas se serializam". ISSO NÃO PREVINE A CORRIDA. Em READ
+    COMMITTED, o PostgreSQL decide quais linhas um `SELECT ... FOR UPDATE` vai
+    travar pelo snapshot do início do próprio comando — e a linha do alvo ainda
+    tem `is_coordenador=False` nesse instante, então ela NUNCA entra no conjunto
+    travado por essa condição. Duas promoções concorrentes de alvos diferentes
+    liam "3 coordenadores" cada uma (nenhuma travava a linha da outra, porque a
+    condição `is_coordenador=True` nunca incluía nenhum dos dois alvos) e as duas
+    promoviam, terminando em 5 — reproduzido contra o PostgreSQL do projeto antes
+    desta correção (saída registrada em tarefa-11-report.md, seção da revisão 1).
+
+    Travar por `papel=PROFESSOR` funciona porque esse predicado NÃO muda com a
+    promoção (só `is_coordenador` muda): a linha do alvo já pertence ao conjunto
+    travado desde o início do comando, para as duas transações concorrentes,
+    porque ambas travam TODOS os professores, não um subconjunto que a própria
+    promoção altera. Quando a primeira transação comita, a segunda — que estava
+    bloqueada tentando travar a MESMA linha do alvo da primeira, já que essa
+    linha também é `papel=PROFESSOR` e portanto também fazia parte do conjunto
+    que a segunda tentava travar — é liberada, e o PostgreSQL reavalia
+    (EvalPlanQual) essa linha especificamente, porque ela estava no conjunto
+    candidato da segunda transação E foi modificada nesse meio-tempo. A segunda
+    transação enxerga a versão já promovida e conta corretamente 4, recusando a
+    quinta promoção.
     """
     permissions.garante(permissions.pode_promover(por), "Somente a coordenação promove.")
 
@@ -195,8 +216,9 @@ def promover_a_coordenador(usuario, por):
     if usuario.is_coordenador:
         raise ValidationError(f"{usuario.nome_completo} já é coordenador(a).")
 
-    atuais = list(Usuario.objects.select_for_update().filter(is_coordenador=True))
-    if len(atuais) >= LIMITE_COORDENADORES:
+    professores = list(Usuario.objects.select_for_update().filter(papel=Usuario.PROFESSOR))
+    atuais = sum(1 for professor in professores if professor.is_coordenador)
+    if atuais >= LIMITE_COORDENADORES:
         raise ValidationError(
             f"O sistema admite no máximo {LIMITE_COORDENADORES} coordenadores. "
             "Revogue a coordenação de alguém antes de nomear outra pessoa."
@@ -213,10 +235,20 @@ def revogar_coordenacao(usuario, por):
     """Revoga a coordenação de `usuario`, recusando deixar o sistema sem
     nenhum coordenador.
 
-    Mesmo raciocínio de `select_for_update` que `promover_a_coordenador`: a
-    contagem de coordenadores travada evita que duas revogações simultâneas
-    (por exemplo, duas pessoas revogando coordenadores diferentes ao mesmo
-    tempo, quando restam só dois) derrubem o sistema a zero coordenadores.
+    Ao contrário de `promover_a_coordenador` (ver o porquê na docstring dela,
+    corrigida na revisão 1 desta tarefa), travar só `is_coordenador=True` AQUI é
+    suficiente e correto — as duas funções não seguem "o mesmo raciocínio", e
+    dizer isso foi o erro original. A diferença: o predicado `is_coordenador=True`
+    já inclui, desde o início do comando, TODO coordenador atual — inclusive o
+    alvo desta revogação (que só chega até aqui por já ser coordenador) e
+    qualquer coordenador que uma revogação concorrente esteja mirando. Quando a
+    primeira revogação comita (mudando `is_coordenador` de True para False), a
+    linha que ela modificou já estava no conjunto candidato da segunda
+    transação — o PostgreSQL reavalia essa linha (EvalPlanQual) ao desbloquear e
+    a REMOVE do resultado, porque ela deixou de satisfazer `is_coordenador=True`.
+    A segunda transação enxerga a contagem já reduzida e decide corretamente.
+    Reproduzido contra o PostgreSQL do projeto (revisão 1): sob a mesma
+    sobreposição real que furou `promover_a_coordenador`, esta trava se manteve.
     """
     permissions.garante(permissions.pode_promover(por), "Somente a coordenação revoga.")
 

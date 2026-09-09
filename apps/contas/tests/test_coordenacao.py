@@ -208,6 +208,36 @@ def test_painel_lista_coordenadores_e_candidatos_a_promocao(client):
     assert candidato.nome_completo in html
 
 
+@pytest.mark.django_db
+def test_painel_nao_lista_professor_inativo_como_candidato(client):
+    """Achado da revisão 1: sem filtrar `is_active`, um professor desativado
+    apareceria como promovível — uma linha que fecha antes de a lacuna
+    existir de verdade (hoje não há tela de desativação, mas o campo já
+    existe no model)."""
+    coordenadora = cria_professor(0, coordenador=True)
+    inativo = cria_professor(1)
+    inativo.is_active = False
+    inativo.save(update_fields=["is_active"])
+    client.force_login(coordenadora)
+
+    html = client.get(reverse("contas:painel")).content.decode()
+
+    assert inativo.nome_completo not in html
+
+
+@pytest.mark.django_db
+def test_painel_nao_lista_coordenador_inativo(client):
+    coordenadora = cria_professor(0, coordenador=True)
+    outra = cria_professor(1, coordenador=True)
+    outra.is_active = False
+    outra.save(update_fields=["is_active"])
+    client.force_login(coordenadora)
+
+    html = client.get(reverse("contas:painel")).content.decode()
+
+    assert outra.nome_completo not in html
+
+
 # --- Interface de promover, no painel (lacuna do brief) ---------------------
 
 
@@ -265,6 +295,19 @@ def test_promover_via_painel_usuario_inexistente_da_404(client):
     assert client.post(reverse("contas:promover"), {"usuario_id": 999999}).status_code == 404
 
 
+@pytest.mark.django_db
+def test_promover_via_painel_recusa_antes_de_buscar_alvo_inexistente(client):
+    """Regressão da revisão 1: a permissão precisa ser conferida ANTES do
+    lookup do `usuario_id`. Sem essa ordem, um `usuario_id` inexistente
+    responderia 404 mesmo para quem não tem permissão nenhuma — e um
+    professor comum poderia enumerar contas comparando 403 (id existe) com
+    404 (id não existe). Aqui, um id que nem existe deve dar 403 do mesmo
+    jeito, porque a permissão é checada primeiro."""
+    comum = cria_professor(0)
+    client.force_login(comum)
+    assert client.post(reverse("contas:promover"), {"usuario_id": 999999}).status_code == 403
+
+
 # --- Interface de revogar, no painel (lacuna do brief) ----------------------
 
 
@@ -312,3 +355,13 @@ def test_revogar_via_painel_exige_post(client):
     coordenadora = cria_professor(0, coordenador=True)
     client.force_login(coordenadora)
     assert client.get(reverse("contas:revogar")).status_code == 405
+
+
+@pytest.mark.django_db
+def test_revogar_via_painel_recusa_antes_de_buscar_alvo_inexistente(client):
+    """Mesma regressão de `test_promover_via_painel_recusa_antes_de_buscar_alvo_inexistente`,
+    para `revogar`: permissão checada antes do lookup, então um id
+    inexistente também dá 403 para quem não tem permissão — nunca 404."""
+    comum = cria_professor(0)
+    client.force_login(comum)
+    assert client.post(reverse("contas:revogar"), {"usuario_id": 999999}).status_code == 403

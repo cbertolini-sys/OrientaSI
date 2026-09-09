@@ -123,12 +123,14 @@ def painel(request):
         {
             "formulario": formulario,
             "convites": Convite.objects.select_related("criado_por")[:50],
-            "coordenadores": Usuario.objects.filter(is_coordenador=True),
+            "coordenadores": Usuario.objects.filter(is_coordenador=True, is_active=True),
             # `Usuario.Meta.ordering = ["nome_completo"]` já ordena; sem
             # order_by explícito aqui de propósito, para não duplicar o que
-            # o model já garante.
+            # o model já garante. `is_active=True` (achado da revisão 1):
+            # sem ele, um professor desativado apareceria como promovível
+            # (ou, na lista de cima, como coordenador ainda ativo).
             "candidatos_promocao": Usuario.objects.filter(
-                papel=Usuario.PROFESSOR, is_coordenador=False
+                papel=Usuario.PROFESSOR, is_coordenador=False, is_active=True
             )[:50],
             "limite": services.LIMITE_COORDENADORES,
         },
@@ -155,11 +157,21 @@ def _usuario_do_post(request):
 def promover(request):
     """Promove a coordenador(a) o usuário indicado pelo formulário de
     confirmação do painel. `services.promover_a_coordenador` aplica o teto
-    de `LIMITE_COORDENADORES` coordenadores e a permissão (só coordenação
-    promove) — aqui só convertemos o resultado em mensagem visível na tela,
-    a "mensagem clara" que os critérios de aceitação exigem para a quinta
-    promoção recusada.
+    de `LIMITE_COORDENADORES` coordenadores — aqui só convertemos o
+    resultado em mensagem visível na tela, a "mensagem clara" que os
+    critérios de aceitação exigem para a quinta promoção recusada.
+
+    A permissão é conferida AQUI, antes de `_usuario_do_post` buscar o alvo
+    — não só dentro do serviço (achado da revisão 1). Buscar o alvo antes
+    de checar quem está pedindo deixaria um professor comum distinguir um
+    `usuario_id` existente (403, depois da checagem do serviço) de um
+    inexistente (404, do próprio lookup): a ordem das duas respostas
+    permitiria enumerar contas por tentativa. Isto é portão de acesso, não
+    regra de negócio vazando para a view — o mesmo papel que `painel` já
+    cumpre para a página inteira; o teto e a trava continuam só no
+    serviço.
     """
+    permissions.garante(permissions.pode_promover(request.user), "Somente a coordenação promove.")
     alvo = _usuario_do_post(request)
     try:
         services.promover_a_coordenador(alvo, por=request.user)
@@ -177,7 +189,12 @@ def revogar(request):
     confirmação do painel. `services.revogar_coordenacao` recusa deixar o
     sistema sem nenhum coordenador — aqui só convertemos essa recusa em
     mensagem visível, a "mensagem clara" que os critérios de aceitação
-    exigem para a revogação do último coordenador."""
+    exigem para a revogação do último coordenador.
+
+    Mesmo motivo de `promover` para checar a permissão antes do lookup do
+    alvo: sem isso, a ordem 404/403 permitiria enumerar contas.
+    """
+    permissions.garante(permissions.pode_promover(request.user), "Somente a coordenação revoga.")
     alvo = _usuario_do_post(request)
     try:
         services.revogar_coordenacao(alvo, por=request.user)

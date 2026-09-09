@@ -1,19 +1,31 @@
 """Suíte que roda axe-core (WCAG 2.1 A/AA) contra cada rota da lista `ROTAS`
 do conftest.py. Se uma página regredir aqui, o defeito está no template ou no
-CSS — nunca afrouxe as regras ou a asserção para fazer o teste passar."""
+CSS — nunca afrouxe as regras ou a asserção para fazer o teste passar.
+
+`test_pagina_nao_viola_wcag` é parametrizado também por `LARGURAS_TESTADAS`
+(achado da revisão 1 da Tarefa 11): antes, o axe só rodava no viewport
+padrão do Playwright (~1280px), enquanto `test_toque.py`/`test_responsivo.py`
+já fixavam 360px — a régua mobile-first do CLAUDE.md (rolagem horizontal,
+alvo de toque) tinha essas duas cobertas a 360px, mas nenhuma varredura de
+WCAG cobria esse viewport em NENHUMA página do projeto. Uma violação que só
+existe quando um elemento overflow-x:auto realmente estoura (como
+scrollable-region-focusable, WCAG 2.1.1) nunca aparecia, porque a 1280px o
+conteúdo cabe e o elemento nem chega a rolar de verdade."""
 
 import pytest
 from axe_playwright_python.sync_playwright import Axe
 
-from conftest import REGRAS_AXE
+from conftest import LARGURAS_TESTADAS, REGRAS_AXE
 
 
 @pytest.mark.django_db(transaction=True)
-def test_pagina_nao_viola_wcag(page, live_server, rota):
+@pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
+def test_pagina_nao_viola_wcag(page, live_server, rota, largura):
+    page.set_viewport_size({"width": largura, "height": 800})
     page.goto(f"{live_server.url}{rota}")
     resultados = Axe().run(page, options=REGRAS_AXE)
     assert resultados.violations_count == 0, (
-        f"{rota} viola {resultados.violations_count} regra(s) WCAG 2.1 A/AA "
+        f"{rota} a {largura}px viola {resultados.violations_count} regra(s) WCAG 2.1 A/AA "
         f"(regra, seletor e trecho do HTML abaixo — corrija o template ou o CSS):\n"
         f"{resultados.generate_report()}"
     )
