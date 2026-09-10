@@ -307,6 +307,24 @@ professor.
 corpo do e-mail, como o Django faz na recuperação de senha. Se o banco vazar, os
 convites pendentes não são utilizáveis.
 
+**Risco assumido, não omissão: o token em claro passa pelo broker.**
+`services.convidar` enfileira `enviar_convite(convite_id, token)`, então o token
+viaja como argumento da mensagem Celery e fica no Redis até o `ack` — republicado
+a cada tentativa, já que `CELERY_TASK_ACKS_LATE` está ligado e a tarefa repete em
+recuo exponencial. A justificativa original parava aqui; a revisão final
+acrescentou o que faltava: **o token também entra no traceback quando
+`enviar_convite` levanta**, porque os argumentos da tarefa aparecem no registro de
+falha do Celery — e tracebacks vão para o log do worker, que costuma ser retido
+por mais tempo e lido por mais gente do que o próprio broker.
+
+Aceito para a Fase 1 porque o Redis é interno à stack, o token vale 7 dias, é de
+uso único e dá acesso apenas ao cadastro de uma conta nova com um e-mail que o
+próprio convite já fixa. **A saída, se um dia incomodar:** passar só o
+`convite_id` na mensagem e guardar o token cifrado (não o hash — o e-mail precisa
+do texto) numa coluna própria, decifrando dentro da tarefa. O custo é uma chave de
+cifra para gerenciar; o ganho é que nem o broker nem o log do worker chegam a ver
+o token.
+
 ### 5.6 `ProfessorExterno` — adiado para o Bloco D
 
 O `inicio.pdf` coloca `ExternalTeacherProfile` na app de contas, mas nada na Fase 1
@@ -540,7 +558,7 @@ controles, alvos de toque de no mínimo 44×44 px e layout responsivo a partir d
 tests/test_acessibilidade.py   axe-core por página; tags wcag2a, wcag2aa, wcag21aa
 tests/test_toque.py            todo elemento interativo mede ao menos 44×44 px
 tests/test_responsivo.py       a 360px, nenhuma página rola na horizontal
-tests/test_teclado.py          1º Tab alcança "pular para o conteúdo"; Esc fecha modal
+tests/test_teclado.py          1º Tab alcança "pular para o conteúdo", em toda rota
 tests/test_arquitetura.py      views não importam models direto; models não importam services
 tests/test_producao.py         com AMBIENTE=producao: DEBUG falso, SECRET_KEY exigida,
                                `manage.py check --deploy` sem avisos
@@ -561,12 +579,60 @@ regra, seletor e trecho do HTML.
 Rotas cobertas na Fase 1: login, recuperação de senha, aceitar convite, painel do
 coordenador, perfil do professor e perfil do aluno.
 
+**Sobre "Esc fecha modal", que esta seção prometia (corrigido na revisão final):
+a Fase 1 não tem modal nenhum.** A única interação de mostrar/esconder do bloco é
+a confirmação de promover/revogar do painel da coordenação, e ela usa
+`<details>`/`<summary>` — um *disclosure* nativo do HTML, sem JavaScript, em que
+`Esc` **não** fecha por design (fecha-se clicando ou teclando Enter/Espaço no
+próprio `<summary>`, que é o que o texto de confirmação instrui). Escrever um
+teste de `Esc` aqui seria afirmar um comportamento que o HTML não tem.
+
+O primeiro modal de verdade chega com o **Bloco D** (bancas: convite a professor
+externo e agendamento). É lá que entram, juntos, o `Esc` para fechar, a
+armadilha de foco enquanto aberto e a devolução do foco ao gatilho — e é lá que
+`tests/test_teclado.py` ganha essa segunda asserção.
+
 ### 10.2 Testes de `contas`
 
 Além da suíte transversal, `apps/contas/tests/` cobre cada serviço de §6, com
 atenção aos casos que definem as regras inegociáveis: promoção que atinge o teto de
 4, revogação do último coordenador, convite expirado, convite reutilizado, tentativa
 de criar uma segunda conta SUGRAD e tentativa de tornar um aluno coordenador.
+
+### 10.3 Pré-requisitos do Bloco B
+
+Dívida registrada na revisão final da Fase 1. Não são melhorias opcionais: são as
+duas duplicações que já **causaram** defeito neste bloco, e que o Bloco B
+multiplicaria por mais uma tela cada.
+
+**(a) Extrair `templates/contas/_campo.html`.** O bloco que renderiza um campo
+(`<label>` com marcação de obrigatório, o widget, o texto de ajuda com
+`id="ajuda-…"` e o bloco de erro com `id="erro-…"` e `role="alert"`) está copiado
+**seis vezes** — `aceitar_convite.html`, `perfil.html`, `painel_coordenacao.html`,
+`registration/login.html`, `registration/password_reset_form.html` e
+`registration/password_reset_confirm.html`. Foi a causa raiz do defeito do resumo
+de erros: a correção de `{% if form.non_field_errors %}` para `{% if form.errors %}`
+foi feita em duas cópias na Tarefa 10 e **nunca voltou** para as três telas da
+Tarefa 9 — o resumo de erros e a movimentação de foco simplesmente não existiam
+nas telas de recuperação de senha, e nenhuma suíte fazia POST nelas. Com o partial,
+a correção teria sido de uma linha em um arquivo.
+
+**(b) Generalizar `ROTAS` para rotas autenticadas.** `conftest.py` declara a lista
+única de rotas que alimenta as quatro suítes transversais, mas todas elas navegam
+anônimas — uma rota atrás de `login_required` mediria a tela de login. Por isso a
+suíte de acessibilidade já foi **bifurcada duas vezes**
+(`apps/contas/tests/test_perfil_acessibilidade.py` na Tarefa 10 e
+`test_coordenacao_acessibilidade.py` na Tarefa 11), e as três cópias já divergiram
+em três direções: a varredura do axe por largura chegou ao painel na revisão da
+T11, às rotas anônimas antes disso, e só à tela de perfil na revisão final. O
+Bloco B, com o mural de temas, faria a quarta cópia.
+
+O mecanismo que falta é pequeno: uma entrada de `ROTAS` capaz de carregar uma
+**fábrica de usuário opcional** — a rota mais a função que cria e autentica quem a
+visita (a fixture `autentica_no_navegador`, já em `conftest.py`, faz a parte do
+navegador). Com isso, acrescentar uma tela autenticada volta a ser uma linha na
+lista, e a âncora de identidade (confirmar URL final e `<h1>`, para a suíte não
+passar verde medindo a tela de login) passa a valer para todas de uma vez.
 
 ---
 
