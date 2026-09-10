@@ -40,6 +40,13 @@ COPY --from=css /build/static/css/orientasi.css /app/static/css/orientasi.css
 # WhiteNoise quebra tentando resolve-lo como se fosse um recurso. --ignore
 # resolve na causa (o collectstatic nunca tenta coletar o arquivo), em vez de
 # depender de removê-lo manualmente antes de cada invocação futura.
+# As variáveis abaixo são valores de fachada, válidos só durante o build: o
+# bloco de produção do config/settings.py impõe (via `obrigatorio()`) todas as
+# variáveis cuja ausência produziria comportamento errado em silêncio, e o
+# collectstatic carrega esse mesmo settings. Nenhuma delas é usada para
+# escrever nada — o collectstatic só lê templates e estáticos.
 RUN AMBIENTE=producao SECRET_KEY=apenas-para-o-build ALLOWED_HOSTS=build \
+    URL_BASE=http://build EMAIL_BACKEND=django.core.mail.backends.locmem.EmailBackend \
+    EMAIL_HOST=build S3_ACCESS_KEY=build S3_SECRET_KEY=build \
     python manage.py collectstatic --noinput --ignore=entrada.css
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]

@@ -73,7 +73,15 @@ LOGIN_URL = "/contas/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        # Sem esta opção o validador compara a senha com os atributos padrão
+        # do Django (`username`, `first_name`, `last_name`, `email`) — e o
+        # `Usuario` deste projeto não tem `username` nem nome dividido em
+        # dois campos: o nome vive em `nome_completo`, que ficava de fora.
+        # "Ana Silva" podia escolher "anasilva1" sem o validador reclamar.
+        "OPTIONS": {"user_attributes": ("email", "nome_completo")},
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -121,46 +129,101 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "nao-responda@orientas
 URL_BASE = os.environ.get("URL_BASE", "http://localhost:8000")
 CONVITE_VALIDADE_DIAS = 7
 
+S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "")
+S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
+
+
+def _armazenamento_s3():
+    """Configuração do backend S3 (MinIO em dev, S3 de verdade em produção).
+
+    É função, e não um dicionário no nível do módulo, porque `S3_ACCESS_KEY` e
+    `S3_SECRET_KEY` são reatribuídos por `obrigatorio()` dentro do bloco de
+    produção logo abaixo: um dicionário montado antes do bloco congelaria os
+    valores lidos do ambiente sem a imposição.
+    """
+    return {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "bucket_name": os.environ.get("S3_BUCKET", "orientasi"),
+            # `endpoint_url` é OPCIONAL, e é por isso que ele não decide mais
+            # qual backend usar (ver `STORAGES` abaixo): o MinIO precisa de um
+            # endpoint próprio, mas a AWS S3 real não usa nenhum — o boto3
+            # resolve o endpoint pela região. `None` é exatamente o que o
+            # django-storages espera para "use o endpoint padrão da AWS".
+            "endpoint_url": os.environ.get("S3_ENDPOINT") or None,
+            "access_key": S3_ACCESS_KEY,
+            "secret_key": S3_SECRET_KEY,
+            "default_acl": None,
+            "querystring_auth": True,
+            "file_overwrite": False,
+        },
+    }
+
+
 # MinIO fala o protocolo S3: dev e produção usam o mesmo backend, mudando apenas
 # o endpoint e as credenciais (spec §3.7).
-_ARMAZENAMENTO_S3 = {
-    "BACKEND": "storages.backends.s3.S3Storage",
-    "OPTIONS": {
-        "bucket_name": os.environ.get("S3_BUCKET", "orientasi"),
-        "endpoint_url": os.environ.get("S3_ENDPOINT") or None,
-        "access_key": os.environ.get("S3_ACCESS_KEY", ""),
-        "secret_key": os.environ.get("S3_SECRET_KEY", ""),
-        "default_acl": None,
-        "querystring_auth": True,
-        "file_overwrite": False,
-    },
-}
 _ARMAZENAMENTO_LOCAL = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
-
-_padrao = _ARMAZENAMENTO_S3 if os.environ.get("S3_ENDPOINT") else _ARMAZENAMENTO_LOCAL
 
 if AMBIENTE == "producao":
     DEBUG = False
     SECRET_KEY = obrigatorio("SECRET_KEY")
     ALLOWED_HOSTS = obrigatorio("ALLOWED_HOSTS").split(",")
+    # A spec §3.7 justifica o arquivo único de settings com "impor os valores
+    # em vez de lê-los". Estas cinco variáveis entraram na imposição porque a
+    # ausência de cada uma produz comportamento errado EM SILÊNCIO, nunca um
+    # erro: sem `URL_BASE`, todo convite sai com link para
+    # `http://localhost:8000` e ninguém consegue se cadastrar; sem
+    # `EMAIL_BACKEND`, o padrão é o backend de console e os convites vão para
+    # o log do Gunicorn; sem as credenciais do S3, todo upload falha na
+    # autenticação com o bucket.
+    URL_BASE = obrigatorio("URL_BASE")
+    EMAIL_BACKEND = obrigatorio("EMAIL_BACKEND")
+    EMAIL_HOST = obrigatorio("EMAIL_HOST")
+    S3_ACCESS_KEY = obrigatorio("S3_ACCESS_KEY")
+    S3_SECRET_KEY = obrigatorio("S3_SECRET_KEY")
     SECURE_SSL_REDIRECT = True
+    # O Gunicorn roda atrás de um proxy (o cenário de uma universidade), que
+    # termina o TLS e repassa a requisição em HTTP puro. Sem este cabeçalho,
+    # `request.is_secure()` é sempre False: o `SECURE_SSL_REDIRECT` acima
+    # redireciona para HTTPS uma requisição que o proxy já entregou por
+    # HTTPS, em laço infinito, e o `{{ protocol }}` do
+    # templates/registration/password_reset_email.html (derivado do mesmo
+    # `is_secure()`) monta o link de recuperação com `http://`.
+    #
+    # ATENÇÃO, é uma configuração de confiança: o proxy DEVE ser configurado
+    # para SOBRESCREVER o `X-Forwarded-Proto` de toda requisição que recebe.
+    # Servir o Gunicorn diretamente na internet com esta linha ligada é
+    # inseguro — qualquer cliente pode mandar o cabeçalho e fazer o Django
+    # tratar uma conexão em texto claro como segura (cookies de sessão
+    # marcados `Secure` viajariam por HTTP).
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31_536_000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+    # Produção SEMPRE grava mídia no S3, e quem decide isso é o `AMBIENTE`, não
+    # a presença de `S3_ENDPOINT` (achado da revisão final). A variável de
+    # endpoint existe por causa do MinIO; um deploy correto contra a AWS S3
+    # não a define, e a seleção antiga caía em silêncio no
+    # `FileSystemStorage` — fotos, PDFs e `.docx` gravados no disco efêmero
+    # do container e perdidos no primeiro restart, sem erro nenhum.
+    #
     # O manifesto exige collectstatic; por isso ele só existe em produção,
     # onde o Dockerfile o executa durante o build.
     STORAGES = {
-        "default": _padrao,
+        "default": _armazenamento_s3(),
         "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
     }
 else:
     DEBUG = True
     SECRET_KEY = os.environ.get("SECRET_KEY", "chave-de-desenvolvimento-nao-use-em-producao")
     ALLOWED_HOSTS = ["*"]
+    # Só em dev o fallback local existe, e só para quem roda sem o MinIO da
+    # stack (o `.env.example` define `S3_ENDPOINT`, então o ambiente padrão do
+    # projeto usa o MinIO).
     STORAGES = {
-        "default": _padrao,
+        "default": (_armazenamento_s3() if os.environ.get("S3_ENDPOINT") else _ARMAZENAMENTO_LOCAL),
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }

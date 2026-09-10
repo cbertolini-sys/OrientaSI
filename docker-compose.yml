@@ -24,10 +24,25 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    # `config/saude.py` existe para ser consumido daqui: o endpoint abre uma
+    # conexão com o banco antes de responder, então "saudável" significa
+    # "Django de pé E PostgreSQL respondendo", não só "processo vivo". O curl
+    # já vem instalado no estágio `base` do Dockerfile exatamente para isto.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/saude/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      # O `minio` entra no `depends_on` (spec §8.1) porque a mídia do projeto
+      # (fotos, PDFs, `.docx`) é gravada nele: sem esta condição, o primeiro
+      # upload numa máquina limpa pode bater num MinIO ainda subindo.
+      minio:
         condition: service_healthy
 
   redis:
@@ -51,6 +66,10 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      # Mesmo motivo do serviço `web`: as tarefas do worker (hoje o e-mail de
+      # convite; no Bloco E, a geração de atas em PDF) gravam no bucket.
+      minio:
         condition: service_healthy
 
   minio:

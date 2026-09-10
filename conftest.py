@@ -1,10 +1,60 @@
 import hashlib
+import importlib
 import os
+from types import SimpleNamespace
 
 import pytest
 from django.conf import settings
 from django.test import Client
 from django.utils import timezone
+
+
+def carrega_settings(**ambiente):
+    """Recarrega config.settings sob um ambiente diferente e devolve uma cópia.
+
+    A cópia é necessária porque o bloco `finally` restaura o ambiente original
+    e recarrega o mesmo módulo de novo (para não vazar estado para outros
+    testes): se devolvêssemos o módulo em si, esse segundo reload sobrescreveria
+    os valores antes mesmo de o chamador conseguir inspecioná-los.
+
+    Vive no conftest desde a onda final: `tests/test_producao.py` e
+    `tests/test_armazenamento.py` precisam do mesmo mecanismo (o segundo
+    passou a exercitar o ramo de fallback do armazenamento), e uma segunda
+    cópia da função divergiria como as três cópias de suíte de acessibilidade
+    já divergiram.
+    """
+    anterior = dict(os.environ)
+    os.environ.update(ambiente)
+    try:
+        import config.settings
+
+        importlib.reload(config.settings)
+        return SimpleNamespace(**vars(config.settings))
+    finally:
+        os.environ.clear()
+        os.environ.update(anterior)
+        import config.settings
+
+        importlib.reload(config.settings)
+
+
+# Ambiente mínimo que o bloco de produção do config/settings.py aceita: todas
+# as variáveis que ele impõe via `obrigatorio()`. Qualquer teste que carregue
+# os settings com AMBIENTE=producao parte daqui e sobrescreve o que lhe
+# interessa — assim, acrescentar uma variável imposta atualiza todos os
+# testes de produção de uma vez, em vez de quebrá-los um a um.
+AMBIENTE_PRODUCAO = {
+    "AMBIENTE": "producao",
+    # Chave longa de propósito: `manage.py check --deploy` (W009) reprova
+    # SECRET_KEY com menos de 50 caracteres ou pouca entropia.
+    "SECRET_KEY": "chave-de-producao-fake-para-teste-com-mais-de-cinquenta-caracteres",
+    "ALLOWED_HOSTS": "orientasi.ufsm.br",
+    "URL_BASE": "https://orientasi.ufsm.br",
+    "EMAIL_BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+    "EMAIL_HOST": "smtp.ufsm.br",
+    "S3_ACCESS_KEY": "chave-de-acesso",
+    "S3_SECRET_KEY": "chave-secreta",
+}
 
 
 def pytest_collection_modifyitems(session, config, items):
