@@ -44,9 +44,14 @@
     <legend class="font-medium text-base-content">{{ campo.label }}</legend>
     {{ campo }}
     {% if campo.help_text %}
-      <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
+      {% comment %}
+        `<div>`, não `<p>`: mesmo motivo do ramo do campo simples logo
+        abaixo (ver o comentário lá) — `help_text` pode conter uma `<ul>`
+        (é o caso de `new_password1`), e `<ul>` fecha um `<p>` sozinho.
+      {% endcomment %}
+      <div id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
         {{ campo.help_text }}
-      </p>
+      </div>
     {% endif %}
     {% if campo.errors %}
       <div id="erro-{{ campo.name }}">
@@ -74,9 +79,21 @@
     </label>
     {{ campo }}
     {% if campo.help_text %}
-      <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
+      {% comment %}
+        `<div>`, não `<p>` (achado de revisão, herdado da T9 da Fase 1):
+        `password_validators_help_text_html()` (o help_text de
+        `new_password1` em FormularioDefinirNovaSenha) devolve HTML seguro
+        contendo uma `<ul>` com a lista de validadores de senha. `<ul>` não é
+        conteúdo permitido dentro de `<p>` — o parser do navegador fecha o
+        `<p>` sozinho ao encontrar a `<ul>`, e a lista sai como elemento
+        irmão, sem o id "ajuda-{{ campo.name }}" que o aria-describedby do
+        campo aponta. Quem usa leitor de tela deixa de ouvir os requisitos de
+        senha. `<div>` aceita `<ul>` como filho sem quebrar, e serve os dois
+        casos (texto simples ou lista) sem diferenciar por tipo de campo.
+      {% endcomment %}
+      <div id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
         {{ campo.help_text }}
-      </p>
+      </div>
     {% endif %}
     {% if campo.errors %}
       <div id="erro-{{ campo.name }}">

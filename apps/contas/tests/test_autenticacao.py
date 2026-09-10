@@ -202,6 +202,48 @@ def test_post_invalido_na_definicao_de_nova_senha_mostra_resumo_de_erros(client,
     assert 'id="erro-new_password2"' in html
 
 
+@pytest.mark.django_db(transaction=True)
+def test_ajuda_de_nova_senha_nao_fica_dentro_de_p_quando_e_html(
+    client, page, live_server, professora
+):
+    """password_reset_confirm.html não entra em nenhuma suíte de rotas
+    autenticadas (o dataclass `Rota` de conftest.py não suporta caminho
+    dinâmico com uid/token — pendência registrada, não remendada aqui), então
+    nenhuma suíte de acessibilidade jamais renderiza esta tela. O `help_text`
+    de `new_password1` (`password_validators_help_text_html()`) é HTML de
+    verdade, com uma `<ul>` de requisitos — e `<ul>` não é conteúdo válido
+    dentro de `<p>`: o parser HTML de um navegador fecha o `<p>` sozinho ao
+    encontrar a `<ul>`, e a lista sai como elemento IRMÃO do bloco que o
+    aria-describedby do campo aponta, não dentro dele (achado de revisão da
+    T2 do Bloco B; `templates/contas/_campo.html` usa `<div>` por causa
+    disso). Uma checagem de string no HTML servido pelo Django não pegaria
+    essa reinterpretação — o servidor manda a `<ul>` aninhada dentro do
+    `<p>` no texto puro, só um parser de verdade (o do navegador, aqui via
+    Playwright) separa os dois. Por isso este teste navega de verdade, em
+    vez de inspecionar `resposta.content`."""
+    url_definicao = _link_de_recuperacao(client)
+
+    # Transplanta a sessão do Client (onde password_reset_confirm guardou o
+    # token) para o navegador real — mesmo mecanismo de
+    # `autentica_no_navegador` em conftest.py.
+    cookie = client.cookies[settings.SESSION_COOKIE_NAME]
+    page.context.add_cookies(
+        [{"name": settings.SESSION_COOKIE_NAME, "value": cookie.value, "url": live_server.url}]
+    )
+    page.goto(f"{live_server.url}{url_definicao}")
+
+    ajuda = page.locator("#ajuda-new_password1")
+    assert ajuda.evaluate("el => el.tagName") == "DIV", (
+        "O contêiner do texto de ajuda de new_password1 precisa ser <div>: "
+        "<p> fecha sozinho ao encontrar a <ul> de requisitos de senha, e a "
+        "lista sai de dentro do que o aria-describedby aponta."
+    )
+    assert ajuda.locator("ul").count() == 1, (
+        "A <ul> de requisitos de senha devia estar DENTRO do contêiner de "
+        "ajuda — se não está, o parser HTML a expulsou para fora."
+    )
+
+
 @pytest.mark.django_db
 def test_post_vazio_no_login_mostra_resumo_de_erros(client):
     """`login.html` escapava por acaso — credencial inválida É erro não ligado
