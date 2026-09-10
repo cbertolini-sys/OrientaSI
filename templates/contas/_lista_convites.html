@@ -42,6 +42,35 @@
             {% if convite.usado_em %}Aceito
             {% elif convite.esta_valido %}Pendente
             {% else %}Expirado{% endif %}
+            {% comment %}
+              Reenvio (achado da revisão final): `services.reenviar_convite`
+              existia desde a T7, com testes, e não tinha porta nenhuma —
+              nem URL, nem view, nem botão. Sem ele, um convite gravado cujo
+              e-mail não saiu (broker fora do ar no `transaction.on_commit`
+              de `convidar`) virava beco sem saída: convidar de novo o mesmo
+              e-mail responde "Já existe um convite ativo... Reenvie-o, se
+              preciso", e não havia onde reenviar. A única saída era esperar
+              os sete dias de validade.
+
+              Só para convite NÃO aceito: `reenviar_convite` recusa um
+              convite já utilizado, e oferecer o botão ali seria oferecer
+              uma ação que só produz mensagem de erro. Convite expirado
+              continua reenviável — é justamente o caso em que a pessoa
+              perdeu o prazo e precisa de outro link.
+
+              POST com CSRF, como promover/revogar; o aria-label começa com
+              o texto visível do botão (WCAG 2.5.3, Label in Name).
+            {% endcomment %}
+            {% if not convite.usado_em %}
+              <form method="post" action="{% url 'contas:reenviar' %}" class="mt-2">
+                {% csrf_token %}
+                <input type="hidden" name="convite_id" value="{{ convite.pk }}">
+                <button type="submit" class="btn btn-primary"
+                        aria-label="Reenviar convite: {{ convite.email }}">
+                  Reenviar convite
+                </button>
+              </form>
+            {% endif %}
           </td>
         </tr>
       {% empty %}

@@ -24,6 +24,44 @@ def _hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def coordenadores():
+    """Origem ÚNICA de quem conta como coordenador(a) do sistema.
+
+    **Decisão (revisão final): um coordenador desativado OCUPA vaga.** O teto
+    de 4 (CLAUDE.md, regra inegociável nº 2) existe para limitar quem detém o
+    poder de coordenação, e uma conta desativada pode ser reativada no admin a
+    qualquer momento — se ela não ocupasse vaga, reativar a quinta pessoa
+    furaria o teto sem passar por `promover_a_coordenador`.
+
+    Esta função existe porque a tela e a regra discordavam (achado da revisão
+    final): a view filtrava `is_active=True` para montar a lista, enquanto
+    `promover_a_coordenador`/`revogar_coordenacao` contavam TODO
+    `is_coordenador=True`. Com quatro coordenadores e um desativado, o painel
+    anunciava "Coordenadores (3 de 4)", oferecia promoções, e o serviço as
+    recusava com "O sistema admite no máximo 4 coordenadores".
+
+    Consequência de projeto que vem junto: o painel PRECISA listar o
+    coordenador inativo (marcado como tal, ver
+    templates/contas/painel_coordenacao.html). Sem isso, a vaga que ele ocupa
+    ficaria invisível e não haveria como liberá-la pela tela — o sistema
+    travaria no teto sem saída, e a única saída seria o admin.
+    """
+    return Usuario.objects.filter(is_coordenador=True)
+
+
+def candidatos_a_coordenacao():
+    """Professores que podem ser promovidos hoje — o complemento exato do que
+    `promover_a_coordenador` aceita como alvo.
+
+    A filtragem por `is_active` é regra de negócio (quem pode receber o poder
+    de coordenação) e por isso mora aqui, não em `views.py` (CLAUDE.md, regra
+    4). Antes desta extração, a view filtrava por conta própria e o serviço
+    não recusava alvo inativo: bastava postar o `usuario_id` de um professor
+    desativado para promovê-lo.
+    """
+    return Usuario.objects.filter(papel=Usuario.PROFESSOR, is_coordenador=False, is_active=True)
+
+
 @transaction.atomic
 def convidar(email, papel, por):
     """Cria o convite e enfileira o e-mail. O token em claro só existe no e-mail."""
@@ -34,11 +72,17 @@ def convidar(email, papel, por):
         # comando `semear_sistema`, nunca convidada (spec §5.5/§5.1).
         raise ValidationError(f"Não é possível convidar alguém como {papel}.")
 
+    # Igualdade exata, e não `__iexact` (revisão final): o e-mail já foi
+    # normalizado para minúsculas na linha logo abaixo, `Convite.email` só é gravado
+    # por esta função (sempre minúsculo) e `Usuario.email` é minusculizado
+    # pelo sinal `normaliza_email_do_usuario` em QUALQUER caminho de escrita.
+    # `__iexact` vira `UPPER("email") = UPPER(%s)` no Postgres, que não usa o
+    # índice B-tree de `Convite.email` — com igualdade exata, o índice serve.
     email = email.strip().lower()
-    if Usuario.objects.filter(email__iexact=email).exists():
+    if Usuario.objects.filter(email=email).exists():
         raise ValidationError(f"Já existe uma conta para {email}.")
     convite_ativo = Convite.objects.filter(
-        email__iexact=email, usado_em__isnull=True, expira_em__gt=timezone.now()
+        email=email, usado_em__isnull=True, expira_em__gt=timezone.now()
     ).exists()
     if convite_ativo:
         raise ValidationError(f"Já existe um convite ativo para {email}. Reenvie-o, se preciso.")
@@ -215,7 +259,21 @@ def promover_a_coordenador(usuario, por):
         raise ValidationError("Somente professores podem ser coordenadores.")
     if usuario.is_coordenador:
         raise ValidationError(f"{usuario.nome_completo} já é coordenador(a).")
+    if not usuario.is_active:
+        # A recusa mora aqui, e não só na filtragem da lista exibida pelo
+        # painel (achado da revisão final): quem postasse o `usuario_id` de um
+        # professor desativado direto na rota de promoção passava, porque o
+        # serviço nunca olhava `is_active`. Dar coordenação a uma conta que
+        # não consegue nem entrar no sistema também queimaria uma das 4 vagas,
+        # já que coordenador inativo ocupa vaga (ver `coordenadores`).
+        raise ValidationError(
+            f"{usuario.nome_completo} está com a conta desativada e não pode "
+            "ser promovido(a). Reative a conta antes."
+        )
 
+    # Mesmo predicado de `coordenadores()` (`is_coordenador=True`, ativos ou
+    # não), só que contado sobre as linhas já travadas — o travamento por
+    # `papel=PROFESSOR` é o que serializa promoções concorrentes, ver acima.
     professores = list(Usuario.objects.select_for_update().filter(papel=Usuario.PROFESSOR))
     atuais = sum(1 for professor in professores if professor.is_coordenador)
     if atuais >= LIMITE_COORDENADORES:

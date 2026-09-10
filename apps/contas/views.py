@@ -32,7 +32,10 @@ def aceitar_convite(request, token):
     Formulario = (
         FormularioAlunoConvidado if convite.papel == Usuario.ALUNO else FormularioProfessorConvidado
     )
-    formulario = Formulario(request.POST or None, request.FILES or None)
+    # `email=convite.email` alimenta a validação de similaridade de senha do
+    # formulário (`FormularioConvidado.clean`), que compara a senha escolhida
+    # com os dados da pessoa.
+    formulario = Formulario(request.POST or None, request.FILES or None, email=convite.email)
 
     if request.method == "POST" and formulario.is_valid():
         try:
@@ -123,15 +126,17 @@ def painel(request):
         {
             "formulario": formulario,
             "convites": Convite.objects.select_related("criado_por")[:50],
-            "coordenadores": Usuario.objects.filter(is_coordenador=True, is_active=True),
+            # As duas listas vêm do SERVIÇO, não de um filtro escrito aqui
+            # (achado da revisão final): quem conta como coordenador e quem
+            # pode ser promovido é regra de negócio (CLAUDE.md, regra 4), e
+            # enquanto a view tinha a sua própria versão do filtro, a tela
+            # anunciava "Coordenadores (3 de 4)" e o serviço recusava a
+            # promoção pelo teto de 4. Mesma origem, mesma contagem.
             # `Usuario.Meta.ordering = ["nome_completo"]` já ordena; sem
             # order_by explícito aqui de propósito, para não duplicar o que
-            # o model já garante. `is_active=True` (achado da revisão 1):
-            # sem ele, um professor desativado apareceria como promovível
-            # (ou, na lista de cima, como coordenador ainda ativo).
-            "candidatos_promocao": Usuario.objects.filter(
-                papel=Usuario.PROFESSOR, is_coordenador=False, is_active=True
-            )[:50],
+            # o model já garante.
+            "coordenadores": services.coordenadores(),
+            "candidatos_promocao": services.candidatos_a_coordenacao()[:50],
             "limite": services.LIMITE_COORDENADORES,
         },
     )
@@ -150,6 +155,44 @@ def _usuario_do_post(request):
     if not usuario_id.isdigit():
         raise Http404("Usuário inválido.")
     return get_object_or_404(Usuario, pk=usuario_id)
+
+
+def _convite_do_post(request):
+    """Converte `convite_id` do POST num `Convite`, ou levanta 404. Mesma
+    guarda de tipo de `_usuario_do_post`, pelo mesmo motivo."""
+    convite_id = request.POST.get("convite_id", "")
+    if not convite_id.isdigit():
+        raise Http404("Convite inválido.")
+    return get_object_or_404(Convite, pk=convite_id)
+
+
+@login_required
+@require_POST
+def reenviar(request):
+    """Reenvia o convite indicado pela lista de convites do painel.
+
+    A porta que faltava (achado da revisão final): `services.reenviar_convite`
+    existia desde a T7, com quatro testes, e nenhuma URL, view ou botão o
+    alcançava. O beco sem saída era real — `convidar` enfileira o e-mail em
+    `transaction.on_commit`, então um broker fora do ar deixa o convite
+    GRAVADO e o e-mail nunca enviado; tentar de novo esbarra em "Já existe um
+    convite ativo para X. Reenvie-o, se preciso.", e o painel listava o
+    convite como "Pendente" sem oferecer reenvio nenhum. Sem shell, a saída
+    era esperar sete dias até a expiração.
+
+    Mesma ordem de `promover`/`revogar`: permissão conferida ANTES do lookup
+    do alvo, para que a resposta não distinga um `convite_id` existente de um
+    inexistente para quem não tem permissão.
+    """
+    permissions.garante(permissions.pode_convidar(request.user), services.MSG_SOMENTE_COORDENACAO)
+    convite = _convite_do_post(request)
+    try:
+        services.reenviar_convite(convite, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, f"Convite reenviado para {convite.email}.")
+    return redirect("contas:painel")
 
 
 @login_required

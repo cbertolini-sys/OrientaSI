@@ -65,11 +65,25 @@
     <h2 id="titulo-coordenadores" class="font-display text-xl font-semibold">
       Coordenadores ({{ coordenadores|length }} de {{ limite }})
     </h2>
+    {% comment %}
+      A lista vem de `services.coordenadores()` e inclui coordenadores com a
+      conta DESATIVADA, marcados como tal (achado da revisão final). Coordenador
+      inativo ocupa vaga — a decisão e o porquê estão na docstring daquela
+      função —, então esconder essas linhas deixaria a contagem do título
+      ("X de 4") discordando da contagem que o serviço aplica, que foi
+      exatamente o defeito corrigido, e tornaria impossível liberar pela tela
+      a vaga ocupada por uma conta desativada.
+    {% endcomment %}
     <ul class="mt-4 space-y-3">
       {% for pessoa in coordenadores %}
         <li class="flex flex-wrap items-center justify-between gap-3 border-b
                     border-base-300 pb-3 last:border-b-0">
-          <span>{{ pessoa.nome_completo }} — {{ pessoa.email }}</span>
+          <span>
+            {{ pessoa.nome_completo }} — {{ pessoa.email }}
+            {% if not pessoa.is_active %}
+              <em>(conta desativada; ainda ocupa uma das {{ limite }} vagas)</em>
+            {% endif %}
+          </span>
           {% comment %}
             <details>/<summary> é um disclosure nativo, sem JavaScript:
             funciona por teclado (Tab alcança o <summary>, Enter/Espaço

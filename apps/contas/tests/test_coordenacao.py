@@ -10,8 +10,10 @@ falha pela ausência do serviço, não por outro motivo.
 """
 
 import pytest
+from django.core import mail
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.contas import services
 from apps.contas.models import Convite, Usuario
@@ -226,7 +228,17 @@ def test_painel_nao_lista_professor_inativo_como_candidato(client):
 
 
 @pytest.mark.django_db
-def test_painel_nao_lista_coordenador_inativo(client):
+def test_painel_lista_coordenador_inativo_marcado_como_tal(client):
+    """SUBSTITUI `test_painel_nao_lista_coordenador_inativo` (T11), que
+    afirmava o contrário — a decisão que ele codificava é o defeito corrigido
+    na revisão final, não uma regra que se possa preservar.
+
+    A tela escondia o coordenador desativado enquanto `services` contava
+    todo `is_coordenador=True`: com quatro coordenadores e um desativado, o
+    painel anunciava "Coordenadores (3 de 4)", oferecia promoções, e o
+    serviço as recusava pelo teto. Decidido que coordenador inativo OCUPA
+    vaga (ver `services.coordenadores`), a tela precisa mostrá-lo — inclusive
+    para que a vaga possa ser liberada por ali, com "Revogar coordenação"."""
     coordenadora = cria_professor(0, coordenador=True)
     outra = cria_professor(1, coordenador=True)
     outra.is_active = False
@@ -235,7 +247,87 @@ def test_painel_nao_lista_coordenador_inativo(client):
 
     html = client.get(reverse("contas:painel")).content.decode()
 
-    assert outra.nome_completo not in html
+    assert outra.nome_completo in html
+    assert "conta desativada" in html
+
+
+@pytest.mark.django_db
+def test_contagem_exibida_no_painel_e_a_mesma_que_o_servico_aplica(client):
+    """A regressão inteira do achado, em um teste: quatro coordenadores, um
+    deles desativado. O painel precisa anunciar "4 de 4" — não "3 de 4" —
+    porque é 4 o número que `promover_a_coordenador` vai aplicar ao recusar a
+    quinta promoção logo abaixo."""
+    coordenadores = [cria_professor_gerado(i, coordenador=True) for i in range(4)]
+    coordenadores[3].is_active = False
+    coordenadores[3].save(update_fields=["is_active"])
+    quinto = cria_professor_gerado(4)
+    client.force_login(coordenadores[0])
+
+    html = client.get(reverse("contas:painel")).content.decode()
+    assert f"Coordenadores ({services.LIMITE_COORDENADORES} de " in html
+
+    with pytest.raises(ValidationError):
+        services.promover_a_coordenador(quinto, por=coordenadores[0])
+
+
+@pytest.mark.django_db
+def test_promover_recusa_alvo_com_conta_desativada():
+    """A recusa é do SERVIÇO, não da lista exibida (CLAUDE.md, regra 4): a
+    view filtrava `is_active` para montar os candidatos, mas nada impedia
+    postar o `usuario_id` de um professor desativado direto na rota de
+    promoção."""
+    coordenadora = cria_professor(0, coordenador=True)
+    inativo = cria_professor(1)
+    inativo.is_active = False
+    inativo.save(update_fields=["is_active"])
+
+    with pytest.raises(ValidationError) as erro:
+        services.promover_a_coordenador(inativo, por=coordenadora)
+
+    assert "desativada" in str(erro.value)
+    inativo.refresh_from_db()
+    assert inativo.is_coordenador is False
+
+
+@pytest.mark.django_db
+def test_promover_via_painel_recusa_alvo_desativado_postado_direto(client):
+    coordenadora = cria_professor(0, coordenador=True)
+    inativo = cria_professor(1)
+    inativo.is_active = False
+    inativo.save(update_fields=["is_active"])
+    client.force_login(coordenadora)
+
+    resposta = client.post(reverse("contas:promover"), {"usuario_id": inativo.pk}, follow=True)
+
+    mensagens = [str(m) for m in resposta.context["messages"]]
+    assert any("desativada" in m for m in mensagens)
+    inativo.refresh_from_db()
+    assert inativo.is_coordenador is False
+
+
+@pytest.mark.django_db
+def test_candidatos_a_coordenacao_exclui_inativos_e_coordenadores():
+    """O complemento exato de quem `promover_a_coordenador` aceita: a lista
+    que o painel oferece não pode conter ninguém que o serviço vá recusar."""
+    coordenadora = cria_professor(0, coordenador=True)
+    promovivel = cria_professor(1)
+    inativo = cria_professor(2)
+    inativo.is_active = False
+    inativo.save(update_fields=["is_active"])
+    aluno = Usuario.objects.create_user(
+        email="aluno-candidato@ufsm.br",
+        password="x",
+        nome_completo="Aluno",
+        cpf=CPFS[3],
+        papel=Usuario.ALUNO,
+    )
+
+    candidatos = list(services.candidatos_a_coordenacao())
+
+    assert promovivel in candidatos
+    assert coordenadora not in candidatos
+    assert inativo not in candidatos
+    assert aluno not in candidatos
 
 
 # --- Interface de promover, no painel (lacuna do brief) ---------------------
@@ -365,3 +457,113 @@ def test_revogar_via_painel_recusa_antes_de_buscar_alvo_inexistente(client):
     comum = cria_professor(0)
     client.force_login(comum)
     assert client.post(reverse("contas:revogar"), {"usuario_id": 999999}).status_code == 403
+
+
+# --- Reenvio de convite pelo painel (a porta que faltava) ------------------
+
+
+def _convite_pendente(coordenadora, email="pendente@ufsm.br", token_hash="a" * 64):
+    return Convite.objects.create(
+        email=email,
+        papel=Usuario.ALUNO,
+        token_hash=token_hash,
+        criado_por=coordenadora,
+        expira_em=timezone.now() + timezone.timedelta(days=7),
+    )
+
+
+@pytest.mark.django_db
+def test_painel_oferece_reenvio_para_convite_pendente(client):
+    """`services.reenviar_convite` existia desde a T7, com quatro testes, e
+    nenhuma URL, view ou botão o alcançava (achado da revisão final)."""
+    coordenadora = cria_professor(0, coordenador=True)
+    _convite_pendente(coordenadora)
+    client.force_login(coordenadora)
+
+    html = client.get(reverse("contas:painel")).content.decode()
+
+    assert reverse("contas:reenviar") in html
+    assert "Reenviar convite" in html
+
+
+@pytest.mark.django_db
+def test_painel_nao_oferece_reenvio_para_convite_ja_aceito(client):
+    """`reenviar_convite` recusa convite utilizado: oferecer o botão ali seria
+    oferecer uma ação que só produz mensagem de erro."""
+    coordenadora = cria_professor(0, coordenador=True)
+    convite = _convite_pendente(coordenadora)
+    convite.usado_em = timezone.now()
+    convite.save(update_fields=["usado_em"])
+    client.force_login(coordenadora)
+
+    html = client.get(reverse("contas:painel")).content.decode()
+
+    assert "Reenviar convite" not in html
+
+
+@pytest.mark.django_db
+def test_reenviar_via_painel_expira_o_anterior_e_manda_outro_email(
+    client, settings, django_capture_on_commit_callbacks
+):
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    coordenadora = cria_professor(0, coordenador=True)
+    convite = _convite_pendente(coordenadora)
+    client.force_login(coordenadora)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resposta = client.post(reverse("contas:reenviar"), {"convite_id": convite.pk})
+
+    assert resposta.status_code == 302
+    convite.refresh_from_db()
+    assert not convite.esta_valido()
+    novo = Convite.objects.filter(email=convite.email).exclude(pk=convite.pk).get()
+    assert novo.esta_valido()
+    assert len(mail.outbox) == 1
+    assert convite.email in mail.outbox[0].to
+
+
+@pytest.mark.django_db
+def test_reenviar_via_painel_recusa_convite_ja_utilizado(client):
+    coordenadora = cria_professor(0, coordenador=True)
+    convite = _convite_pendente(coordenadora)
+    convite.usado_em = timezone.now()
+    convite.save(update_fields=["usado_em"])
+    client.force_login(coordenadora)
+
+    resposta = client.post(reverse("contas:reenviar"), {"convite_id": convite.pk}, follow=True)
+
+    mensagens = [str(m) for m in resposta.context["messages"]]
+    assert any("utilizado" in m for m in mensagens)
+
+
+@pytest.mark.django_db
+def test_reenviar_via_painel_recusa_quem_nao_e_coordenador(client):
+    coordenadora = cria_professor(0, coordenador=True)
+    comum = cria_professor(1)
+    convite = _convite_pendente(coordenadora)
+    client.force_login(comum)
+
+    assert client.post(reverse("contas:reenviar"), {"convite_id": convite.pk}).status_code == 403
+
+
+@pytest.mark.django_db
+def test_reenviar_via_painel_exige_post(client):
+    coordenadora = cria_professor(0, coordenador=True)
+    client.force_login(coordenadora)
+    assert client.get(reverse("contas:reenviar")).status_code == 405
+
+
+@pytest.mark.django_db
+def test_reenviar_via_painel_recusa_antes_de_buscar_convite_inexistente(client):
+    """Mesma ordem de `promover`/`revogar`: permissão antes do lookup, para
+    que a resposta não distinga um `convite_id` existente de um inexistente."""
+    comum = cria_professor(0)
+    client.force_login(comum)
+    assert client.post(reverse("contas:reenviar"), {"convite_id": 999999}).status_code == 403
+
+
+@pytest.mark.django_db
+def test_reenviar_via_painel_com_convite_inexistente_da_404(client):
+    coordenadora = cria_professor(0, coordenador=True)
+    client.force_login(coordenadora)
+    assert client.post(reverse("contas:reenviar"), {"convite_id": 999999}).status_code == 404
