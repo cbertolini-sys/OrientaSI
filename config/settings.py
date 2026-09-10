@@ -129,6 +129,16 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "nao-responda@orientas
 URL_BASE = os.environ.get("URL_BASE", "http://localhost:8000")
 CONVITE_VALIDADE_DIAS = 7
 
+# Mês em que o 2º período letivo começa: usado por apps/comum/semestre.py para
+# derivar o semestre vigente a partir da data corrente (spec do Bloco B, §3.3).
+# É constante, não modelo nem tela, de propósito — o calendário acadêmico não
+# acompanha o civil (greve, reposição, pandemia deslocam a virada), e ajustar
+# um número aqui precisa bastar, sem migração.
+MES_INICIO_PERIODO_2 = 8
+# Prazo, em dias, para um professor responder a uma opção de candidatura antes
+# da cascata avançar sozinha para a próxima (spec do Bloco B, §3.2).
+PRAZO_RESPOSTA_DIAS = 7
+
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "")
 S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
 
