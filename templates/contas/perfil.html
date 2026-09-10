@@ -34,61 +34,7 @@
       {% endif %}
 
       {% for campo in formulario %}
-        {% if campo.name == "areas" %}
-          {% comment %}
-            <fieldset>/<legend> em vez do <label> usado pelos outros campos:
-            sem um rótulo de grupo, um leitor de tela anuncia cada área
-            ("Redes", "Inteligência Artificial"...) sem dizer a que pergunta
-            elas respondem — a pessoa ouve os nomes soltos.
-
-            O axe-core NÃO aponta essa ausência (rodei o mesmo Axe().run com
-            as tags wcag2a/wcag2aa/wcag21aa contra o markup sem <fieldset>:
-            zero violações — as regras checkboxgroup/radiogroup que
-            cobririam isso foram removidas do axe-core 4). Por isso este
-            <fieldset>/<legend> tem uma trava própria, que não depende do
-            axe: apps/contas/tests/test_perfil_view.py::
-            test_form_professor_tem_fieldset_e_legend_para_areas afirma a
-            presença dos dois diretamente no HTML.
-          {% endcomment %}
-          <fieldset class="flex flex-col gap-1">
-            <legend class="font-medium text-base-content">{{ campo.label }}</legend>
-            {{ campo }}
-            {% if campo.errors %}
-              <div id="erro-{{ campo.name }}">
-                {% for erro in campo.errors %}
-                  <p role="alert" class="text-sm text-error">{{ erro }}</p>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </fieldset>
-        {% else %}
-          <div class="flex flex-col gap-1">
-            {% comment %}
-              Deliberadamente sem as classes DaisyUI `.label`/`.label-text`
-              (achado da T8): na v5, `.label` esmaece a cor do texto
-              (color-mix a 60%) e derruba o contraste do rótulo para 4.38:1,
-              abaixo do mínimo de 4.5:1 do WCAG 2 AA. `text-base-content` é a
-              cor de texto padrão do tema, com contraste alto de propósito.
-            {% endcomment %}
-            <label class="font-medium text-base-content" for="{{ campo.id_for_label }}">
-              {{ campo.label }}{% if campo.field.required %} <span aria-hidden="true">*</span>
-                <span class="sr-only">(obrigatório)</span>{% endif %}
-            </label>
-            {{ campo }}
-            {% if campo.help_text %}
-              <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
-                {{ campo.help_text }}
-              </p>
-            {% endif %}
-            {% if campo.errors %}
-              <div id="erro-{{ campo.name }}">
-                {% for erro in campo.errors %}
-                  <p role="alert" class="text-sm text-error">{{ erro }}</p>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-        {% endif %}
+        {% include "contas/_campo.html" with campo=campo %}
       {% endfor %}
 
       <button type="submit" class="btn btn-primary w-full">Salvar</button>

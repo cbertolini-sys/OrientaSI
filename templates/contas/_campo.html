@@ -1,0 +1,89 @@
+{% comment %}
+  Renderização de UM campo de formulário: rótulo (ou fieldset/legend, ver
+  abaixo), controle, texto de ajuda e erros — com a ligação de acessibilidade
+  já pronta (aria-describedby/aria-invalid vêm do widget, aplicados por
+  `MisturaAcessibilidadeFormulario`/`FormularioConvidado.full_clean` em
+  apps/contas/forms.py; este parcial só precisa manter os ids
+  "ajuda-{{ campo.name }}" e "erro-{{ campo.name }}" que esses atributos
+  apontam).
+
+  Extraído de templates/contas/aceitar_convite.html (T7), a versão que passou
+  pela suíte de acessibilidade — este bloco estava copiado, comentários e
+  tudo, em seis templates (aceitar_convite, perfil, painel_coordenacao,
+  login, password_reset_form, password_reset_confirm). Uma correção chegou a
+  ser aplicada em dois deles e não voltar para os outros dois: o resumo de
+  erros das telas de recuperação de senha ficou invisível, e nenhuma suíte
+  de acessibilidade pegou, porque elas só fazem GET. Um só arquivo elimina a
+  chance de repetir esse defeito.
+
+  Uso: {% include "contas/_campo.html" with campo=campo %}
+{% endcomment %}
+{% if campo.field.widget.allow_multiple_selected %}
+  {% comment %}
+    <fieldset>/<legend> em vez do <label> do caso simples: sem um rótulo de
+    grupo, um leitor de tela anuncia cada opção ("Redes", "Inteligência
+    Artificial"...) sem dizer a que pergunta elas respondem — a pessoa ouve
+    os nomes soltos. `allow_multiple_selected` é o atributo público que o
+    próprio Django usa internamente para diferenciar `SelectMultiple`/
+    `CheckboxSelectMultiple` dos demais widgets (é `False` por padrão em
+    `Widget`); usá-lo aqui evita depender do nome da classe do widget, que
+    templates do Django não conseguem inspecionar (atributos começados com
+    "_", como `__class__`, são bloqueados na resolução de variáveis).
+
+    O axe-core NÃO aponta a ausência de fieldset/legend num grupo de opções
+    (rodei o mesmo Axe().run com as tags wcag2a/wcag2aa/wcag21aa contra o
+    markup sem <fieldset>: zero violações — as regras checkboxgroup/
+    radiogroup que cobririam isso foram removidas do axe-core 4). Por isso
+    o caso do campo "areas" de FormularioPerfilProfessor tem uma trava
+    própria, que não depende do axe:
+    apps/contas/tests/test_perfil_view.py::
+    test_form_professor_tem_fieldset_e_legend_para_areas afirma a presença
+    dos dois diretamente no HTML.
+  {% endcomment %}
+  <fieldset class="flex flex-col gap-1">
+    <legend class="font-medium text-base-content">{{ campo.label }}</legend>
+    {{ campo }}
+    {% if campo.help_text %}
+      <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
+        {{ campo.help_text }}
+      </p>
+    {% endif %}
+    {% if campo.errors %}
+      <div id="erro-{{ campo.name }}">
+        {% for erro in campo.errors %}
+          <p role="alert" class="text-sm text-error">{{ erro }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </fieldset>
+{% else %}
+  <div class="flex flex-col gap-1">
+    {% comment %}
+      Deliberadamente sem as classes DaisyUI `.label`/`.label-text`: na
+      versão 5 do DaisyUI, `.label` aplica um esmaecimento de cor
+      (color-mix a 60% de opacidade) pensado para rótulos secundários
+      dentro de um `.input` — não para o rótulo principal de um campo.
+      Aplicado aqui, esse esmaecimento derrubava o contraste do texto
+      para 4.38:1 (abaixo do mínimo de 4.5:1 do WCAG 2 AA), como o
+      axe-core apontou na primeira execução desta suíte. `text-base-content`
+      é a cor de texto padrão do tema, com contraste alto de propósito.
+    {% endcomment %}
+    <label class="font-medium text-base-content" for="{{ campo.id_for_label }}">
+      {{ campo.label }}{% if campo.field.required %} <span aria-hidden="true">*</span>
+        <span class="sr-only">(obrigatório)</span>{% endif %}
+    </label>
+    {{ campo }}
+    {% if campo.help_text %}
+      <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
+        {{ campo.help_text }}
+      </p>
+    {% endif %}
+    {% if campo.errors %}
+      <div id="erro-{{ campo.name }}">
+        {% for erro in campo.errors %}
+          <p role="alert" class="text-sm text-error">{{ erro }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+{% endif %}

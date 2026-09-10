@@ -29,32 +29,7 @@
       {% endif %}
 
       {% for campo in form %}
-        <div class="flex flex-col gap-1">
-          {% comment %}
-            Deliberadamente sem `.label`/`.label-text` do DaisyUI: na v5,
-            `.label` esmaece a cor do texto (color-mix a 60%) e derruba o
-            contraste do rótulo para 4.38:1, abaixo do mínimo de 4.5:1 do
-            WCAG 2 AA (achado na T8). `text-base-content` é a cor de texto
-            padrão do tema, com contraste alto de propósito.
-          {% endcomment %}
-          <label class="font-medium text-base-content" for="{{ campo.id_for_label }}">
-            {{ campo.label }}{% if campo.field.required %} <span aria-hidden="true">*</span>
-              <span class="sr-only">(obrigatório)</span>{% endif %}
-          </label>
-          {{ campo }}
-          {% if campo.help_text %}
-            <p id="ajuda-{{ campo.name }}" class="text-sm text-base-content/80">
-              {{ campo.help_text }}
-            </p>
-          {% endif %}
-          {% if campo.errors %}
-            <div id="erro-{{ campo.name }}">
-              {% for erro in campo.errors %}
-                <p role="alert" class="text-sm text-error">{{ erro }}</p>
-              {% endfor %}
-            </div>
-          {% endif %}
-        </div>
+        {% include "contas/_campo.html" with campo=campo %}
       {% endfor %}
 
       <button type="submit" class="btn btn-primary w-full">Entrar</button>
