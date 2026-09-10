@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models import Q
 
-from apps.contas.models import Area, PerfilProfessor, Usuario
+from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 
 # Compartilhado por Projeto e LimiteOrientacao: o semestre gravado é sempre o
 # par (ano, período), e período só assume 1 ou 2 (spec §3.4).
@@ -172,3 +172,154 @@ class LimiteOrientacao(models.Model):
             f"{self.professor} — {self.get_etapa_display()} ({self.ano}/{self.periodo}): "
             f"{self.limite}"
         )
+
+
+class Candidatura(models.Model):
+    """O pedido de um aluno por orientação: uma linha por tentativa, com até
+    três alvos ordenados em `OpcaoCandidatura` (spec §4.2).
+
+    É separada de `OpcaoCandidatura` porque o pedido tem um único status (isto
+    é o que a trava abaixo protege), enquanto cada alvo tem seu próprio
+    desfecho — juntá-los na mesma tabela obrigaria toda consulta por "pedido
+    em curso" a agregar três linhas em vez de ler uma.
+    """
+
+    EM_CURSO = "EM_CURSO"
+    ACEITA = "ACEITA"
+    ESGOTADA = "ESGOTADA"
+    CANCELADA = "CANCELADA"
+    STATUS = [
+        (EM_CURSO, "Em curso"),
+        (ACEITA, "Aceita"),
+        (ESGOTADA, "Esgotada"),
+        (CANCELADA, "Cancelada"),
+    ]
+
+    aluno = models.ForeignKey(
+        PerfilAluno,
+        # PROTECT: o histórico de candidaturas de um aluno não pode ser
+        # apagado em cascata só porque o perfil foi removido.
+        on_delete=models.PROTECT,
+        related_name="candidaturas",
+        verbose_name="aluno",
+    )
+    # `choices` restringe o que formulário e admin aceitam, mas NÃO é trava de
+    # banco: um INSERT feito fora do Django aceita qualquer string de até 9
+    # caracteres. A trava real (uma única candidatura EM_CURSO por aluno) está
+    # em Meta.constraints, abaixo.
+    status = models.CharField("status", max_length=9, choices=STATUS, default=EM_CURSO)
+    opcao_atual = models.PositiveSmallIntegerField(
+        "opção atual", default=1, help_text="Ordem (1 a 3) em que a cascata de opções está."
+    )
+    # Carimbo do semestre em que o pedido nasceu — mesmo raciocínio de
+    # congelamento do campo homônimo em Projeto.
+    ano = models.PositiveIntegerField("ano")
+    periodo = models.PositiveSmallIntegerField("período", choices=PERIODOS)
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "candidatura"
+        verbose_name_plural = "candidaturas"
+        ordering = ["-criado_em"]
+        constraints = [
+            # Impede dois pedidos simultâneos do mesmo aluno: índice único
+            # parcial, só sobre as linhas EM_CURSO — candidaturas já
+            # encerradas (aceita, esgotada, cancelada) ficam de fora da
+            # condição, para não impedir um novo pedido depois que o anterior
+            # terminou.
+            models.UniqueConstraint(
+                fields=["aluno"],
+                condition=Q(status="EM_CURSO"),
+                name="candidatura_em_curso_unica_por_aluno",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.aluno} — {self.get_status_display()} ({self.ano}/{self.periodo})"
+
+
+class OpcaoCandidatura(models.Model):
+    """Um alvo ordenado dentro de uma `Candidatura`: até três por pedido, cada
+    um com seu próprio professor, tema (opcional) e desfecho (spec §4.3).
+    """
+
+    AGUARDANDO = "AGUARDANDO"
+    ENVIADA = "ENVIADA"
+    ACEITA = "ACEITA"
+    RECUSADA = "RECUSADA"
+    EXPIRADA = "EXPIRADA"
+    CANCELADA = "CANCELADA"
+    SITUACOES = [
+        (AGUARDANDO, "Aguardando"),
+        (ENVIADA, "Enviada"),
+        (ACEITA, "Aceita"),
+        (RECUSADA, "Recusada"),
+        (EXPIRADA, "Expirada"),
+        (CANCELADA, "Cancelada"),
+    ]
+
+    candidatura = models.ForeignKey(
+        Candidatura,
+        # CASCADE: uma opção só existe enquanto pertencer a um pedido; apagar
+        # a candidatura apaga seus até três alvos junto.
+        on_delete=models.CASCADE,
+        related_name="opcoes",
+        verbose_name="candidatura",
+    )
+    ordem = models.PositiveSmallIntegerField("ordem")
+    professor = models.ForeignKey(
+        PerfilProfessor,
+        on_delete=models.PROTECT,
+        related_name="opcoes_recebidas",
+        verbose_name="professor",
+    )
+    # Nulo = "aberto a temas": o aluno pede este professor sem escolher um
+    # tema publicado por ele. PROTECT: um tema referenciado por uma opção não
+    # pode ser apagado por baixo do histórico do pedido.
+    tema = models.ForeignKey(
+        Tema,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opcoes",
+        verbose_name="tema",
+    )
+    # Mesma ressalva do `status` de Candidatura: `choices` não é trava de banco.
+    situacao = models.CharField("situação", max_length=10, choices=SITUACOES, default=AGUARDANDO)
+    enviada_em = models.DateTimeField("enviada em", null=True, blank=True)
+    prazo = models.DateTimeField("prazo", null=True, blank=True)
+    respondida_em = models.DateTimeField("respondida em", null=True, blank=True)
+    justificativa = models.TextField("justificativa", blank=True)
+
+    class Meta:
+        verbose_name = "opção de candidatura"
+        verbose_name_plural = "opções de candidatura"
+        ordering = ["candidatura", "ordem"]
+        constraints = [
+            # Impede duas "primeiras opções" (ou segundas, ou terceiras) na
+            # mesma candidatura.
+            models.UniqueConstraint(
+                fields=["candidatura", "ordem"], name="opcao_ordem_unica_por_candidatura"
+            ),
+            # Impede uma quarta opção entrando por qualquer caminho —
+            # inclusive um INSERT que não passe pela camada de serviço.
+            models.CheckConstraint(
+                condition=Q(ordem__gte=1) & Q(ordem__lte=3),
+                name="opcao_ordem_entre_um_e_tres",
+            ),
+            # A trava "tema pertence ao professor da opção" NÃO está aqui: um
+            # CheckConstraint do Postgres não pode consultar outra tabela —
+            # uma condição como Q(tema__professor=F("professor")) levanta
+            # django.core.exceptions.FieldError ("Joined field references are
+            # not permitted in this query") ao tentar aplicar a migração,
+            # verificado manualmente antes de escrever este modelo. Por isso
+            # essa trava é uma TRIGGER de banco, criada na migração 0002 via
+            # RunSQL (ver migrations/0002_candidatura_opcaocandidatura.py) —
+            # é a única forma de obter um IntegrityError real na linha, sem
+            # alterar a tabela de Tema (fora do escopo desta tarefa) e sem
+            # depender de clean()/formulário, que só roda quando alguém chama
+            # full_clean() explicitamente.
+        ]
+
+    def __str__(self):
+        return f"{self.candidatura} — opção {self.ordem} ({self.get_situacao_display()})"

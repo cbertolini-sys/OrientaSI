@@ -1,8 +1,8 @@
 import pytest
 from django.db import IntegrityError, transaction
 
-from apps.contas.models import Area, PerfilProfessor, Usuario
-from apps.projetos.models import LimiteOrientacao, Projeto, Tema
+from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+from apps.projetos.models import Candidatura, LimiteOrientacao, OpcaoCandidatura, Projeto, Tema
 
 
 @pytest.fixture
@@ -38,6 +38,42 @@ def coordenador(db):
         cpf="16899535009",
         is_coordenador=True,
         is_staff=True,
+    )
+
+
+@pytest.fixture
+def perfil_aluno(aluno):
+    return PerfilAluno.objects.create(usuario=aluno, matricula="2021000001")
+
+
+@pytest.fixture
+def professor2(db):
+    usuario = Usuario.objects.create_user(
+        email="orientador2@ufsm.br",
+        password="x",
+        nome_completo="Orientador Dois",
+        cpf="93541134780",
+    )
+    return PerfilProfessor.objects.create(usuario=usuario, siape="7654321")
+
+
+@pytest.fixture
+def tema(professor, area):
+    return Tema.objects.create(
+        professor=professor,
+        area=area,
+        titulo="Tema do professor",
+        descricao="Descrição do tema.",
+    )
+
+
+@pytest.fixture
+def tema_de_outro_professor(professor2, area):
+    return Tema.objects.create(
+        professor=professor2,
+        area=area,
+        titulo="Tema de outro professor",
+        descricao="Descrição de outro tema.",
     )
 
 
@@ -141,3 +177,107 @@ def test_limite_orientacao_recusa_duplicata_de_professor_etapa_ano_e_periodo(
             justificativa="Segunda concessão, mesma chave.",
             autorizado_por=coordenador,
         )
+
+
+@pytest.mark.django_db
+def test_candidatura_recusa_duas_em_curso_do_mesmo_aluno(perfil_aluno):
+    Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+    )
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Candidatura.objects.create(
+            aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+        )
+
+
+@pytest.mark.django_db
+def test_candidatura_cancelada_nao_bloqueia_nova_em_curso_do_mesmo_aluno(perfil_aluno):
+    """A trava é sobre EM_CURSO, não sobre o aluno para sempre: um pedido já
+    encerrado (cancelado, aceito ou esgotado) não pode impedir um novo. Sem
+    esta cobertura, uma trava implementada como UniqueConstraint incondicional
+    sobre `aluno` passaria despercebida no teste acima."""
+    Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.CANCELADA, opcao_atual=1, ano=2025, periodo=2
+    )
+    Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+    )
+    assert Candidatura.objects.filter(aluno=perfil_aluno).count() == 2
+
+
+@pytest.mark.django_db
+def test_opcao_recusa_ordem_duplicada_na_mesma_candidatura(perfil_aluno, professor):
+    candidatura = Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+    )
+    OpcaoCandidatura.objects.create(candidatura=candidatura, ordem=1, professor=professor)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        OpcaoCandidatura.objects.create(candidatura=candidatura, ordem=1, professor=professor)
+
+
+@pytest.mark.django_db
+def test_opcao_permite_mesma_ordem_em_candidaturas_diferentes(perfil_aluno, professor):
+    """A trava é por candidatura, não sobre `ordem` isolada: duas candidaturas
+    diferentes podem cada uma ter sua própria opção de ordem 1. Sem esta
+    cobertura, uma trava implementada como unique=True direto no campo
+    `ordem` (em vez de UniqueConstraint em [candidatura, ordem]) passaria
+    despercebida no teste acima."""
+    candidatura1 = Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.CANCELADA, opcao_atual=1, ano=2025, periodo=2
+    )
+    candidatura2 = Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+    )
+    OpcaoCandidatura.objects.create(candidatura=candidatura1, ordem=1, professor=professor)
+    OpcaoCandidatura.objects.create(candidatura=candidatura2, ordem=1, professor=professor)
+    assert OpcaoCandidatura.objects.filter(ordem=1).count() == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("ordem", [0, 4])
+def test_opcao_recusa_ordem_fora_do_intervalo_um_a_tres(perfil_aluno, professor, ordem):
+    candidatura = Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+    )
+    with pytest.raises(IntegrityError), transaction.atomic():
+        OpcaoCandidatura.objects.create(candidatura=candidatura, ordem=ordem, professor=professor)
+
+
+@pytest.mark.django_db
+def test_opcao_recusa_tema_de_outro_professor(perfil_aluno, professor, tema_de_outro_professor):
+    """A opção aponta para `professor`, mas o `tema` pertence a outro professor
+    (`tema_de_outro_professor` foi criado com `professor2`) — a linha
+    contradiz a si mesma: o aluno estaria se candidatando ao tema de um
+    professor e à orientação de outro na mesma opção."""
+    candidatura = Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+    )
+    with pytest.raises(IntegrityError), transaction.atomic():
+        OpcaoCandidatura.objects.create(
+            candidatura=candidatura, ordem=1, professor=professor, tema=tema_de_outro_professor
+        )
+
+
+@pytest.mark.django_db
+def test_opcao_aceita_tema_nulo(perfil_aluno, professor):
+    """Caso válido: `tema` nulo é "aberto a temas" — o aluno pede o professor
+    sem escolher um tema publicado por ele."""
+    candidatura = Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+    )
+    opcao = OpcaoCandidatura.objects.create(
+        candidatura=candidatura, ordem=1, professor=professor, tema=None
+    )
+    assert opcao.tema is None
+
+
+@pytest.mark.django_db
+def test_opcao_aceita_tema_do_mesmo_professor(perfil_aluno, professor, tema):
+    """Caso válido: `tema` pertence ao mesmo `professor` da opção."""
+    candidatura = Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=1, ano=2026, periodo=1
+    )
+    opcao = OpcaoCandidatura.objects.create(
+        candidatura=candidatura, ordem=1, professor=professor, tema=tema
+    )
+    assert opcao.tema == tema
