@@ -76,14 +76,15 @@ def pagina_autenticada(autentica_no_navegador, coordenadora, cenario_do_painel):
     return autentica_no_navegador(coordenadora)
 
 
-def _confirma_que_esta_no_painel(page):
+def _confirma_que_esta_no_painel(page, live_server):
     """Âncora de identidade: sem isto, um defeito no cookie de sessão, no
     nome da sessão, no `live_server.url` ou no próprio `login_required`
     deixaria estes dois testes verdes medindo `/contas/login/` — o mesmo
     risco que a fixture `rota` (conftest.py) neutraliza para a rota genérica
     de `/painel/`."""
-    assert page.url.endswith("/painel/"), (
-        f"esperava terminar navegação em /painel/, e a URL final foi "
+    url_esperada = f"{live_server.url}/painel/"
+    assert page.url == url_esperada, (
+        f"/painel/ deveria terminar a navegação em {url_esperada!r}, e a URL final foi "
         f"{page.url!r} — provável redirecionamento para o login (autenticação não pegou)."
     )
     assert "Painel da coordenação" in page.inner_text("h1"), (
@@ -101,7 +102,7 @@ def test_painel_nao_viola_wcag_com_confirmacao_de_revogar_aberta(
     ver o texto de confirmação nem o botão "Confirmar revogação"."""
     pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
     pagina_autenticada.goto(f"{live_server.url}/painel/")
-    _confirma_que_esta_no_painel(pagina_autenticada)
+    _confirma_que_esta_no_painel(pagina_autenticada, live_server)
     pagina_autenticada.click("summary:has-text('Revogar coordenação')")
     resultados = Axe().run(pagina_autenticada, options=REGRAS_AXE)
     assert resultados.violations_count == 0, (
@@ -118,7 +119,7 @@ def test_painel_nao_viola_wcag_com_confirmacao_de_promover_aberta(
 ):
     pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
     pagina_autenticada.goto(f"{live_server.url}/painel/")
-    _confirma_que_esta_no_painel(pagina_autenticada)
+    _confirma_que_esta_no_painel(pagina_autenticada, live_server)
     pagina_autenticada.click("summary:has-text('Promover a coordenador')")
     resultados = Axe().run(pagina_autenticada, options=REGRAS_AXE)
     assert resultados.violations_count == 0, (

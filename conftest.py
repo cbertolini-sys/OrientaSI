@@ -169,8 +169,10 @@ class Rota:
     quando presente, a fixture `rota` autentica no navegador antes de medir. `h1`,
     junto com a própria URL final, é a âncora de identidade (confira a fixture `rota`
     abaixo) — sem ela, uma rota quebrada passa medindo a tela de login, defeito que
-    este projeto já teve duas vezes (ver `apps/contas/tests/test_coordenacao_acessibilidade.py`,
-    cuja suíte duplicada nasceu exatamente deste problema antes desta generalização).
+    este projeto já teve duas vezes: uma na própria fixture `rota` (ver linha ~340,
+    corrigida para igualdade exata `page.url == url_esperada`) e outra em
+    `apps/contas/tests/test_coordenacao_acessibilidade.py::_confirma_que_esta_no_painel`
+    (cuja suíte duplicada nasceu exatamente deste problema antes desta generalização).
     """
 
     caminho: str
