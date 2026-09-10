@@ -14,7 +14,11 @@ extend-exclude = "migrations"
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]
-addopts = "-q --reuse-db"
+# Sem `--reuse-db` (revisão final): conveniente em dev, arriscado em CI, onde
+# um banco reaproveitado pode não ter a migração nova aplicada e a suíte passar
+# inteira contra um esquema antigo. Quem quiser a conveniência em dev passa a
+# flag na linha de comando: `pytest --reuse-db`.
+addopts = "-q"
 # Avisos viram erro: uma depreciação do Django não passa despercebida. As exceções
 # são de bibliotecas de terceiros, cujo cronograma não controlamos.
 filterwarnings = [

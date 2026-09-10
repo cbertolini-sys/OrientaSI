@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
@@ -45,3 +47,11 @@ urlpatterns = [
     ),
     path("", include("apps.contas.urls")),
 ]
+
+if settings.DEBUG:
+    # Em dev sem MinIO o armazenamento cai para o `FileSystemStorage`
+    # (config/settings.py), e o Django NÃO serve MEDIA_URL sozinho: as fotos
+    # de perfil davam 404 sem explicação nenhuma. Só sob DEBUG — em produção
+    # a mídia é servida pelo S3, e `static()` devolve lista vazia de qualquer
+    # forma.
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

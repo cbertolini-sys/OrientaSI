@@ -10,6 +10,10 @@ Idioma oficial do projeto: **Português (pt-br)**.
 
 Todos os comandos devem rodar via container Docker:
 
+* **Preparar o `.env` (uma vez, num clone novo):** `cp .env.example .env` —
+  os serviços declaram `env_file: .env`, então num clone limpo o `docker
+  compose up -d` falha antes de subir qualquer container. Não repita o comando
+  num ambiente já configurado: ele sobrescreve o `.env` existente.
 * **Subir ambiente:** `docker compose up -d` (inclui `web`, `db`, `redis`,
   `celery_worker`, `minio` e o auxiliar `tailwind`, que compila o CSS em modo
   `--watch`; nenhum desses serviços está atrás de `profiles`, então este único

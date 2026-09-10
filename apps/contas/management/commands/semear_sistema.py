@@ -1,9 +1,11 @@
 import secrets
 
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import IntegrityError, transaction
 
 from apps.contas.models import Usuario
+from apps.contas.validators import valida_cpf
 
 
 class Command(BaseCommand):
@@ -90,6 +92,22 @@ class Command(BaseCommand):
             self.stdout.write(f"Conta SUGRAD já existe: {sugrad.email}")
 
     def _semear_coordenador(self, opcoes):
+        # `valida_cpf` está declarado em `Usuario.cpf.validators`, mas um
+        # validator de model só roda em `full_clean()` — e nem
+        # `Usuario.objects.create()` nem `GerenciadorUsuario._criar` chamam
+        # `full_clean`. Resultado (achado da revisão final): o CPF nunca era
+        # verificado por este comando, e o `README.md` mandava semear com
+        # `--cpf-coordenador 00000000000`, que é uma das
+        # `SEQUENCIAS_INVALIDAS` do próprio validator — o primeiro
+        # coordenador do sistema nascia com CPF inválido, seguindo a
+        # documentação. A validação é chamada explicitamente aqui, antes de
+        # qualquer escrita, e a mensagem sai limpa no terminal.
+        cpf = opcoes["cpf_coordenador"].strip()
+        try:
+            valida_cpf(cpf)
+        except ValidationError as erro:
+            raise CommandError(f"CPF do coordenador inválido: {erro.messages[0]}") from erro
+
         # E-mail é a chave natural de login: normalizamos e buscamos por
         # `__iexact`, como `services.convidar` e
         # `GerenciadorUsuario.get_by_natural_key` já fazem em todo o projeto
@@ -128,7 +146,7 @@ class Command(BaseCommand):
             coordenadora = Usuario.objects.create(
                 email=email,
                 nome_completo=opcoes["nome_coordenador"],
-                cpf=opcoes["cpf_coordenador"],
+                cpf=cpf,
                 papel=Usuario.PROFESSOR,
                 password="",
             )

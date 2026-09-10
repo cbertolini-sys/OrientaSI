@@ -30,6 +30,14 @@ def test_claude_md_registra_os_comandos_reais():
         assert comando in CLAUDE
 
 
+def test_claude_md_manda_preparar_o_env_antes_de_subir():
+    """Os serviços do docker-compose.yml declaram `env_file: .env`, e o `.env`
+    não é versionado: num clone limpo, `docker compose up -d` falha antes de
+    subir qualquer container. O README.md já trazia o `cp .env.example .env`;
+    o CLAUDE.md, não (achado da revisão final)."""
+    assert "cp .env.example .env" in CLAUDE
+
+
 def test_claude_md_nao_manda_subir_com_profile_inexistente():
     """T4 removeu `profiles: [dev]` do serviço `tailwind` porque o comando
     oficial (`docker compose up -d`) não subia esse profile e a página era

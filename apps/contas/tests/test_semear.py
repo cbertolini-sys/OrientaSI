@@ -1,8 +1,14 @@
+import re
+from pathlib import Path
+
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
 from apps.contas.models import Usuario
+from apps.contas.validators import valida_cpf
+
+RAIZ = Path(__file__).resolve().parents[3]
 
 ARGUMENTOS = [
     "--email-coordenador",
@@ -149,3 +155,38 @@ def test_semear_converte_integrity_error_em_command_error():
 
     # Atômico: nem a SUGRAD deveria ter sobrado, já que o comando falhou.
     assert not Usuario.objects.filter(papel=Usuario.SUGRAD).exists()
+
+
+@pytest.mark.django_db
+def test_semear_recusa_cpf_invalido():
+    """`valida_cpf` está declarado em `Usuario.cpf.validators`, mas validator
+    de model só roda em `full_clean()` — que nem `Usuario.objects.create()`
+    nem `GerenciadorUsuario._criar` chamam. O comando não conferia nada, e o
+    README mandava semear com `00000000000`, uma das `SEQUENCIAS_INVALIDAS`
+    do próprio validator: o primeiro coordenador do sistema nascia com CPF
+    inválido, seguindo a documentação (achado da revisão final)."""
+    argumentos = [
+        "--email-coordenador",
+        "coord@ufsm.br",
+        "--nome-coordenador",
+        "Coordenação do Curso",
+        "--cpf-coordenador",
+        "00000000000",
+        "--email-sugrad",
+        "sugrad@ufsm.br",
+    ]
+
+    with pytest.raises(CommandError) as erro:
+        call_command("semear_sistema", *argumentos)
+
+    assert "CPF" in str(erro.value)
+    # Atômico e cedo: nem a conta da SUGRAD chega a ser criada.
+    assert not Usuario.objects.exists()
+
+
+def test_readme_documenta_um_cpf_valido():
+    """O exemplo do README é copiado e colado por quem instala o sistema — se
+    ele traz um CPF que o validator recusa, a primeira instalação falha."""
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    cpf = re.search(r"--cpf-coordenador (\d+)", readme).group(1)
+    valida_cpf(cpf)

@@ -175,8 +175,19 @@ class Convite(models.Model):
     PAPEIS_CONVIDAVEIS = [(Usuario.ALUNO, "Aluno"), (Usuario.PROFESSOR, "Professor")]
 
     # Índice porque o serviço filtra por e-mail a cada convite novo (checagem
-    # de conta e de convite ativo) — sem índice, essa consulta varre a tabela
-    # inteira a cada convidar().
+    # de convite ativo) — sem índice, essa consulta varre a tabela inteira a
+    # cada convidar().
+    #
+    # O comentário original desta linha estava factualmente errado, e o erro
+    # custou uma migração (0005): ele afirmava que o índice servia a uma
+    # consulta que na época era `email__iexact`, e um índice B-tree simples
+    # NÃO é usado por `email__iexact` — o Postgres traduz isso para
+    # `UPPER("email") = UPPER(%s)`, que só um índice funcional sobre
+    # `UPPER(email)` atenderia. A correção (revisão final) foi na consulta,
+    # não no índice: `services.convidar` já normaliza o e-mail para
+    # minúsculas antes de gravar, e o sinal `normaliza_email_do_usuario`
+    # (signals.py) garante o mesmo para `Usuario.email`, então a busca pode
+    # ser por igualdade exata — que é exatamente o que este índice serve.
     email = models.EmailField("e-mail", db_index=True)
     papel = models.CharField("papel", max_length=10, choices=PAPEIS_CONVIDAVEIS)
     # Guardamos o hash, nunca o token em claro: se o banco vazar, os convites

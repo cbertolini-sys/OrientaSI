@@ -11,7 +11,7 @@ docker compose exec web python manage.py migrate
 docker compose exec web python manage.py semear_sistema \
   --email-coordenador coordenacao@ufsm.br \
   --nome-coordenador "Coordenação do Curso" \
-  --cpf-coordenador 00000000000 \
+  --cpf-coordenador 39053344705 \
   --email-sugrad sugrad@ufsm.br
 ```
 

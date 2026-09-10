@@ -82,7 +82,12 @@ def test_campos_tem_autocomplete_para_wcag_1_3_5():
 
     assert formulario.fields["nome_completo"].widget.attrs["autocomplete"] == "name"
     assert formulario.fields["telefone"].widget.attrs["autocomplete"] == "tel"
-    assert formulario.fields["foto"].widget.attrs["autocomplete"] == "photo"
+    # A foto NÃO tem autocomplete, e isso é a asserção (revisão final): a
+    # lista de "input purposes" do WCAG 2.1 não tem token para upload de
+    # arquivo, e "photo" não é token do WHATWG — era atributo inválido,
+    # contra o próprio critério 1.3.5 que este teste defende. Este teste
+    # afirmava o contrário e por isso preservava o engano.
+    assert "autocomplete" not in formulario.fields["foto"].widget.attrs
     assert formulario.fields["senha"].widget.attrs["autocomplete"] == "new-password"
     assert formulario.fields["senha_confirmacao"].widget.attrs["autocomplete"] == "new-password"
 
@@ -102,3 +107,37 @@ def test_texto_de_ajuda_e_referenciado_por_aria_describedby():
     formulario = FormularioAlunoConvidado()
 
     assert formulario.fields["cpf"].widget.attrs["aria-describedby"] == "ajuda-cpf"
+
+
+@pytest.mark.django_db
+def test_senha_parecida_com_o_nome_e_recusada():
+    """`validate_password(senha)` era chamado sem o argumento `user` (achado
+    da revisão final), o que deixa o `UserAttributeSimilarityValidator`
+    inerte: qualquer pessoa podia usar o próprio nome como senha. O
+    formulário monta um `Usuario` NÃO SALVO com o nome digitado e o e-mail do
+    convite só para essa comparação."""
+    dados = {
+        **DADOS_BASE,
+        "nome_completo": "Ana Silva",
+        "senha": "anasilva1",
+        "senha_confirmacao": "anasilva1",
+        "matricula": "202400001",
+    }
+    formulario = FormularioAlunoConvidado(dados, email="ana.silva@ufsm.br")
+
+    assert not formulario.is_valid()
+    assert any("parecida" in str(erro) for erro in formulario.errors["__all__"])
+
+
+@pytest.mark.django_db
+def test_senha_parecida_com_o_email_do_convite_e_recusada():
+    dados = {
+        **DADOS_BASE,
+        "senha": "fulanodetal2026",
+        "senha_confirmacao": "fulanodetal2026",
+        "matricula": "202400002",
+    }
+    formulario = FormularioAlunoConvidado(dados, email="fulanodetal@ufsm.br")
+
+    assert not formulario.is_valid()
+    assert any("parecida" in str(erro) for erro in formulario.errors["__all__"])
