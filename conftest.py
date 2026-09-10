@@ -1,6 +1,8 @@
 import hashlib
 import importlib
 import os
+from collections.abc import Callable
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
@@ -159,24 +161,102 @@ def autentica_no_navegador(page, live_server):
     return _autentica
 
 
+@dataclass(frozen=True)
+class Rota:
+    """Uma rota submetida às quatro verificações transversais.
+
+    `fabrica_usuario` é o que permite cobrir tela autenticada sem duplicar a suíte:
+    quando presente, a fixture `rota` autentica no navegador antes de medir. `h1` é a
+    âncora de identidade — sem ela, uma rota quebrada passa medindo a tela de login,
+    defeito que este projeto já teve duas vezes (ver `apps/contas/tests/
+    test_perfil_acessibilidade.py` e `test_coordenacao_acessibilidade.py`, cujas
+    suítes duplicadas nasceram exatamente deste problema antes desta generalização).
+    """
+
+    caminho: str
+    seletor: str
+    fabrica_usuario: Callable | None = None
+    h1: str | None = None
+
+
+def cria_professor_para_rotas():
+    """Fábrica de `/perfil/`: professor com `PerfilProfessor` e ao menos uma
+    `Area` cadastrada, para a suíte medir a variante do formulário que traz o
+    `<fieldset>`/`<legend>` do grupo de áreas (ver
+    apps/contas/tests/test_perfil_acessibilidade.py)."""
+    from apps.contas.models import Area, PerfilProfessor, Usuario
+
+    usuario = Usuario.objects.create_user(
+        email="professor-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Professor das Rotas",
+        cpf="98765432100",
+    )
+    PerfilProfessor.objects.create(usuario=usuario, siape="1000001")
+    Area.objects.create(nome="Área das Rotas")
+    return usuario
+
+
+def cria_coordenador_para_rotas():
+    """Fábrica de `/painel/`: professor promovido a coordenador (ver
+    apps/contas/tests/test_coordenacao_acessibilidade.py)."""
+    from apps.contas.models import Usuario
+
+    return Usuario.objects.create_user(
+        email="coordenador-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Coordenador das Rotas",
+        cpf="12345678909",
+        is_coordenador=True,
+        is_staff=True,
+    )
+
+
+def cria_aluno_para_rotas():
+    """Aluno com `PerfilAluno`, para as telas autenticadas de aluno que as
+    tarefas seguintes do Bloco B (candidatura, mural) vão acrescentar a `ROTAS`."""
+    from apps.contas.models import PerfilAluno, Usuario
+
+    usuario = Usuario.objects.create_user(
+        email="aluno-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno das Rotas",
+        cpf="11144477735",
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=usuario, matricula="202399999")
+    return usuario
+
+
 # Lista única de rotas submetidas à suíte de acessibilidade, toque, responsividade
 # e teclado (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py). Acrescentar uma rota aqui é o que submete uma página nova às
-# quatro verificações de uma vez — toda tarefa que criar uma página pública nova
-# acrescenta sua rota a esta lista (spec §10.1).
+# quatro verificações de uma vez — toda tarefa que criar uma página nova (pública
+# ou autenticada, via `fabrica_usuario`) acrescenta sua rota a esta lista (spec §10.1).
 ROTAS = [
-    "/",
-    "/convite/rota-para-teste-de-acessibilidade/",
-    "/contas/login/",
-    "/contas/password_reset/",
+    Rota("/", "h1"),
+    Rota("/convite/rota-para-teste-de-acessibilidade/", "form"),
+    Rota("/contas/login/", "form"),
+    Rota("/contas/password_reset/", "form"),
     # done/complete são páginas estáticas (sem formulário, sem estado) —
     # cobertura de graça, sem precisar de fixture nenhuma. password_reset_confirm
     # fica de fora: exige um uidb64/token real e válido, que só existe depois de
     # um fluxo de recuperação de senha de verdade (ver
     # apps/contas/tests/test_autenticacao.py,
     # test_fluxo_completo_de_recuperacao_de_senha_ate_novo_login).
-    "/contas/password_reset/concluido/",
-    "/contas/reset/concluido/",
+    Rota("/contas/password_reset/concluido/", "h1"),
+    Rota("/contas/reset/concluido/", "h1"),
+    # As duas rotas abaixo substituem as suítes que viviam inteiras em
+    # apps/contas/tests/test_perfil_acessibilidade.py e
+    # test_coordenacao_acessibilidade.py (T1 do Bloco B): eram cópias dos
+    # mesmos cinco corpos de teste desta suíte, só que autenticadas na mão.
+    Rota("/perfil/", "form", fabrica_usuario=cria_professor_para_rotas, h1="Meu perfil"),
+    Rota(
+        "/painel/",
+        "form",
+        fabrica_usuario=cria_coordenador_para_rotas,
+        h1="Painel da coordenação",
+    ),
 ]
 
 
@@ -207,25 +287,25 @@ def convite_das_rotas(db):
     )
 
 
-@pytest.fixture(params=ROTAS)
-def rota(request, convite_das_rotas):
-    return request.param
+@pytest.fixture(params=ROTAS, ids=lambda r: r.caminho)
+def rota(request, convite_das_rotas, page, live_server, autentica_no_navegador):
+    """Devolve a rota já aberta no navegador, autenticada quando ela exige.
 
-
-# Seletor presente só na página certa de cada rota, usado por
-# tests/test_rotas.py para provar que uma rota quebrada (ex.: caiu para 404
-# porque a fixture parou de semear o convite, ou o token mudou) reprova a
-# suíte em vez de continuar verde medindo a página de erro por engano.
-SELETOR_POR_ROTA = {
-    "/": "h1",
-    "/convite/rota-para-teste-de-acessibilidade/": "form",
-    "/contas/login/": "form",
-    "/contas/password_reset/": "form",
-    "/contas/password_reset/concluido/": "h1",
-    "/contas/reset/concluido/": "h1",
-}
-
-
-@pytest.fixture
-def seletor_da_rota(rota):
-    return SELETOR_POR_ROTA[rota]
+    A checagem de âncora (URL final + texto do `<h1>`) roda uma única vez aqui, no
+    viewport padrão — ela prova qual página está aberta, não como ela se comporta em
+    cada largura. Os testes de toque e responsividade mudam a largura e chamam
+    `page.reload()` por conta própria: se a fixture recarregasse, a largura que o
+    teste definiu se perderia.
+    """
+    r = request.param
+    if r.fabrica_usuario is not None:
+        autentica_no_navegador(r.fabrica_usuario())
+    page.goto(f"{live_server.url}{r.caminho}")
+    if r.h1:
+        texto = page.inner_text("h1")
+        assert r.h1 in texto, (
+            f"{r.caminho} deveria mostrar <h1> com {r.h1!r}, e mostrou {texto!r}. "
+            "A suíte pode estar medindo a página errada (ex.: um redirecionamento "
+            "para o login que a autenticação não pegou)."
+        )
+    return r

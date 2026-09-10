@@ -1,23 +1,21 @@
-"""Suíte de acessibilidade do painel da coordenação (T11), que exige
-autenticação como coordenador(a) — mesmo padrão de
-`apps/contas/tests/test_perfil_acessibilidade.py` (T10), incluindo a âncora
-de identidade.
+"""`/painel/` entrou em `ROTAS` (conftest.py) como rota autenticada (T1 do
+Bloco B) — a fixture `rota` autentica como coordenador(a) e confirma a âncora
+de identidade (URL final + `<h1>` "Painel da coordenação") antes de medir, e
+as quatro suítes transversais (`tests/test_acessibilidade.py`, `test_toque.py`,
+`test_responsivo.py`, `test_teclado.py`) cobrem `/painel/` como qualquer outra
+rota. Os seis corpos de teste que faziam essa mesma cobertura à mão foram
+removidos daqui — eram cópias literais das quatro suítes (a de toque, em
+particular, era mais estrita que a régua oficial: faltava a isenção de link
+inline em prosa de `tests/test_toque.py::_eh_link_inline_em_prosa`).
 
-`/painel/` fica de propósito FORA de `ROTAS` (conftest.py), pelo
-mesmo motivo de `/perfil/`: é uma rota atrás de `login_required`, e uma
-suíte anônima mediria só o redirecionamento para `/contas/login/`.
-
-**Âncora de identidade:** cada teste confirma a URL final e o texto do
-`<h1>` logo após o `goto`, antes de qualquer outra asserção — sem isso, a
-suíte passaria inteira medindo a tela de login (já provado duas vezes neste
-projeto, ver o histórico da T8 e a docstring de test_perfil_acessibilidade.py).
-
-Duas variantes de estado são cobertas, não só a tela em repouso: com todo
-<details>/<summary> de confirmação FECHADO (estado inicial da página) e com
-um deles ABERTO (depois de um clique real via Playwright) — a confirmação
-de promover/revogar só existe dentro desse conteúdo revelado, e uma
-violação ali (rótulo, contraste, alvo de toque do botão "Confirmar...")
-não apareceria numa varredura que só olhasse o estado fechado.
+O que fica aqui é o que a rota genérica de `ROTAS` não cobre: a tela em
+repouso só mostra os `<details>/<summary>` de confirmação FECHADOS, e o
+conteúdo de confirmação de promover/revogar (rótulo, contraste, alvo de
+toque do botão "Confirmar...") só existe no DOM depois de um clique real via
+Playwright. Uma varredura que só olhasse o estado fechado nunca chegaria a
+ver esse conteúdo — por isso as duas variantes "aberta" continuam como
+testes próprios, com sua própria âncora de identidade (mesmo risco de medir
+a tela de login por engano, documentado no módulo antes desta revisão).
 """
 
 import pytest
@@ -25,7 +23,7 @@ from axe_playwright_python.sync_playwright import Axe
 from django.utils import timezone
 
 from apps.contas.models import Convite, Usuario
-from conftest import LARGURAS_TESTADAS, REGRAS_AXE, SELETOR_INTERATIVOS
+from conftest import LARGURAS_TESTADAS, REGRAS_AXE
 
 CPFS = ["52998224725", "16899535009", "11144477735", "12345678909", "98765432100"]
 
@@ -81,41 +79,15 @@ def pagina_autenticada(autentica_no_navegador, coordenadora, cenario_do_painel):
 def _confirma_que_esta_no_painel(page):
     """Âncora de identidade: sem isto, um defeito no cookie de sessão, no
     nome da sessão, no `live_server.url` ou no próprio `login_required`
-    deixaria esta suíte inteira verde medindo `/contas/login/` (mesmo risco
-    documentado em test_perfil_acessibilidade.py)."""
+    deixaria estes dois testes verdes medindo `/contas/login/` — o mesmo
+    risco que a fixture `rota` (conftest.py) neutraliza para a rota genérica
+    de `/painel/`."""
     assert page.url.endswith("/painel/"), (
         f"esperava terminar navegação em /painel/, e a URL final foi "
         f"{page.url!r} — provável redirecionamento para o login (autenticação não pegou)."
     )
     assert "Painel da coordenação" in page.inner_text("h1"), (
         f"esperava <h1> com 'Painel da coordenação', e o texto foi " f"{page.inner_text('h1')!r}."
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-def test_painel_responde_200_autenticado(pagina_autenticada, live_server):
-    resposta = pagina_autenticada.goto(f"{live_server.url}/painel/")
-    assert resposta.status == 200
-    _confirma_que_esta_no_painel(pagina_autenticada)
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
-def test_painel_nao_viola_wcag_com_confirmacoes_fechadas(pagina_autenticada, live_server, largura):
-    """Parametrizado por `LARGURAS_TESTADAS` desde a revisão 1: a 1280px a
-    tabela de convites cabe sem rolar, e uma violação como
-    scrollable-region-focusable (WCAG 2.1.1) só se manifesta quando o
-    contêiner `overflow-x: auto` realmente estoura, o que só acontece a
-    360px. Rodar só no viewport padrão do Playwright deixava esse achado
-    (corrigido em `_lista_convites.html`) invisível para esta suíte."""
-    pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
-    pagina_autenticada.goto(f"{live_server.url}/painel/")
-    _confirma_que_esta_no_painel(pagina_autenticada)
-    resultados = Axe().run(pagina_autenticada, options=REGRAS_AXE)
-    assert resultados.violations_count == 0, (
-        f"/painel/ a {largura}px viola {resultados.violations_count} regra(s) WCAG 2.1 A/AA "
-        f"(regra, seletor e trecho do HTML abaixo — corrija o template ou o CSS):\n"
-        f"{resultados.generate_report()}"
     )
 
 
@@ -153,58 +125,4 @@ def test_painel_nao_viola_wcag_com_confirmacao_de_promover_aberta(
         f"/painel/ a {largura}px (confirmação de promover aberta) viola "
         f"{resultados.violations_count} regra(s) WCAG 2.1 A/AA:\n"
         f"{resultados.generate_report()}"
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-def test_painel_tem_exatamente_um_h1_visivel(pagina_autenticada, live_server):
-    pagina_autenticada.goto(f"{live_server.url}/painel/")
-    _confirma_que_esta_no_painel(pagina_autenticada)
-    h1s = [h for h in pagina_autenticada.query_selector_all("h1") if h.is_visible()]
-    assert len(h1s) == 1, f"/painel/ deveria ter exatamente um <h1> visível, e tem {len(h1s)}."
-
-
-@pytest.mark.django_db(transaction=True)
-def test_primeira_tabulacao_alcanca_o_link_de_pular(pagina_autenticada, live_server):
-    pagina_autenticada.goto(f"{live_server.url}/painel/")
-    _confirma_que_esta_no_painel(pagina_autenticada)
-    pagina_autenticada.keyboard.press("Tab")
-    focado = pagina_autenticada.evaluate("document.activeElement.getAttribute('href')")
-    assert focado == "#conteudo", (
-        f'Em /painel/, a primeira tabulação deveria alcançar o link "Pular '
-        f'para o conteúdo", e alcançou {focado!r}.'
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
-def test_alvos_de_toque_tem_ao_menos_44px(pagina_autenticada, live_server, largura):
-    pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
-    pagina_autenticada.goto(f"{live_server.url}/painel/")
-    _confirma_que_esta_no_painel(pagina_autenticada)
-    pequenos = []
-    for elemento in pagina_autenticada.query_selector_all(SELETOR_INTERATIVOS):
-        if not elemento.is_visible():
-            continue
-        caixa = elemento.bounding_box()
-        if caixa and (caixa["width"] < 44 or caixa["height"] < 44):
-            pequenos.append(
-                f'{elemento.evaluate("e => e.outerHTML.slice(0, 90)")} '
-                f'({caixa["width"]:.0f}x{caixa["height"]:.0f})'
-            )
-    assert (
-        not pequenos
-    ), f"Alvos menores que 44x44px em /painel/ a {largura}px de largura:\n" + "\n".join(pequenos)
-
-
-@pytest.mark.django_db(transaction=True)
-def test_sem_rolagem_horizontal_em_360px(pagina_autenticada, live_server):
-    pagina_autenticada.set_viewport_size({"width": 360, "height": 800})
-    pagina_autenticada.goto(f"{live_server.url}/painel/")
-    _confirma_que_esta_no_painel(pagina_autenticada)
-    largura_conteudo = pagina_autenticada.evaluate("document.documentElement.scrollWidth")
-    largura_janela = pagina_autenticada.evaluate("document.documentElement.clientWidth")
-    assert largura_conteudo <= largura_janela + 1, (
-        f"/painel/ rola horizontalmente a 360px: conteúdo {largura_conteudo}px "
-        f"em janela de {largura_janela}px."
     )

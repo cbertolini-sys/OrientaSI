@@ -41,9 +41,12 @@ def _eh_link_inline_em_prosa(elemento):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
-def test_alvos_de_toque_tem_ao_menos_44px(page, live_server, rota, largura):
+def test_alvos_de_toque_tem_ao_menos_44px(page, rota, largura):
+    # `rota` já abriu a página (e autenticou, quando a rota exige); só falta
+    # medir na largura pedida — `page.reload()`, não um novo `goto` (ver
+    # docstring de `rota` em conftest.py).
     page.set_viewport_size({"width": largura, "height": 800})
-    page.goto(f"{live_server.url}{rota}")
+    page.reload()
     pequenos = []
     for elemento in page.query_selector_all(SELETOR_INTERATIVOS):
         if not elemento.is_visible():
@@ -58,4 +61,6 @@ def test_alvos_de_toque_tem_ao_menos_44px(page, live_server, rota, largura):
             )
     assert (
         not pequenos
-    ), f"Alvos menores que 44x44px em {rota} a {largura}px de largura:\n" + "\n".join(pequenos)
+    ), f"Alvos menores que 44x44px em {rota.caminho} a {largura}px de largura:\n" + "\n".join(
+        pequenos
+    )

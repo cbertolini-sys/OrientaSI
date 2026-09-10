@@ -6,12 +6,13 @@ import pytest
 
 
 @pytest.mark.django_db(transaction=True)
-def test_primeira_tabulacao_alcanca_o_link_de_pular(page, live_server, rota):
-    page.goto(f"{live_server.url}{rota}")
+def test_primeira_tabulacao_alcanca_o_link_de_pular(page, rota):
+    # `rota` já abriu a página (e autenticou, quando a rota exige) — a
+    # primeira tabulação é medida direto na página que a fixture carregou.
     page.keyboard.press("Tab")
     focado = page.evaluate("document.activeElement.getAttribute('href')")
     assert focado == "#conteudo", (
-        f"Em {rota}, a primeira tabulação deveria alcançar o link "
+        f"Em {rota.caminho}, a primeira tabulação deveria alcançar o link "
         f'"Pular para o conteúdo", e alcançou {focado!r}.'
     )
 

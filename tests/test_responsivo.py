@@ -13,9 +13,12 @@ import pytest
 
 
 @pytest.mark.django_db(transaction=True)
-def test_sem_rolagem_horizontal_em_360px(page, live_server, rota):
+def test_sem_rolagem_horizontal_em_360px(page, rota):
+    # `rota` já abriu a página (e autenticou, quando a rota exige); só falta
+    # medir a 360px — `page.reload()`, não um novo `goto` (ver docstring de
+    # `rota` em conftest.py).
     page.set_viewport_size({"width": 360, "height": 800})
-    page.goto(f"{live_server.url}{rota}")
+    page.reload()
     largura_conteudo = page.evaluate("document.documentElement.scrollWidth")
     largura_janela = page.evaluate("document.documentElement.clientWidth")
 
@@ -51,6 +54,6 @@ def test_sem_rolagem_horizontal_em_360px(page, live_server, rota):
         }
         """)
     pytest.fail(
-        f"{rota} rola horizontalmente a 360px: conteúdo {largura_conteudo}px em "
+        f"{rota.caminho} rola horizontalmente a 360px: conteúdo {largura_conteudo}px em "
         f"janela de {largura_janela}px. Elementos que mais estouram:\n" + "\n".join(culpados)
     )
