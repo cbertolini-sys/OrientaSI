@@ -100,12 +100,21 @@ def test_perfil_responde_200_autenticado(pagina_autenticada, live_server, papel_
 
 
 @pytest.mark.django_db(transaction=True)
-def test_perfil_nao_viola_wcag(pagina_autenticada, live_server, papel_usuario):
+@pytest.mark.parametrize("largura", LARGURAS_TESTADAS)
+def test_perfil_nao_viola_wcag(pagina_autenticada, live_server, papel_usuario, largura):
+    """Parametrizado por `LARGURAS_TESTADAS` desde a onda final: `/painel/`
+    (test_coordenacao_acessibilidade.py) e as rotas anônimas
+    (tests/test_acessibilidade.py) já varriam as duas larguras, e só `/perfil/`
+    seguia rodando no viewport padrão do Playwright (~1280px). Uma violação
+    que só existe quando um elemento estoura a 360px — como
+    scrollable-region-focusable, WCAG 2.1.1, encontrada no painel exatamente
+    assim — nunca apareceria aqui."""
+    pagina_autenticada.set_viewport_size({"width": largura, "height": 800})
     pagina_autenticada.goto(f"{live_server.url}/perfil/")
     _confirma_que_esta_no_perfil(pagina_autenticada, papel_usuario)
     resultados = Axe().run(pagina_autenticada, options=REGRAS_AXE)
     assert resultados.violations_count == 0, (
-        f"/perfil/ viola {resultados.violations_count} regra(s) WCAG 2.1 A/AA "
+        f"/perfil/ a {largura}px viola {resultados.violations_count} regra(s) WCAG 2.1 A/AA "
         f"(regra, seletor e trecho do HTML abaixo — corrija o template ou o CSS):\n"
         f"{resultados.generate_report()}"
     )

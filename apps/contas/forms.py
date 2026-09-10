@@ -54,7 +54,12 @@ class FormularioConvidado(forms.Form):
         label="Foto",
         required=False,
         validators=[valida_extensao_imagem, valida_tamanho_arquivo],
-        widget=forms.ClearableFileInput(attrs={"autocomplete": "photo"}),
+        # Sem `autocomplete`: "photo" NÃO é um token da lista de "input
+        # purposes" do WHATWG/WCAG 2.1 (critério 1.3.5), e nenhum token dessa
+        # lista serve para upload de arquivo. Era atributo inválido, contra o
+        # mesmo critério que o projeto testa. `FormularioPerfil.foto` (T10) já
+        # nascera sem ele, com esta justificativa; aqui o engano sobreviveu
+        # até a revisão final.
     )
     senha = forms.CharField(
         label="Senha",
@@ -67,7 +72,11 @@ class FormularioConvidado(forms.Form):
         strip=False,
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, email=None, **kwargs):
+        # `email` vem do convite (a pessoa não digita o próprio e-mail: ele já
+        # está no convite) e serve só para a validação de senha em `clean`,
+        # ver ali.
+        self.email_do_convite = email or ""
         super().__init__(*args, **kwargs)
         aplica_estilo(self)
         # aria-describedby do texto de ajuda é conhecido desde já (não depende de
@@ -106,7 +115,20 @@ class FormularioConvidado(forms.Form):
         if senha and confirmacao and senha != confirmacao:
             self.add_error("senha_confirmacao", "As senhas não conferem.")
         if senha:
-            validate_password(senha)
+            # `user=` não é decoração (achado da revisão final): sem ele, o
+            # `UserAttributeSimilarityValidator` de AUTH_PASSWORD_VALIDATORS
+            # fica inerte, e "Ana Silva" pode escolher a senha "anasilva1". O
+            # usuário ainda não existe neste ponto (é este formulário que o
+            # cria), então montamos uma instância NÃO SALVA só para o
+            # validador comparar os atributos — é o mesmo que o
+            # `UserCreationForm` do Django faz.
+            validate_password(
+                senha,
+                user=Usuario(
+                    email=self.email_do_convite,
+                    nome_completo=limpos.get("nome_completo", ""),
+                ),
+            )
         return limpos
 
 
@@ -199,14 +221,40 @@ class FormularioLogin(MisturaAcessibilidadeFormulario, AuthenticationForm):
 
 
 class FormularioRecuperarSenha(MisturaAcessibilidadeFormulario, PasswordResetForm):
-    """Formulário de recuperação de senha. Só corrige o rótulo do e-mail: a
-    tradução pt-br embutida no Django para este formulário usa "Email" (sem
-    hífen), inconsistente com "E-mail" usado no resto do projeto (inclusive
-    no rótulo do login, que vem do `verbose_name` do model)."""
+    """Formulário de recuperação de senha.
+
+    Corrige o rótulo do e-mail (a tradução pt-br embutida no Django para este
+    formulário usa "Email" sem hífen, inconsistente com "E-mail" no resto do
+    projeto) e desvia o envio para o Celery, ver `send_mail` abaixo.
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["email"].label = "E-mail"
+
+    def send_mail(self, *args, **kwargs):
+        """Enfileira a tarefa em vez de falar SMTP dentro da requisição.
+
+        A spec §6 lista `enviar_recuperacao_senha(usuario_id)` como uma das
+        duas tarefas Celery e a §7.6 diz "fluxo padrão do Django, com o e-mail
+        enviado por Celery" — a implementação usava o `PasswordResetView` cru,
+        com o SMTP dentro da requisição (achado da revisão final).
+
+        `PasswordResetForm.save()` chama este método uma vez para CADA conta
+        ativa com senha utilizável que casa com o e-mail informado, e não o
+        chama nenhuma vez quando não há conta — é assim que o Django não
+        revela quem tem cadastro. Sobrescrever aqui preserva essa
+        não-enumeração inteira: a resposta HTTP é idêntica nos dois casos
+        (`apps/contas/tests/test_autenticacao.py`).
+
+        Os argumentos do Django são ignorados de propósito: o único dado que a
+        tarefa precisa é o id do usuário (`contexto["user"]`), e o assunto, o
+        corpo e o token são montados no worker (`apps/contas/tasks.py`).
+        """
+        from apps.contas.tasks import enviar_recuperacao_senha
+
+        contexto = kwargs.get("context") or args[2]
+        enviar_recuperacao_senha.delay(contexto["user"].pk)
 
 
 class FormularioDefinirNovaSenha(MisturaAcessibilidadeFormulario, SetPasswordForm):

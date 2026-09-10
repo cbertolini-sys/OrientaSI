@@ -9,13 +9,19 @@
     <form method="post" class="mt-6 space-y-4" novalidate>
       {% csrf_token %}
 
-      {% if form.non_field_errors %}
-        {% comment %}
-          Mesmo padrão de aceitar_convite.html (T7): tabindex="-1" + autofocus
-          move o foco do teclado para o resumo do erro depois de um POST
-          inválido (a página recarrega inteira, não há HTMX aqui), em vez de
-          deixar o foco voltar ao topo do documento sem nenhum sinal.
-        {% endcomment %}
+      {% comment %}
+        Mesmo padrão de aceitar_convite.html (T7): tabindex="-1" + autofocus
+        move o foco do teclado para o resumo do erro depois de um POST
+        inválido (a página recarrega inteira, não há HTMX aqui), em vez de
+        deixar o foco voltar ao topo do documento sem nenhum sinal.
+
+        `form.errors`, não `form.non_field_errors` (revisão final): esta tela
+        escapava por acaso, porque "credenciais inválidas" É um erro não
+        ligado a campo. Enviar o formulário VAZIO, porém, produz só erros de
+        campo ("Este campo é obrigatório"), e o resumo não aparecia — nem o
+        foco se movia — exatamente como nas telas de recuperação de senha.
+      {% endcomment %}
+      {% if form.errors %}
         <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
           <p>Corrija os campos indicados abaixo antes de continuar.</p>
           {% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}

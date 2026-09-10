@@ -5,7 +5,19 @@ from django.conf import settings
 from django.core import mail
 from django.urls import reverse
 
+from apps.contas import tasks
 from apps.contas.models import Usuario
+
+
+@pytest.fixture(autouse=True)
+def celery_sincrono(settings):
+    """A recuperação de senha passou a enfileirar `enviar_recuperacao_senha`
+    no Celery (spec §6 e §7.6) em vez de falar SMTP dentro da requisição.
+    Sem modo síncrono, `.delay()` publicaria a mensagem no broker Redis de
+    verdade e `mail.outbox` ficaria vazio — os testes de e-mail desta suíte
+    dependem desta fixture desde a onda final. Mesmo mecanismo que a fixture
+    `envia_convite` de test_convites.py já usava para o convite."""
+    settings.CELERY_TASK_ALWAYS_EAGER = True
 
 
 @pytest.fixture
@@ -62,7 +74,11 @@ def test_fluxo_completo_de_recuperacao_de_senha_ate_novo_login(client, professor
     (onde o token sai da URL e vai para a sessão), define a nova senha e
     confirma que ela — e só ela — autentica depois."""
     client.post(reverse("password_reset"), {"email": "ana@ufsm.br"})
-    link = re.search(r"http://\S+", mail.outbox[0].body).group().replace("http://testserver", "")
+    # O link do e-mail agora é montado a partir de `settings.URL_BASE` (é a
+    # tarefa Celery que monta o contexto, fora de qualquer requisição, como o
+    # e-mail de convite já fazia) — não mais do `request.get_host()`, que
+    # produzia "testserver" sob o cliente de teste.
+    link = re.search(r"http://\S+", mail.outbox[0].body).group().replace(settings.URL_BASE, "")
 
     resposta_redirecionamento = client.get(link)
     assert resposta_redirecionamento.status_code == 302
@@ -143,3 +159,90 @@ def test_login_aceita_email_em_caixa_diferente_da_cadastrada(client):
     )
     assert resposta.status_code == 302
     assert client.session.get("_auth_user_id") is not None
+
+
+# --- Resumo de erros das telas de autenticação (achado da revisão final) ----
+
+
+def _link_de_recuperacao(client):
+    client.post(reverse("password_reset"), {"email": "ana@ufsm.br"})
+    link = re.search(r"http://\S+", mail.outbox[0].body).group().replace(settings.URL_BASE, "")
+    return client.get(link).url
+
+
+@pytest.mark.django_db
+def test_post_invalido_na_recuperacao_mostra_resumo_de_erros(client):
+    """A condição do resumo era `form.non_field_errors`, sempre vazia aqui: os
+    erros de `PasswordResetForm` são erros DE CAMPO (`email`). O resumo nunca
+    aparecia e o foco não se movia depois de um POST inválido — a correção
+    feita na T10 (perfil.html) nunca voltou para as telas da T9. Nenhuma suíte
+    fazia POST nestas rotas, que é exatamente por que o defeito sobreviveu."""
+    resposta = client.post(reverse("password_reset"), {"email": "nao-e-email"})
+    html = resposta.content.decode()
+
+    assert resposta.status_code == 200
+    assert 'id="resumo-erros"' in html
+    assert 'id="erro-email"' in html
+
+
+@pytest.mark.django_db
+def test_post_invalido_na_definicao_de_nova_senha_mostra_resumo_de_erros(client, professora):
+    """Mesmo defeito em password_reset_confirm.html: os erros de
+    `SetPasswordForm` (senhas que não conferem, senha fraca) são erros do
+    campo `new_password2`."""
+    url_definicao = _link_de_recuperacao(client)
+
+    resposta = client.post(
+        url_definicao, {"new_password1": "uma-senha-boa-123", "new_password2": "outra-senha-456"}
+    )
+    html = resposta.content.decode()
+
+    assert resposta.status_code == 200
+    assert 'id="resumo-erros"' in html
+    assert 'id="erro-new_password2"' in html
+
+
+@pytest.mark.django_db
+def test_post_vazio_no_login_mostra_resumo_de_erros(client):
+    """`login.html` escapava por acaso — credencial inválida É erro não ligado
+    a campo. O formulário VAZIO produz só erros de campo, e ali o resumo
+    também não aparecia."""
+    resposta = client.post(reverse("login"), {"username": "", "password": ""})
+    html = resposta.content.decode()
+
+    assert resposta.status_code == 200
+    assert 'id="resumo-erros"' in html
+
+
+@pytest.mark.django_db
+def test_recuperacao_de_senha_nao_fala_smtp_dentro_da_requisicao(client, professora, settings):
+    """A prova de que o envio saiu da requisição (spec §6 e §7.6): com o modo
+    síncrono DESLIGADO, a requisição só enfileira — nada é enviado enquanto o
+    worker não roda. Antes, o `PasswordResetView` cru fazia o SMTP ali mesmo:
+    servidor de e-mail lento ou fora do ar virava 500 na cara da pessoa, sem
+    repetição nenhuma."""
+    settings.CELERY_TASK_ALWAYS_EAGER = False
+    enfileirados = []
+    original = tasks.enviar_recuperacao_senha.delay
+    tasks.enviar_recuperacao_senha.delay = lambda usuario_id: enfileirados.append(usuario_id)
+    try:
+        resposta = client.post(reverse("password_reset"), {"email": "ana@ufsm.br"})
+    finally:
+        tasks.enviar_recuperacao_senha.delay = original
+
+    assert resposta.status_code == 302
+    assert enfileirados == [professora.pk]
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+def test_email_de_recuperacao_usa_o_protocolo_e_o_dominio_de_url_base(client, professora, settings):
+    """O `{{ protocol }}` do template vinha de `request.is_secure()`, que é
+    False atrás de um proxy que termina o TLS: os e-mails de um sistema
+    servido por HTTPS sairiam com link `http://`. A tarefa monta o contexto a
+    partir de `URL_BASE`, a mesma origem do e-mail de convite."""
+    settings.URL_BASE = "https://orientasi.ufsm.br"
+
+    client.post(reverse("password_reset"), {"email": "ana@ufsm.br"})
+
+    assert "https://orientasi.ufsm.br/contas/reset/" in mail.outbox[0].body
