@@ -166,24 +166,29 @@ class Rota:
     """Uma rota submetida às quatro verificações transversais.
 
     `fabrica_usuario` é o que permite cobrir tela autenticada sem duplicar a suíte:
-    quando presente, a fixture `rota` autentica no navegador antes de medir. `h1` é a
-    âncora de identidade — sem ela, uma rota quebrada passa medindo a tela de login,
-    defeito que este projeto já teve duas vezes (ver `apps/contas/tests/
-    test_perfil_acessibilidade.py` e `test_coordenacao_acessibilidade.py`, cujas
-    suítes duplicadas nasceram exatamente deste problema antes desta generalização).
+    quando presente, a fixture `rota` autentica no navegador antes de medir. `h1`,
+    junto com a própria URL final, é a âncora de identidade (confira a fixture `rota`
+    abaixo) — sem ela, uma rota quebrada passa medindo a tela de login, defeito que
+    este projeto já teve duas vezes (ver `apps/contas/tests/test_coordenacao_acessibilidade.py`,
+    cuja suíte duplicada nasceu exatamente deste problema antes desta generalização).
     """
 
     caminho: str
     seletor: str
     fabrica_usuario: Callable | None = None
     h1: str | None = None
+    # Só preenchido quando duas Rotas compartilham `caminho` (ex.: /perfil/ como
+    # professor e como aluno, HTML genuinamente diferente na mesma URL) — desambigua
+    # o id que `ids=lambda r: ...` (fixture `rota`, abaixo) gera para o pytest, que do
+    # contrário colidiria (duas entradas "/perfil/" seriam indistinguíveis nos
+    # relatórios e no -k).
+    persona: str | None = None
 
 
 def cria_professor_para_rotas():
-    """Fábrica de `/perfil/`: professor com `PerfilProfessor` e ao menos uma
-    `Area` cadastrada, para a suíte medir a variante do formulário que traz o
-    `<fieldset>`/`<legend>` do grupo de áreas (ver
-    apps/contas/tests/test_perfil_acessibilidade.py)."""
+    """Fábrica da variante professor de `/perfil/`: professor com `PerfilProfessor`
+    e ao menos uma `Area` cadastrada, para a suíte medir a variante do formulário
+    que traz o `<fieldset>`/`<legend>` do grupo de áreas."""
     from apps.contas.models import Area, PerfilProfessor, Usuario
 
     usuario = Usuario.objects.create_user(
@@ -213,8 +218,10 @@ def cria_coordenador_para_rotas():
 
 
 def cria_aluno_para_rotas():
-    """Aluno com `PerfilAluno`, para as telas autenticadas de aluno que as
-    tarefas seguintes do Bloco B (candidatura, mural) vão acrescentar a `ROTAS`."""
+    """Fábrica da variante aluno de `/perfil/` — o HTML difere de verdade da
+    variante professor (sem o `<fieldset>`/`<legend>` do grupo de áreas), por isso
+    as duas entram em `ROTAS` separadamente. Também serve às telas autenticadas de
+    aluno que as tarefas seguintes do Bloco B (candidatura, mural) vão acrescentar."""
     from apps.contas.models import PerfilAluno, Usuario
 
     usuario = Usuario.objects.create_user(
@@ -246,11 +253,27 @@ ROTAS = [
     # test_fluxo_completo_de_recuperacao_de_senha_ate_novo_login).
     Rota("/contas/password_reset/concluido/", "h1"),
     Rota("/contas/reset/concluido/", "h1"),
-    # As duas rotas abaixo substituem as suítes que viviam inteiras em
-    # apps/contas/tests/test_perfil_acessibilidade.py e
+    # As rotas abaixo substituem as suítes que viviam inteiras em
+    # apps/contas/tests/test_perfil_acessibilidade.py (removido) e
     # test_coordenacao_acessibilidade.py (T1 do Bloco B): eram cópias dos
     # mesmos cinco corpos de teste desta suíte, só que autenticadas na mão.
-    Rota("/perfil/", "form", fabrica_usuario=cria_professor_para_rotas, h1="Meu perfil"),
+    # /perfil/ entra duas vezes: o HTML da variante professor (com o
+    # <fieldset>/<legend> do grupo de áreas) difere de verdade do da variante
+    # aluno, então uma cobertura só varreria metade das personas de verdade.
+    Rota(
+        "/perfil/",
+        "form",
+        fabrica_usuario=cria_professor_para_rotas,
+        h1="Meu perfil",
+        persona="professor",
+    ),
+    Rota(
+        "/perfil/",
+        "form",
+        fabrica_usuario=cria_aluno_para_rotas,
+        h1="Meu perfil",
+        persona="aluno",
+    ),
     Rota(
         "/painel/",
         "form",
@@ -287,21 +310,37 @@ def convite_das_rotas(db):
     )
 
 
-@pytest.fixture(params=ROTAS, ids=lambda r: r.caminho)
+@pytest.fixture(params=ROTAS, ids=lambda r: f"{r.caminho}[{r.persona}]" if r.persona else r.caminho)
 def rota(request, convite_das_rotas, page, live_server, autentica_no_navegador):
     """Devolve a rota já aberta no navegador, autenticada quando ela exige.
 
-    A checagem de âncora (URL final + texto do `<h1>`) roda uma única vez aqui, no
-    viewport padrão — ela prova qual página está aberta, não como ela se comporta em
-    cada largura. Os testes de toque e responsividade mudam a largura e chamam
+    A checagem de âncora roda uma única vez aqui, no viewport padrão — ela prova qual
+    página está aberta, não como ela se comporta em cada largura. São duas asserções,
+    nesta ordem, ambas antes de qualquer outra verificação (restricoes-globais.md): a
+    URL final tem que ser exatamente a URL pedida (pega redirecionamento para o login
+    que a autenticação não conseguiu evitar) e o texto do `<h1>` tem que bater com o
+    esperado (pega a página errada que por acaso responde na mesma URL, ex.: um 404
+    customizado). Os testes de toque e responsividade mudam a largura e chamam
     `page.reload()` por conta própria: se a fixture recarregasse, a largura que o
     teste definiu se perderia.
+
+    A comparação de URL é **igualdade exata** com `live_server.url + r.caminho`, não
+    `str.endswith(r.caminho)`: `login_required` redireciona para
+    `/contas/login/?next=/painel/`, e essa URL também *termina* em `/painel/` — o
+    parâmetro `next` reproduz o caminho pedido no fim da string. Um `endswith` passaria
+    por engano exatamente no caso que existe para pegar (confirmado quebrando de
+    propósito na Tarefa 1, revisão 1 — ver relatório).
     """
     r = request.param
     if r.fabrica_usuario is not None:
         autentica_no_navegador(r.fabrica_usuario())
     page.goto(f"{live_server.url}{r.caminho}")
     if r.h1:
+        url_esperada = f"{live_server.url}{r.caminho}"
+        assert page.url == url_esperada, (
+            f"{r.caminho} deveria terminar a navegação em {url_esperada!r}, e a URL final foi "
+            f"{page.url!r} — provável redirecionamento para o login (autenticação não pegou)."
+        )
         texto = page.inner_text("h1")
         assert r.h1 in texto, (
             f"{r.caminho} deveria mostrar <h1> com {r.h1!r}, e mostrou {texto!r}. "
