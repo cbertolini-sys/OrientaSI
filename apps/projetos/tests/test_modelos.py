@@ -281,3 +281,17 @@ def test_opcao_aceita_tema_do_mesmo_professor(perfil_aluno, professor, tema):
         candidatura=candidatura, ordem=1, professor=professor, tema=tema
     )
     assert opcao.tema == tema
+
+
+@pytest.mark.django_db
+def test_opcao_aceita_ordem_maxima(perfil_aluno, professor):
+    """Caso válido no teto do intervalo: `ordem=3` é a terceira e última opção
+    permitida. Sem este teste, um CheckConstraint sobre-restritivo (por
+    exemplo `ordem__lte=2`, escrito por engano) passaria despercebido —
+    `test_opcao_recusa_ordem_fora_do_intervalo_um_a_tres` só exercita valores
+    inválidos (0 e 4), e os demais testes positivos só usam `ordem=1`."""
+    candidatura = Candidatura.objects.create(
+        aluno=perfil_aluno, status=Candidatura.EM_CURSO, opcao_atual=3, ano=2026, periodo=1
+    )
+    opcao = OpcaoCandidatura.objects.create(candidatura=candidatura, ordem=3, professor=professor)
+    assert opcao.ordem == 3

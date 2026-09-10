@@ -314,11 +314,21 @@ class OpcaoCandidatura(models.Model):
             # not permitted in this query") ao tentar aplicar a migração,
             # verificado manualmente antes de escrever este modelo. Por isso
             # essa trava é uma TRIGGER de banco, criada na migração 0002 via
-            # RunSQL (ver migrations/0002_candidatura_opcaocandidatura.py) —
-            # é a única forma de obter um IntegrityError real na linha, sem
-            # alterar a tabela de Tema (fora do escopo desta tarefa) e sem
-            # depender de clean()/formulário, que só roda quando alguém chama
-            # full_clean() explicitamente.
+            # RunSQL (ver migrations/0002_candidatura_opcaocandidatura.py) e
+            # sem depender de clean()/formulário, que só roda quando alguém
+            # chama full_clean() explicitamente.
+            #
+            # LIMITE da trigger: ela observa INSERT/UPDATE em
+            # OpcaoCandidatura, não em Tema. Um UPDATE que troque
+            # Tema.professor não é visto por ela e quebra o invariante
+            # retroativamente em toda opção já gravada apontando para aquele
+            # tema — TemaAdmin.get_readonly_fields (apps/projetos/admin.py)
+            # fecha esse caminho pelo admin, mas um UPDATE direto por SQL ou
+            # shell continua passando. Fechar de vez exigiria uma trigger
+            # espelhada em projetos_tema (revalidando as opções dependentes)
+            # ou a FK composta (tema_id, professor_id) contra um
+            # UniqueConstraint(id, professor) em Tema — nenhuma das duas
+            # implementada aqui.
         ]
 
     def __str__(self):

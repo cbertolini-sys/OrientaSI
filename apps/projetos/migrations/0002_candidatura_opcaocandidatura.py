@@ -166,19 +166,35 @@ class Migration(migrations.Migration):
         # levanta django.core.exceptions.FieldError ("Joined field references
         # are not permitted in this query") ao tentar aplicar a migração
         # (verificado manualmente: apps/projetos/models.py tem o traço dessa
-        # checagem no comentário de OpcaoCandidatura.Meta). A trigger abaixo é
-        # a forma de obter, mesmo assim, um IntegrityError real por linha,
-        # sem alterar a tabela de Tema (fora do escopo desta tarefa).
+        # checagem no comentário de OpcaoCandidatura.Meta). A trigger abaixo
+        # obtém, mesmo assim, um IntegrityError real por linha, sem alterar a
+        # tabela de Tema.
         #
-        # A trigger só compara quando NEW.tema_id IS NOT NULL: uma opção com
-        # tema nulo nunca aciona a comparação — exatamente o caso válido
-        # "aberto a temas".
+        # A cláusula WHEN filtra NEW.tema_id NULO antes de chamar a função:
+        # uma opção "aberta a temas" nunca aciona a comparação, e a função
+        # roda só quando há algo a comparar (não em todo UPDATE de
+        # OpcaoCandidatura — a Tarefa 5 vai atualizar `situacao` e
+        # `respondida_em` com frequência).
+        #
+        # LIMITE: a trigger fica em projetos_opcaocandidatura. Um UPDATE que
+        # troque Tema.professor não passa por ela e quebra o invariante
+        # retroativamente em toda opção já gravada para aquele tema, sem
+        # nada perceber. TemaAdmin.get_readonly_fields (apps/projetos/admin.py)
+        # fecha o caminho mais acessível (a edição pelo admin); um UPDATE
+        # direto por SQL ou shell continua possível. Fechar de vez exigiria
+        # uma trigger espelhada em projetos_tema (revalidando as opções
+        # dependentes) ou a FK composta (tema_id, professor_id) contra um
+        # UniqueConstraint(id, professor) em Tema — nenhuma das duas
+        # implementada aqui.
         migrations.RunSQL(
             sql="""
                 CREATE FUNCTION projetos_valida_tema_do_professor_da_opcao()
                 RETURNS trigger AS $$
                 BEGIN
-                    IF NEW.tema_id IS NOT NULL AND NEW.professor_id != (
+                    -- NEW.tema_id não pode ser nulo aqui: a cláusula WHEN do
+                    -- CREATE TRIGGER abaixo já filtrou esse caso antes de a
+                    -- função ser chamada.
+                    IF NEW.professor_id != (
                         SELECT professor_id FROM projetos_tema WHERE id = NEW.tema_id
                     ) THEN
                         RAISE EXCEPTION
@@ -194,6 +210,7 @@ class Migration(migrations.Migration):
                 CREATE TRIGGER valida_tema_do_professor_da_opcao
                     BEFORE INSERT OR UPDATE ON projetos_opcaocandidatura
                     FOR EACH ROW
+                    WHEN (NEW.tema_id IS NOT NULL)
                     EXECUTE FUNCTION projetos_valida_tema_do_professor_da_opcao();
             """,
             reverse_sql="""

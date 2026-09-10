@@ -204,6 +204,16 @@ Trava: uma `Candidatura` com status `EM_CURSO` por aluno.
 Travas: `(candidatura, ordem)` única; `ordem` entre 1 e 3; `tema` nulo ou pertencente ao
 `professor` da própria opção.
 
+**Achado da Tarefa 4, registrado para não repetir a investigação:** as duas primeiras são
+`UniqueConstraint`/`CheckConstraint` comuns, mas a terceira ("tema pertencente ao professor")
+não é expressável como `CheckConstraint` — o `CHECK` do PostgreSQL não permite join nem
+subquery contra outra tabela, e o Django recusa a tentativa (`FieldError: Joined field
+references are not permitted in this query`) ao aplicar a migração. Ela exige uma trigger de
+banco (o caminho implementado, via `RunSQL`) ou uma FK composta `(tema_id, professor_id)`
+contra um `UniqueConstraint(id, professor)` em `Tema`. Qualquer trava futura desta forma
+("campo X deve ser consistente com um campo de outra tabela") tem a mesma limitação — vale
+checar antes de especificá-la como `CheckConstraint` simples.
+
 ### 4.4 `Projeto`
 
 | campo | tipo | observações |
