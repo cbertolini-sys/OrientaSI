@@ -39,6 +39,15 @@ def meus_temas(request):
                     por=request.user,
                 )
             except ValidationError as erro:
+                # Não alcançável por ESTA tela hoje: `FormularioTema.area` já
+                # restringe o `<select>` às áreas do professor
+                # (`professor.areas.all()`), então uma área fora dessa lista
+                # é recusada antes, em `ModelChoiceField.to_python`, com a
+                # mensagem genérica do Django — nunca chega aqui (verificado
+                # rodando o teste, não só lendo o código; ver preocupação nº3
+                # do relatório da T6). Este `except` continua sendo a única
+                # reação correta se o queryset do widget for afrouxado depois
+                # (ex.: um bug que volte a `Area.objects.all()`), então fica.
                 formulario.add_error("area", erro.messages[0])
             else:
                 messages.success(request, "Tema cadastrado.")
@@ -66,3 +75,49 @@ def desativar_tema(request, tema_id):
     services.desativar_tema(tema, por=request.user)
     messages.success(request, "Tema desativado.")
     return redirect("projetos:meus_temas")
+
+
+@login_required
+def editar_tema(request, tema_id):
+    """Edita um tema do professor autenticado (acréscimo de escopo da
+    rodada de correção 1 da T6: o spec exige edição em §2 e §6, e nenhuma
+    tarefa do plano original a implementava).
+
+    Reaproveita o mesmo formulário (`FormularioTema`) do cadastro, com
+    `initial=` para pré-preencher os valores atuais — não duplica o
+    formulário.
+    """
+    tema = get_object_or_404(Tema, pk=tema_id)
+    permissions.garante(
+        permissions.pode_editar_tema(request.user, tema),
+        "Você só pode editar temas que você mesmo cadastrou.",
+    )
+    professor = tema.professor
+
+    if request.method == "POST":
+        formulario = FormularioTema(request.POST, professor=professor)
+        if formulario.is_valid():
+            try:
+                services.editar_tema(
+                    tema,
+                    area=formulario.cleaned_data["area"],
+                    titulo=formulario.cleaned_data["titulo"],
+                    descricao=formulario.cleaned_data["descricao"],
+                    por=request.user,
+                )
+            except ValidationError as erro:
+                # Mesma ressalva de `meus_temas`: não alcançável por esta
+                # tela hoje, porque `FormularioTema.area` já restringe o
+                # `<select>` às áreas do professor — fica como a reação
+                # correta se essa restrição for afrouxada depois.
+                formulario.add_error("area", erro.messages[0])
+            else:
+                messages.success(request, "Tema atualizado.")
+                return redirect("projetos:meus_temas")
+    else:
+        formulario = FormularioTema(
+            initial={"titulo": tema.titulo, "descricao": tema.descricao, "area": tema.area},
+            professor=professor,
+        )
+
+    return render(request, "projetos/editar_tema.html", {"formulario": formulario, "tema": tema})

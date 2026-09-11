@@ -185,6 +185,18 @@ Tudo em `apps/projetos/`, hoje vazia.
 | `ativo` | BooleanField | `default=True`; desativado some do mural sem apagar histórico |
 | `criado_em` | DateTimeField | `auto_now_add` |
 
+**Lacuna registrada na rodada de correção 1 da Tarefa 6, para não repetir a
+investigação:** `editar_tema` (§5) permite editar título, descrição e área mesmo depois de
+o tema já ter recebido candidatura — o spec (§2 e §6) concede a edição sem condicioná-la, e
+`OpcaoCandidatura.tema` aponta para o MESMO registro, não para uma cópia. Editar um tema
+depois que um aluno já se candidatou a ele muda a oferta debaixo de quem se candidatou: o
+título, a descrição ou a área que o aluno viu ao escolher deixam de bater com o que está
+gravado, retroativamente, sem aviso a ninguém. Inofensivo no Bloco B, onde a candidatura só
+guarda a referência; o Bloco C, que introduz prazo e cascata sobre essas opções, encosta
+diretamente nisso: **este parágrafo não decide o caso, e precisa decidir antes do Bloco C**
+— se editar um tema com candidatura pendente deve ser bloqueado, avisar o aluno, ou versionar
+o tema em vez de sobrescrevê-lo.
+
 ### 4.2 `Candidatura`
 
 Um pedido do aluno, com até três alvos.

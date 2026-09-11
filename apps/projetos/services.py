@@ -166,11 +166,16 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
 def criar_tema(professor, area, titulo, descricao, por):
     """Cadastra um `Tema` oferecido por `professor` (T6, mural do Bloco B).
 
-    `por` é quem está EXECUTANDO a ação — normalmente `professor.usuario`,
-    mas o parâmetro é separado do alvo (`professor`) pelo mesmo motivo de
-    `convidar`/`promover_a_coordenador` em `apps/contas/services.py`: a
-    permissão é checada sobre quem PEDE (`por`), não sobre o registro
-    afetado.
+    `por` é quem está EXECUTANDO a ação, e precisa ser EXATAMENTE o
+    `professor` alvo (`permissions.pode_criar_tema_para`) — ao contrário de
+    `convidar`/`promover_a_coordenador` em `apps/contas/services.py`, onde o
+    alvo é legitimamente um terceiro (quem convida não é quem se cadastra),
+    aqui o dono do tema é o próprio autor: não existe cenário em que o
+    professor A deva poder publicar um tema em nome do professor B. Uma
+    versão anterior desta função checava só `pode_criar_tema(por)` ("por é
+    UM professor?"), sem ligar `por` a `professor` — o que deixava passar
+    exatamente esse caso (achado da rodada de correção 1 da T6, reproduzido
+    e fechado por `test_professor_nao_cria_tema_em_nome_de_outro`).
 
     A área precisa estar entre as que `professor` declarou em
     `PerfilProfessor.areas` — sem essa trava, o mural (Tarefa 7) anunciaria
@@ -178,7 +183,10 @@ def criar_tema(professor, area, titulo, descricao, por):
     a área recusada, para a pessoa entender o que fazer (declarar a área no
     perfil antes, ou escolher outra já declarada).
     """
-    permissions.garante(permissions.pode_criar_tema(por), "Somente professores cadastram temas.")
+    permissions.garante(
+        permissions.pode_criar_tema_para(por, professor),
+        "Você só pode cadastrar temas em seu próprio nome.",
+    )
     if not professor.areas.filter(pk=area.pk).exists():
         raise ValidationError(
             f'Você ainda não declarou atuar em "{area.nome}". Adicione essa área ao seu '
@@ -195,11 +203,56 @@ def desativar_tema(tema, por):
     tema nunca ser removido.
 
     Só o professor que cadastrou o tema pode desativá-lo — nem outro
-    professor, nem um aluno.
+    professor, nem um aluno. A checagem vive em
+    `permissions.pode_desativar_tema` (rodada de correção 1 da T6: antes era
+    um `hasattr(...) and ...` embutido aqui, duplicando o que
+    `pode_criar_tema` já sabia fazer).
     """
     permissions.garante(
-        hasattr(por, "perfil_professor") and por.perfil_professor == tema.professor,
+        permissions.pode_desativar_tema(por, tema),
         "Você só pode desativar temas que você mesmo cadastrou.",
     )
     tema.ativo = False
     tema.save(update_fields=["ativo"])
+
+
+@transaction.atomic
+def editar_tema(tema, area, titulo, descricao, por):
+    """Edita título, descrição e área de um `tema` já cadastrado (spec §2 e
+    §6: o professor "publica, edita e desativa os próprios temas" —
+    acréscimo de escopo da rodada de correção 1 da T6; o plano original do
+    Bloco B não tinha nenhuma tarefa que implementasse edição, e o spec é
+    quem manda).
+
+    Mesma checagem de posse de `desativar_tema`
+    (`permissions.pode_editar_tema`) e mesma validação de área de
+    `criar_tema` (`tema.professor.areas`), com a mesma mensagem.
+
+    DELIBERADAMENTE sem trava para tema com candidaturas: o spec concede a
+    edição sem condicioná-la (§2, §6), e o tema é a oferta do próprio
+    professor — inventar uma restrição que o spec não pede seria regra de
+    negócio que ninguém especificou.
+
+    LACUNA REGISTRADA, não decidida aqui (spec §4.1): editar um tema que já
+    recebeu candidatura muda a oferta debaixo de quem se candidatou a ele —
+    `OpcaoCandidatura.tema` aponta para o MESMO registro, então o título, a
+    descrição ou a área que o aluno viu ao se candidatar deixam de bater com
+    o que está gravado, retroativamente, sem aviso a ninguém. Inofensivo no
+    Bloco B; o Bloco C, com prazo e cascata sobre essas opções, encosta
+    diretamente nisso e precisa decidir o que fazer (bloquear, avisar o
+    aluno, ou versionar o tema) antes de chegar lá.
+    """
+    permissions.garante(
+        permissions.pode_editar_tema(por, tema),
+        "Você só pode editar temas que você mesmo cadastrou.",
+    )
+    if not tema.professor.areas.filter(pk=area.pk).exists():
+        raise ValidationError(
+            f'Você ainda não declarou atuar em "{area.nome}". Adicione essa área ao seu '
+            "perfil antes de publicar um tema nela."
+        )
+    tema.area = area
+    tema.titulo = titulo
+    tema.descricao = descricao
+    tema.save(update_fields=["area", "titulo", "descricao"])
+    return tema

@@ -49,15 +49,30 @@
                   <span class="badge badge-neutral mt-1">Inativo</span>
                 {% endif %}
               </div>
-              {% if tema.ativo %}
-                <form method="post" action="{% url 'projetos:desativar_tema' tema.pk %}">
-                  {% csrf_token %}
-                  <button type="submit" class="btn btn-outline btn-sm">
-                    Desativar
-                    <span class="sr-only"> "{{ tema.titulo }}"</span>
-                  </button>
-                </form>
-              {% endif %}
+              <div class="flex flex-wrap gap-2">
+                {% comment %}
+                  "Editar" fica disponível mesmo para tema inativo (spec §2 e
+                  §6 concedem a edição sem condicioná-la ao estado do tema) —
+                  só "Desativar" é exclusivo do tema ainda ativo, achado de
+                  desativar duas vezes.
+                {% endcomment %}
+                <a
+                  href="{% url 'projetos:editar_tema' tema.pk %}"
+                  class="btn btn-outline btn-sm"
+                >
+                  Editar
+                  <span class="sr-only"> "{{ tema.titulo }}"</span>
+                </a>
+                {% if tema.ativo %}
+                  <form method="post" action="{% url 'projetos:desativar_tema' tema.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline btn-sm">
+                      Desativar
+                      <span class="sr-only"> "{{ tema.titulo }}"</span>
+                    </button>
+                  </form>
+                {% endif %}
+              </div>
             </div>
           </li>
         {% endfor %}

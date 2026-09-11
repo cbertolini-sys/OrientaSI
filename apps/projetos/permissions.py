@@ -19,3 +19,36 @@ def pode_criar_tema(usuario):
     `apps/contas/views.py::perfil` já teve na Fase 1.
     """
     return bool(usuario and usuario.is_authenticated and hasattr(usuario, "perfil_professor"))
+
+
+def _e_o_dono(usuario, professor):
+    """`usuario` tem `PerfilProfessor` E é exatamente o `professor` dado —
+    a checagem de posse compartilhada por criar/editar/desativar tema
+    (rodada de correção 1 da T6). `pode_criar_tema` sozinho só responde "é
+    professor?"; esta função responde "é ESTE professor?", o que faltava
+    para `criar_tema` recusar um professor A publicando em nome de um
+    professor B."""
+    return pode_criar_tema(usuario) and usuario.perfil_professor == professor
+
+
+def pode_criar_tema_para(usuario, professor):
+    """`usuario` pode cadastrar um tema em nome de `professor` — hoje,
+    somente o próprio `professor` (`usuario.perfil_professor == professor`).
+
+    Distinta de `pode_criar_tema(usuario)`, que só pergunta se `usuario` é
+    UM professor, sem ligá-lo ao alvo: sem esta função, `criar_tema`
+    aceitava `por` professor e `professor` alvo desencontrados — um
+    professor A criando um `Tema` cujo dono gravado é o professor B."""
+    return _e_o_dono(usuario, professor)
+
+
+def pode_desativar_tema(usuario, tema):
+    """Só o professor que cadastrou `tema` pode desativá-lo — nem outro
+    professor, nem um aluno."""
+    return _e_o_dono(usuario, tema.professor)
+
+
+def pode_editar_tema(usuario, tema):
+    """Mesma regra de posse de `pode_desativar_tema`: só o professor que
+    cadastrou `tema` pode editá-lo."""
+    return _e_o_dono(usuario, tema.professor)
