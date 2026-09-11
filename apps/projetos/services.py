@@ -117,10 +117,12 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     liberada do bloqueio, o PostgreSQL não dispara erro de serialização —
     porque não houve UPDATE na linha travada — e T2 segue contando com o
     snapshot que tirou no início da própria transação, anterior ao projeto
-    de T1: o teto é furado. Medido rodando o serviço real, sem mutação
-    nenhuma, só trocando o nível de isolamento da transação para REPEATABLE
-    READ: mesma falha do contraexemplo abaixo, 4 projetos onde deveria haver
-    3.
+    de T1: o teto é furado. Medido na revisão desta tarefa, rodando o serviço
+    real, sem mutação nenhuma, só trocando o nível de isolamento da transação
+    para REPEATABLE READ: mesma falha do contraexemplo abaixo, 4 projetos onde
+    deveria haver 3. Não há teste no repositório que exercite REPEATABLE READ —
+    esta medição foi feita fora da árvore, e é por isso que ela está descrita
+    aqui em vez de provada ao lado.
 
     As duas leituras (`vagas_ocupadas` e `limite_do_professor`) acontecem
     DEPOIS do `select_for_update`, de propósito: se o limite fosse lido antes
