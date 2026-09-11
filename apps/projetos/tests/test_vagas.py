@@ -1,0 +1,210 @@
+"""Testes de `apps/projetos/services.py`: contagem e limite de vagas de
+orientação (spec §3.5 e §3.6), sem concorrência — a prova de travamento sob
+concorrência real está em `test_concorrencia.py`, separada de propósito.
+"""
+
+import pytest
+from django.core.exceptions import ValidationError
+
+from apps.comum.semestre import semestre_vigente
+from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+from apps.contas.validators import _digito
+from apps.projetos import services
+from apps.projetos.models import LimiteOrientacao, Projeto, Tema
+
+ANO_VIGENTE, PERIODO_VIGENTE = semestre_vigente()
+ANO_ANTERIOR = ANO_VIGENTE - 1
+
+
+def _gera_cpf(indice):
+    base = f"{500000000 + indice:09d}"
+    d1 = _digito(base, 10)
+    d2 = _digito(base + str(d1), 11)
+    return base + str(d1) + str(d2)
+
+
+@pytest.fixture
+def professor(db):
+    usuario = Usuario.objects.create_user(
+        email="orientador.vagas@ufsm.br",
+        password="x",
+        nome_completo="Orientador Vagas",
+        cpf=_gera_cpf(0),
+    )
+    return PerfilProfessor.objects.create(usuario=usuario, siape="9990001")
+
+
+@pytest.fixture
+def coordenador(db):
+    return Usuario.objects.create_user(
+        email="coordenador.vagas@ufsm.br",
+        password="x",
+        nome_completo="Coordenadora Vagas",
+        cpf=_gera_cpf(1),
+        is_coordenador=True,
+        is_staff=True,
+    )
+
+
+@pytest.fixture
+def area(db):
+    return Area.objects.create(nome="Engenharia de Software")
+
+
+@pytest.fixture
+def tema(professor, area):
+    return Tema.objects.create(
+        professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."
+    )
+
+
+def _cria_perfil_aluno(indice):
+    usuario = Usuario.objects.create_user(
+        email=f"aluno.vagas{indice}@ufsm.br",
+        password="x",
+        nome_completo=f"Aluno Vagas {indice}",
+        papel=Usuario.ALUNO,
+        cpf=_gera_cpf(10 + indice),
+    )
+    return PerfilAluno.objects.create(usuario=usuario, matricula=f"20260{indice:05d}")
+
+
+def _cria_projeto(perfil_aluno, professor, tema, etapa, ano, periodo):
+    return Projeto.objects.create(
+        aluno=perfil_aluno.usuario,
+        orientador=professor.usuario,
+        tema=tema,
+        etapa=etapa,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ano,
+        periodo=periodo,
+    )
+
+
+@pytest.mark.django_db
+def test_vagas_ocupadas_conta_so_semestre_vigente(professor, tema):
+    """Decisão 3.5 do spec: um projeto de semestre anterior, mesmo em
+    andamento, não pesa na contagem do semestre vigente — o custo aceito e
+    registrado no spec é justamente este."""
+    aluno_antigo = _cria_perfil_aluno(1)
+    aluno_atual = _cria_perfil_aluno(2)
+    _cria_projeto(aluno_antigo, professor, tema, Projeto.TCC_I, ANO_ANTERIOR, PERIODO_VIGENTE)
+    _cria_projeto(aluno_atual, professor, tema, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE)
+
+    assert services.vagas_ocupadas(professor, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE) == 1
+
+
+@pytest.mark.django_db
+def test_vagas_ocupadas_conta_separadamente_por_etapa(professor, tema):
+    """`vagas_ocupadas` recebe `etapa` como parâmetro explícito porque o teto
+    do CLAUDE.md é por etapa (3 em TCC I e 3 em TCC II, não 3 no total) — um
+    projeto de TCC II não pode contar contra o limite de TCC I."""
+    aluno_tcc1 = _cria_perfil_aluno(3)
+    aluno_tcc2 = _cria_perfil_aluno(4)
+    _cria_projeto(aluno_tcc1, professor, tema, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE)
+    _cria_projeto(aluno_tcc2, professor, tema, Projeto.TCC_II, ANO_VIGENTE, PERIODO_VIGENTE)
+
+    assert services.vagas_ocupadas(professor, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE) == 1
+    assert services.vagas_ocupadas(professor, Projeto.TCC_II, ANO_VIGENTE, PERIODO_VIGENTE) == 1
+
+
+@pytest.mark.django_db
+def test_limite_do_professor_padrao_e_tres(professor):
+    """Sem nenhuma autorização da coordenação, o teto é o padrão do CLAUDE.md."""
+    limite = services.limite_do_professor(professor, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE)
+    assert limite == 3
+    assert limite == services.LIMITE_PADRAO_VAGAS
+
+
+@pytest.mark.django_db
+def test_limite_do_professor_respeita_limite_elevado(professor, coordenador):
+    """Decisão 3.6: a coordenação pode elevar o teto de um professor, para uma
+    etapa e semestre específicos."""
+    LimiteOrientacao.objects.create(
+        professor=professor,
+        etapa=Projeto.TCC_I,
+        ano=ANO_VIGENTE,
+        periodo=PERIODO_VIGENTE,
+        limite=5,
+        justificativa="Sobrecarga temporária autorizada.",
+        autorizado_por=coordenador,
+    )
+
+    assert services.limite_do_professor(professor, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE) == 5
+    # A autorização vale só para a etapa e o semestre gravados (spec §3.6): TCC
+    # II do mesmo professor, no mesmo semestre, continua no padrão.
+    assert (
+        services.limite_do_professor(professor, Projeto.TCC_II, ANO_VIGENTE, PERIODO_VIGENTE) == 3
+    )
+
+
+@pytest.mark.django_db
+def test_limite_revogado_nao_desfaz_projetos_mas_trava_proximo(professor, coordenador, tema):
+    """Spec §3.6: revogar a autorização não desfaz orientações já aceitas —
+    aqui simulado apagando a `LimiteOrientacao` diretamente, já que
+    `revogar_limite` é interface de uma tarefa posterior (T9) — só trava o
+    próximo aceite. Os quatro projetos abaixo foram aceitos sob um limite de 4
+    elevado pela coordenação; a autorização é então removida."""
+    limite = LimiteOrientacao.objects.create(
+        professor=professor,
+        etapa=Projeto.TCC_I,
+        ano=ANO_VIGENTE,
+        periodo=PERIODO_VIGENTE,
+        limite=4,
+        justificativa="Sobrecarga temporária autorizada.",
+        autorizado_por=coordenador,
+    )
+    for indice in range(5, 9):
+        _cria_projeto(
+            _cria_perfil_aluno(indice), professor, tema, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE
+        )
+    assert services.vagas_ocupadas(professor, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE) == 4
+
+    limite.delete()
+
+    # Os quatro projetos continuam de pé.
+    assert services.vagas_ocupadas(professor, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE) == 4
+    # Mas o teto voltou ao padrão, então o próximo aceite é recusado.
+    assert services.limite_do_professor(professor, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE) == 3
+    proximo_aluno = _cria_perfil_aluno(9)
+    with pytest.raises(ValidationError):
+        services.criar_projeto_sob_limite(proximo_aluno, professor, tema, Projeto.TCC_I)
+
+
+@pytest.mark.django_db
+def test_criar_projeto_sob_limite_cria_quando_ha_vaga(professor, tema):
+    perfil_aluno = _cria_perfil_aluno(20)
+
+    projeto = services.criar_projeto_sob_limite(perfil_aluno, professor, tema, Projeto.TCC_I)
+
+    assert projeto.pk is not None
+    assert projeto.aluno == perfil_aluno.usuario
+    assert projeto.orientador == professor.usuario
+    assert projeto.tema == tema
+    assert projeto.etapa == Projeto.TCC_I
+    assert projeto.status == Projeto.EM_ANDAMENTO
+    assert (projeto.ano, projeto.periodo) == (ANO_VIGENTE, PERIODO_VIGENTE)
+
+
+@pytest.mark.django_db
+def test_criar_projeto_sob_limite_recusa_quando_lotado(professor, tema):
+    for indice in range(30, 33):
+        _cria_projeto(
+            _cria_perfil_aluno(indice),
+            professor,
+            tema,
+            Projeto.TCC_I,
+            ANO_VIGENTE,
+            PERIODO_VIGENTE,
+        )
+    perfil_aluno = _cria_perfil_aluno(33)
+
+    with pytest.raises(ValidationError) as excinfo:
+        services.criar_projeto_sob_limite(perfil_aluno, professor, tema, Projeto.TCC_I)
+
+    mensagem = excinfo.value.messages[0]
+    assert professor.usuario.nome_completo in mensagem
+    assert "3 de 3" in mensagem
+    # A mensagem diz o que fazer, não só que falhou (instrução permanente do bloco).
+    assert "coordenação" in mensagem
+    assert Projeto.objects.filter(orientador=professor.usuario, etapa=Projeto.TCC_I).count() == 3
