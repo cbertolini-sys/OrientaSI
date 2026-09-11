@@ -190,7 +190,13 @@ class Rota:
 def cria_professor_para_rotas():
     """Fábrica da variante professor de `/perfil/`: professor com `PerfilProfessor`
     e ao menos uma `Area` cadastrada, para a suíte medir a variante do formulário
-    que traz o `<fieldset>`/`<legend>` do grupo de áreas."""
+    que traz o `<fieldset>`/`<legend>` do grupo de áreas.
+
+    A área criada é também ASSOCIADA ao professor (`perfil.areas.add`, T6):
+    sem isso, o professor desta fábrica não declara nenhuma área de atuação, e
+    `/temas/meus/` (T6) — cujo campo `area` só lista as áreas que o professor
+    declarou — mediria um `<select>` vazio, uma página degenerada em vez da
+    tela real."""
     from apps.contas.models import Area, PerfilProfessor, Usuario
 
     usuario = Usuario.objects.create_user(
@@ -199,8 +205,9 @@ def cria_professor_para_rotas():
         nome_completo="Professor das Rotas",
         cpf="98765432100",
     )
-    PerfilProfessor.objects.create(usuario=usuario, siape="1000001")
-    Area.objects.create(nome="Área das Rotas")
+    perfil = PerfilProfessor.objects.create(usuario=usuario, siape="1000001")
+    area = Area.objects.create(nome="Área das Rotas")
+    perfil.areas.add(area)
     return usuario
 
 
@@ -282,6 +289,7 @@ ROTAS = [
         fabrica_usuario=cria_coordenador_para_rotas,
         h1="Painel da coordenação",
     ),
+    Rota("/temas/meus/", "form", fabrica_usuario=cria_professor_para_rotas, h1="Meus temas"),
 ]
 
 

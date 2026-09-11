@@ -46,6 +46,7 @@ urlpatterns = [
         name="password_reset_complete",
     ),
     path("", include("apps.contas.urls")),
+    path("", include("apps.projetos.urls")),
 ]
 
 if settings.DEBUG:

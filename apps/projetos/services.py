@@ -3,7 +3,8 @@ from django.db import transaction
 
 from apps.comum.semestre import semestre_vigente
 from apps.contas.models import PerfilProfessor
-from apps.projetos.models import LimiteOrientacao, Projeto
+from apps.projetos import permissions
+from apps.projetos.models import LimiteOrientacao, Projeto, Tema
 
 # Teto padrão de vagas por professor, por etapa, no semestre vigente
 # (CLAUDE.md, "Regras de Negócio Inegociáveis" item 1). A coordenação pode
@@ -159,3 +160,46 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
         ano=ano,
         periodo=periodo,
     )
+
+
+@transaction.atomic
+def criar_tema(professor, area, titulo, descricao, por):
+    """Cadastra um `Tema` oferecido por `professor` (T6, mural do Bloco B).
+
+    `por` é quem está EXECUTANDO a ação — normalmente `professor.usuario`,
+    mas o parâmetro é separado do alvo (`professor`) pelo mesmo motivo de
+    `convidar`/`promover_a_coordenador` em `apps/contas/services.py`: a
+    permissão é checada sobre quem PEDE (`por`), não sobre o registro
+    afetado.
+
+    A área precisa estar entre as que `professor` declarou em
+    `PerfilProfessor.areas` — sem essa trava, o mural (Tarefa 7) anunciaria
+    um tema numa área em que o professor não afirma atuar. A mensagem nomeia
+    a área recusada, para a pessoa entender o que fazer (declarar a área no
+    perfil antes, ou escolher outra já declarada).
+    """
+    permissions.garante(permissions.pode_criar_tema(por), "Somente professores cadastram temas.")
+    if not professor.areas.filter(pk=area.pk).exists():
+        raise ValidationError(
+            f'Você ainda não declarou atuar em "{area.nome}". Adicione essa área ao seu '
+            "perfil antes de publicar um tema nela."
+        )
+    return Tema.objects.create(professor=professor, area=area, titulo=titulo, descricao=descricao)
+
+
+@transaction.atomic
+def desativar_tema(tema, por):
+    """Desativa `tema` (`ativo = False`) sem apagá-lo: candidaturas antigas
+    que o referenciam (`OpcaoCandidatura.tema`) continuam legíveis, e o
+    `PROTECT` desse campo (apps/projetos/models.py) depende de o registro do
+    tema nunca ser removido.
+
+    Só o professor que cadastrou o tema pode desativá-lo — nem outro
+    professor, nem um aluno.
+    """
+    permissions.garante(
+        hasattr(por, "perfil_professor") and por.perfil_professor == tema.professor,
+        "Você só pode desativar temas que você mesmo cadastrou.",
+    )
+    tema.ativo = False
+    tema.save(update_fields=["ativo"])
