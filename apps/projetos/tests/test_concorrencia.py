@@ -11,22 +11,36 @@ conjunto (é um `UPDATE`). Aqui, a implementação trava a linha do
 tarefa, e por que a mutação do Passo 6 do brief foi trocada):** a primeira
 tentativa deste teste trocava o `select_for_update` da linha do professor por
 um `select_for_update` sobre os `Projeto` já existentes, como o brief original
-pedia. Rodado de verdade, ESSE TESTE NÃO REPROVAVA — porque `LimiteOrientacao`
-só aceita `limite > 3` (`CheckConstraint` em `apps/projetos/models.py`), o
-limite efetivo de qualquer professor é sempre 3 ou mais, e por isso o
-limiar (`ocupadas == limite - 1`) sempre tem PELO MENOS DOIS projetos já
-existentes. Travar esse conjunto não-vazio faz as duas transações
-concorrentes disputarem AS MESMAS linhas (os projetos que já existem) e
-serializarem por acidente: a segunda fica bloqueada até a primeira comitar, e
-quando é liberada, sua chamada a `vagas_ocupadas` roda como um SELECT novo,
-com snapshot próprio de READ COMMITTED, e enxerga o projeto recém-criado —
-então recusa corretamente, mas não porque a trava sobre `Projeto` proteja a
-inserção fantasma: só porque, neste sistema, o conjunto travado nunca está
-vazio no limiar. Um travamento assim funcionaria "por sorte" enquanto o
-limite mínimo for 3, e pararia de funcionar se um dia caísse para 1. A
-mutação que de fato reprova, verificada abaixo, é remover o travamento por
-completo — ela prova o que interessa (que a proteção existe), sem depender de
-qual das duas linhas foi escolhida para travar.
+pedia, com a contagem feita por `vagas_ocupadas` (um `.count()`, que roda como
+*statement* separado). Rodado de verdade, ESSA FORMA ESPECÍFICA NÃO REPROVAVA
+— porque `LimiteOrientacao` só aceita `limite > 3` (`CheckConstraint` em
+`apps/projetos/models.py`), o limite efetivo de qualquer professor é sempre 3
+ou mais, e por isso o limiar (`ocupadas == limite - 1`) sempre tem PELO MENOS
+DOIS projetos já existentes. Travar esse conjunto não-vazio faz as duas
+transações concorrentes disputarem AS MESMAS linhas (os projetos que já
+existem) e serializarem por acidente: a segunda fica bloqueada até a primeira
+comitar, e quando é liberada, sua chamada a `vagas_ocupadas` roda como um
+SELECT novo, com snapshot próprio de READ COMMITTED, e enxerga o projeto
+recém-criado — então recusa corretamente, mas não porque a trava sobre
+`Projeto` proteja a inserção fantasma: só porque, neste sistema, o conjunto
+travado nunca está vazio no limiar.
+
+**Isso não é o quadro completo — medido na revisão desta tarefa:** a mesma
+trava sobre `Projeto`, com a contagem tirada do PRÓPRIO queryset travado
+(`ocupadas = len(travados)`, em vez de um `.count()` à parte) **REPROVA**,
+com 4 projetos onde deveria haver 3 — a leitura fantasma que o spec §5.3
+descreve é literalmente demonstrável, e só desaparece quando a contagem vira
+um *statement* à parte que enxerga o commit alheio. Isso não enfraquece a
+escolha de travar o professor — fortalece: não é que travar `Projeto`
+"funcione por sorte" de um jeito vago que pararia de funcionar só se o limite
+mínimo caísse para 1; é que ela funciona ou não conforme um detalhe de
+escrita da contagem, a poucos caracteres de distância, sem nada no código que
+sinalize a diferença. A trava sobre o professor não tem essa fragilidade: as
+duas formas de escrever a contagem dão o resultado certo, porque a segunda
+transação nem consegue começar a ler antes de a primeira liberar a linha. A
+mutação usada abaixo para provar a necessidade de ALGUMA trava — a que de
+fato reprova de forma simples e determinística — é remover o travamento por
+completo, sem substituí-lo por nenhum outro.
 
 **Como a sobreposição é forçada, sem depender do escalonador:** ao contrário
 de um monkeypatch que atrasasse a LEITURA da contagem (tentado e descartado:

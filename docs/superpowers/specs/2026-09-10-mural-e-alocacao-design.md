@@ -106,6 +106,16 @@ libera vagas a cada virada sem ninguém precisar encerrar nada.
 **Custo aceito:** um professor com três orientandos atrasados do semestre anterior pode
 ficar com seis ativos simultâneos, que é o que o limite existe para impedir.
 
+**Lacuna registrada na rodada de correção 1 da Tarefa 5, para não repetir a
+investigação:** `vagas_ocupadas` filtra só pelo carimbo de semestre (`ano`, `periodo`),
+sem filtrar por `status`. Pela leitura literal deste parágrafo — que só fala do carimbo
+de semestre, não do status — um `Projeto` `REPROVADO` ou `CONCLUIDO` do semestre vigente
+segue ocupando vaga até a virada do semestre seguinte. Inalcançável no Bloco B, onde só
+`EM_ANDAMENTO` existe, mas o Bloco C introduz as transições de status e encosta
+diretamente nisso: **este parágrafo não decide o caso, e precisa decidir antes do
+Bloco C** — se um projeto encerrado (aprovado, reprovado ou concluído) libera a vaga
+imediatamente ou só na virada do semestre.
+
 **Recusada:** contar toda orientação ativa independentemente do semestre de início — mais
 fiel à carga de trabalho real, mas exigiria que alguém encerrasse vínculos para liberar
 vaga.

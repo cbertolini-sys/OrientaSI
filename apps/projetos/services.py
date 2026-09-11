@@ -19,6 +19,12 @@ def vagas_ocupadas(professor, etapa, ano, periodo):
     andamento, não pesa: essa é a decisão registrada no spec, com o custo
     aceito de um professor atrasado poder acumular mais orientandos ativos do
     que o teto permitiria contar de uma vez.
+
+    Conta por SEMESTRE, não por `status`: um `Projeto` `REPROVADO` ou
+    `CONCLUIDO` do semestre vigente ainda entra nesta contagem, porque o
+    filtro abaixo não olha `status`. Inalcançável no Bloco B (só
+    `EM_ANDAMENTO` existe até aqui), mas é uma decisão pendente do spec —
+    registrada em §3.5 — para quando o Bloco C trouxer as demais transições.
     """
     return Projeto.objects.filter(
         orientador=professor.usuario, etapa=etapa, ano=ano, periodo=periodo
@@ -36,7 +42,12 @@ def limite_do_professor(professor, etapa, ano, periodo):
         .values_list("limite", flat=True)
         .first()
     )
-    return autorizado or LIMITE_PADRAO_VAGAS
+    # `is not None`, não `or`: `or` trataria um `limite` de 0 como "sem
+    # autorização" e cairia no padrão. Hoje o `CheckConstraint(limite__gt=3)`
+    # de `LimiteOrientacao` impede que 0 seja gravado, então esse caminho é
+    # inalcançável — mas a função não deveria depender dessa constraint para
+    # dizer o que "ausência de autorização" significa.
+    return autorizado if autorizado is not None else LIMITE_PADRAO_VAGAS
 
 
 @transaction.atomic
@@ -60,15 +71,25 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     `Projeto`, por três motivos que sobrevivem além do estado atual dos
     dados:
 
-    1. Não depende de o conjunto de `Projeto` no limiar ser não-vazio. Neste
-       sistema, hoje, o limiar (`ocupadas == limite - 1`) sempre tem pelo
-       menos dois projetos já existentes, porque `LimiteOrientacao` só
-       autoriza `limite > 3` — então travar esse conjunto não-vazio
-       acidentalmente serializa também (ver o achado registrado em
-       test_concorrencia.py). Se um dia o limite mínimo caísse para 1, ou o
-       predicado de contagem mudasse, essa trava passaria a falhar em
-       silêncio. Travar o professor não depende de nada disso: a linha do
-       professor sempre existe, com ou sem nenhum `Projeto`.
+    1. Não depende de COMO a contagem é escrita. Travar os `Projeto`
+       existentes (em vez da linha do professor) e ler a contagem num
+       `SELECT` à parte (`vagas_ocupadas` faz isso: `.count()` roda como
+       *statement* novo) FUNCIONA hoje, neste sistema — medido na revisão
+       desta tarefa: a segunda transação bloqueia nas mesmas linhas
+       pré-existentes que a primeira travou (o limiar sempre tem pelo menos
+       dois projetos já existentes, porque `LimiteOrientacao` só autoriza
+       `limite > 3`), e quando é liberada, sua *própria* chamada a
+       `vagas_ocupadas` já enxerga o commit alheio. Mas basta tirar a
+       contagem do PRÓPRIO queryset travado (`ocupadas = len(travados)`, em
+       vez de um `.count()` novo) para a mesma trava sobre `Projeto`
+       REPROVAR — medido na revisão desta tarefa, 4 projetos onde deveria
+       haver 3 (ver test_concorrencia.py). Ou seja: travar `Projeto` não
+       "funciona por sorte" de um jeito vago — funciona ou não conforme um
+       detalhe de escrita da contagem, a poucos caracteres de distância, sem
+       nada no código que sinalize a diferença para quem lê depois. Travar
+       o professor não tem essa dependência: funciona com a contagem escrita
+       de qualquer uma das duas formas, porque a segunda transação nem
+       consegue começar a ler antes de a primeira liberar a linha.
     2. Trava uma única linha, com contenção previsível, em vez de um
        conjunto que cresce a cada semestre e que outra transação também
        precisaria enumerar por inteiro para colidir.
@@ -88,6 +109,19 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     `select_for_update` — quem contornar esta função para ler ou decidir por
     conta própria não tem a garantia.
 
+    Esta garantia DEPENDE do nível de isolamento ser READ COMMITTED — o
+    padrão do PostgreSQL, e o que este projeto usa; a condição não é
+    hipotética, é a premissa em vigor. T1 trava a linha do professor mas não
+    a MODIFICA (só lê `vagas_ocupadas`/`limite_do_professor` e insere um
+    `Projeto`, que é outra tabela). Sob REPEATABLE READ, quando T2 é
+    liberada do bloqueio, o PostgreSQL não dispara erro de serialização —
+    porque não houve UPDATE na linha travada — e T2 segue contando com o
+    snapshot que tirou no início da própria transação, anterior ao projeto
+    de T1: o teto é furado. Medido rodando o serviço real, sem mutação
+    nenhuma, só trocando o nível de isolamento da transação para REPEATABLE
+    READ: mesma falha do contraexemplo abaixo, 4 projetos onde deveria haver
+    3.
+
     As duas leituras (`vagas_ocupadas` e `limite_do_professor`) acontecem
     DEPOIS do `select_for_update`, de propósito: se o limite fosse lido antes
     de travar a linha, duas transações concorrentes poderiam ler valores
@@ -106,10 +140,13 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     ocupadas = vagas_ocupadas(professor, etapa, ano, periodo)
     limite = limite_do_professor(professor, etapa, ano, periodo)
     if ocupadas >= limite:
+        # Rótulo de exibição do choice ("TCC I"), não o valor bruto gravado
+        # no banco ("TCC_I") — a mensagem é para a pessoa ler, não para logar.
+        etapa_legivel = dict(Projeto.ETAPAS).get(etapa, etapa)
         raise ValidationError(
             f"{professor.usuario.nome_completo} já tem {ocupadas} de {limite} vagas "
-            f"ocupadas em {etapa} neste semestre. Peça à coordenação para elevar o "
-            "limite, ou escolha outro orientador."
+            f"ocupadas em {etapa_legivel} neste semestre. Peça à coordenação para elevar "
+            "o limite, ou escolha outro orientador."
         )
     return Projeto.objects.create(
         aluno=aluno.usuario,

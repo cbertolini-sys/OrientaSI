@@ -207,4 +207,42 @@ def test_criar_projeto_sob_limite_recusa_quando_lotado(professor, tema):
     assert "3 de 3" in mensagem
     # A mensagem diz o que fazer, não só que falhou (instrução permanente do bloco).
     assert "coordenação" in mensagem
+    # Rótulo de exibição ("TCC I"), não o valor bruto do choice ("TCC_I") —
+    # achado da rodada de correção 1 (Menor 3).
+    assert "TCC I" in mensagem
+    assert "TCC_I" not in mensagem
     assert Projeto.objects.filter(orientador=professor.usuario, etapa=Projeto.TCC_I).count() == 3
+
+
+@pytest.mark.django_db
+def test_criar_projeto_sob_limite_cria_quarto_projeto_sob_limite_elevado(
+    professor, coordenador, tema
+):
+    """Teste de integração (achado da rodada de correção 1, Menor 5): até aqui
+    `limite_do_professor` era provado isolado, e `criar_projeto_sob_limite` só
+    com o limite padrão — o elo entre os dois (o serviço LENDO o
+    `LimiteOrientacao` dentro da trava e deixando passar o aceite que o
+    padrão recusaria) nunca era exercitado por nenhum teste."""
+    LimiteOrientacao.objects.create(
+        professor=professor,
+        etapa=Projeto.TCC_I,
+        ano=ANO_VIGENTE,
+        periodo=PERIODO_VIGENTE,
+        limite=4,
+        justificativa="Sobrecarga temporária autorizada.",
+        autorizado_por=coordenador,
+    )
+    for indice in range(40, 43):
+        _cria_projeto(
+            _cria_perfil_aluno(indice), professor, tema, Projeto.TCC_I, ANO_VIGENTE, PERIODO_VIGENTE
+        )
+
+    quarto_aluno = _cria_perfil_aluno(43)
+    quarto_projeto = services.criar_projeto_sob_limite(quarto_aluno, professor, tema, Projeto.TCC_I)
+    assert quarto_projeto.pk is not None
+    assert Projeto.objects.filter(orientador=professor.usuario, etapa=Projeto.TCC_I).count() == 4
+
+    quinto_aluno = _cria_perfil_aluno(44)
+    with pytest.raises(ValidationError) as excinfo:
+        services.criar_projeto_sob_limite(quinto_aluno, professor, tema, Projeto.TCC_I)
+    assert "4 de 4" in excinfo.value.messages[0]
