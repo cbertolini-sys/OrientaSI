@@ -355,7 +355,24 @@ def test_desativar_tema_exige_post(client, professor, area):
 
 
 @pytest.mark.django_db
-def test_desativar_tema_de_outro_professor_recebe_403(client, professor, outro_professor, area):
+def test_desativar_tema_de_outro_professor_recebe_404_nao_403(
+    client, professor, outro_professor, area
+):
+    """404, e não 403, de propósito (rodada de correção 2 da T6).
+
+    A view escopa o lookup ao professor autenticado
+    (`get_object_or_404(Tema, pk=..., professor=...)`), então tema alheio e
+    tema inexistente respondem os DOIS 404. Distinguir os dois casos —
+    403 para "existe mas não é seu", 404 para "não existe" — transformava a
+    URL num oráculo de existência: com pk sequencial, um professor podia
+    descobrir quantos temas existem sem descobrir de quem são. O que isso
+    entregava a mais que o mural (que lista só os ATIVOS) era exatamente a
+    contagem dos DESATIVADOS alheios.
+
+    O 403 não sumiu da tela: continua para quem não passa no portão de PAPEL
+    (aluno, ou PROFESSOR sem `PerfilProfessor` — ver o teste seguinte). A
+    troca é só entre 403 e 404 para quem É professor e mira um tema que não
+    é seu."""
     professor.areas.add(area)
     tema = Tema.objects.create(
         professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."
@@ -364,9 +381,31 @@ def test_desativar_tema_de_outro_professor_recebe_403(client, professor, outro_p
 
     resposta = client.post(reverse("projetos:desativar_tema", args=[tema.pk]))
 
-    assert resposta.status_code == 403
+    assert resposta.status_code == 404
     tema.refresh_from_db()
     assert tema.ativo is True
+
+
+@pytest.mark.django_db
+def test_desativar_tema_inexistente_e_alheio_respondem_o_mesmo_status(
+    client, professor, outro_professor, area
+):
+    """O oráculo só está fechado se os dois casos forem INDISTINGUÍVEIS.
+
+    Os testes acima afirmam 404 para tema alheio; este afirma que um pk que
+    não existe responde o MESMO, medido na mesma execução. Sem esta
+    comparação, uma regressão que devolvesse 403 para alheio e 404 para
+    inexistente reabriria o oráculo sem derrubar nenhum dos outros testes."""
+    professor.areas.add(area)
+    tema = Tema.objects.create(
+        professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."
+    )
+    client.force_login(outro_professor.usuario)
+
+    alheio = client.post(reverse("projetos:desativar_tema", args=[tema.pk]))
+    inexistente = client.post(reverse("projetos:desativar_tema", args=[tema.pk + 10_000]))
+
+    assert alheio.status_code == inexistente.status_code == 404
 
 
 @pytest.mark.django_db
@@ -581,6 +620,10 @@ def test_dono_edita_tema_pela_tela(client, professor, area, outra_area):
 
 @pytest.mark.django_db
 def test_outro_professor_nao_edita_tema_alheio_pela_tela(client, professor, outro_professor, area):
+    """404, e não 403 — mesmo motivo de
+    `test_desativar_tema_de_outro_professor_recebe_404_nao_403`: o lookup é
+    escopado ao professor autenticado, então "não é seu" e "não existe" são
+    indistinguíveis de fora (rodada de correção 2 da T6)."""
     professor.areas.add(area)
     tema = Tema.objects.create(
         professor=professor, area=area, titulo="Título", descricao="Descrição."
@@ -588,15 +631,18 @@ def test_outro_professor_nao_edita_tema_alheio_pela_tela(client, professor, outr
     client.force_login(outro_professor.usuario)
 
     resposta = client.get(reverse("projetos:editar_tema", args=[tema.pk]))
-    assert resposta.status_code == 403
+    assert resposta.status_code == 404
 
     resposta = client.post(
         reverse("projetos:editar_tema", args=[tema.pk]),
         {"titulo": "Adulterado", "descricao": "Adulterado.", "area": area.pk},
     )
-    assert resposta.status_code == 403
+    assert resposta.status_code == 404
     tema.refresh_from_db()
     assert tema.titulo == "Título"
+
+    inexistente = client.get(reverse("projetos:editar_tema", args=[tema.pk + 10_000]))
+    assert inexistente.status_code == resposta.status_code == 404
 
 
 @pytest.mark.django_db

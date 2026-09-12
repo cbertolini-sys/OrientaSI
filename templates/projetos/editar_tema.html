@@ -33,7 +33,17 @@
       <button type="submit" class="btn btn-primary w-full">Salvar alterações</button>
     </form>
 
-    <a href="{% url 'projetos:meus_temas' %}" class="link mt-4 inline-block">
+    {% comment %}
+      `.btn.btn-link` (não só `.link`): a regra de alvo de toque de
+      entrada.css (`a.btn { min-height: 2.75rem; min-width: 2.75rem }`) só
+      cobre âncoras com a classe `.btn` — um `<a class="link">` solto, fora
+      de um parágrafo de prosa, mede 24px de altura e reprova
+      tests/test_toque.py. Mesmo defeito já achado e corrigido em
+      templates/registration/login.html (rodada de correção 2 da T6):
+      `.btn-link` mantém a aparência de link (sem fundo, sublinhado) com a
+      caixa de um botão.
+    {% endcomment %}
+    <a href="{% url 'projetos:meus_temas' %}" class="btn btn-link mt-4 px-0">
       Voltar para meus temas
     </a>
   </article>

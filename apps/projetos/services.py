@@ -237,10 +237,12 @@ def editar_tema(tema, area, titulo, descricao, por):
     recebeu candidatura muda a oferta debaixo de quem se candidatou a ele —
     `OpcaoCandidatura.tema` aponta para o MESMO registro, então o título, a
     descrição ou a área que o aluno viu ao se candidatar deixam de bater com
-    o que está gravado, retroativamente, sem aviso a ninguém. Inofensivo no
-    Bloco B; o Bloco C, com prazo e cascata sobre essas opções, encosta
-    diretamente nisso e precisa decidir o que fazer (bloquear, avisar o
-    aluno, ou versionar o tema) antes de chegar lá.
+    o que está gravado, retroativamente, sem aviso a ninguém. No Bloco B
+    ninguém LÊ essa divergência: não há tela que mostre ao aluno o tema a que
+    ele se candidatou, e `OpcaoCandidatura` guarda só a FK `tema`, sem cópia
+    de título ou descrição para divergir dela. O Bloco C, com prazo e cascata
+    sobre essas opções, encosta diretamente nisso e precisa decidir o que
+    fazer (bloquear, avisar o aluno, ou versionar o tema) antes de chegar lá.
     """
     permissions.garante(
         permissions.pode_editar_tema(por, tema),

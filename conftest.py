@@ -2,7 +2,7 @@ import hashlib
 import importlib
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import pytest
@@ -163,7 +163,10 @@ def autentica_no_navegador(page, live_server):
 
 @dataclass(frozen=True)
 class Rota:
-    """Uma rota submetida às quatro verificações transversais.
+    """Uma rota submetida às cinco verificações transversais (axe nas duas
+    larguras, exatamente um `<h1>` visível, ausência de rolagem horizontal a
+    360px, alvo de toque nas duas larguras, e primeira tabulação no "Pular
+    para o conteúdo").
 
     `fabrica_usuario` é o que permite cobrir tela autenticada sem duplicar a suíte:
     quando presente, a fixture `rota` autentica no navegador antes de medir. `h1`,
@@ -173,9 +176,22 @@ class Rota:
     corrigida para igualdade exata `page.url == url_esperada`) e outra em
     `apps/contas/tests/test_coordenacao_acessibilidade.py::_confirma_que_esta_no_painel`
     (cuja suíte duplicada nasceu exatamente deste problema antes desta generalização).
+
+    `caminho` aceita uma STRING (rota estática) ou um CALLABLE que recebe o
+    `Usuario` devolvido por `fabrica_usuario` e retorna o caminho (rodada de
+    correção 2 da T6): uma rota com `<id>` de banco na URL — `/temas/<id>/editar/`
+    é a primeira, mas as Tarefas 8, 9 e 11 do Bloco B criam mais — não existe
+    antes de a fábrica rodar, então não cabe numa string fixa nesta lista. A
+    fixture `rota`, abaixo, resolve o callable logo após autenticar, e a
+    ÂNCORA DE IDENTIDADE (igualdade exata de URL, depois `<h1>`) continua
+    exigida do mesmo jeito sobre o caminho já resolvido — sem isso, uma rota
+    dinâmica quebrada teria a mesma brecha que a comparação por igualdade
+    exata já fecha para as estáticas (ver o parágrafo da fixture sobre
+    `endswith`). Uma Rota com `caminho` callable exige `fabrica_usuario`
+    (é dela que vem o `Usuario` usado para montar o caminho).
     """
 
-    caminho: str
+    caminho: str | Callable[[object], str]
     seletor: str
     fabrica_usuario: Callable | None = None
     h1: str | None = None
@@ -244,6 +260,39 @@ def cria_aluno_para_rotas():
     return usuario
 
 
+def cria_professor_com_tema_para_rotas():
+    """Fábrica de `/temas/<id>/editar/` (rodada de correção 2 da T6): professor
+    com `PerfilProfessor`, uma `Area` declarada, e um `Tema` seu já cadastrado
+    — o `<id>` que a rota exige na URL.
+
+    O pk do tema é anexado ao próprio `Usuario` devolvido
+    (`usuario.tema_id_para_rota`) porque a fixture `rota` só tem acesso ao que
+    `fabrica_usuario()` RETORNA — ela não pode devolver um segundo objeto
+    (tema) sem mudar o contrato de toda `ROTAS`. É esse atributo que o
+    `caminho` callable da Rota, abaixo, lê para montar `/temas/<id>/editar/`
+    depois que a fábrica já rodou."""
+    from apps.contas.models import Area, PerfilProfessor, Usuario
+    from apps.projetos.models import Tema
+
+    usuario = Usuario.objects.create_user(
+        email="professor-tema-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Professor Tema das Rotas",
+        cpf="70000000230",
+    )
+    perfil = PerfilProfessor.objects.create(usuario=usuario, siape="1000002")
+    area = Area.objects.create(nome="Área do Tema das Rotas")
+    perfil.areas.add(area)
+    tema = Tema.objects.create(
+        professor=perfil,
+        area=area,
+        titulo="Tema das Rotas",
+        descricao="Descrição do tema das rotas, para a tela de edição não ficar vazia.",
+    )
+    usuario.tema_id_para_rota = tema.pk
+    return usuario
+
+
 # Lista única de rotas submetidas à suíte de acessibilidade, toque, responsividade
 # e teclado (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py). Acrescentar uma rota aqui é o que submete uma página nova às
@@ -290,6 +339,19 @@ ROTAS = [
         h1="Painel da coordenação",
     ),
     Rota("/temas/meus/", "form", fabrica_usuario=cria_professor_para_rotas, h1="Meus temas"),
+    # Caminho dinâmico (rodada de correção 2 da T6): o <id> só existe depois
+    # de `cria_professor_com_tema_para_rotas` rodar, então `caminho` é um
+    # callable que lê `usuario.tema_id_para_rota` (ver a fábrica) em vez de
+    # uma string fixa. Substitui `apps/projetos/tests/test_temas_acessibilidade.py`
+    # (removido nesta rodada): era a cópia à mão que só rodava o axe, o
+    # mesmo padrão de cobertura incompleta que este mecanismo existe para
+    # não repetir a cada rota com <id> (Tarefas 8, 9 e 11 do Bloco B).
+    Rota(
+        lambda usuario: f"/temas/{usuario.tema_id_para_rota}/editar/",
+        "form",
+        fabrica_usuario=cria_professor_com_tema_para_rotas,
+        h1="Editar tema",
+    ),
 ]
 
 
@@ -320,7 +382,19 @@ def convite_das_rotas(db):
     )
 
 
-@pytest.fixture(params=ROTAS, ids=lambda r: f"{r.caminho}[{r.persona}]" if r.persona else r.caminho)
+def _id_da_rota(r):
+    """Nome de exibição de uma `Rota` no relatório do pytest e no `-k`.
+
+    Para `caminho` estático, a própria URL — como sempre foi. Para `caminho`
+    dinâmico (callable, rodada de correção 2 da T6: rotas com `<id>` de
+    banco), a URL só existe depois de autenticar e rodar a fábrica, então
+    usamos o `h1` esperado como nome — estável e legível, ao contrário do
+    `repr` de uma função (`<function ... at 0x...>`)."""
+    nome = r.caminho if isinstance(r.caminho, str) else (r.h1 or "rota-dinamica")
+    return f"{nome}[{r.persona}]" if r.persona else nome
+
+
+@pytest.fixture(params=ROTAS, ids=_id_da_rota)
 def rota(request, convite_das_rotas, page, live_server, autentica_no_navegador):
     """Devolve a rota já aberta no navegador, autenticada quando ela exige.
 
@@ -334,16 +408,30 @@ def rota(request, convite_das_rotas, page, live_server, autentica_no_navegador):
     `page.reload()` por conta própria: se a fixture recarregasse, a largura que o
     teste definiu se perderia.
 
-    A comparação de URL é **igualdade exata** com `live_server.url + r.caminho`, não
-    `str.endswith(r.caminho)`: `login_required` redireciona para
+    A comparação de URL é **igualdade exata** com `live_server.url + caminho`, não
+    `str.endswith(caminho)`: `login_required` redireciona para
     `/contas/login/?next=/painel/`, e essa URL também *termina* em `/painel/` — o
     parâmetro `next` reproduz o caminho pedido no fim da string. Um `endswith` passaria
     por engano exatamente no caso que existe para pegar (confirmado quebrando de
-    propósito na Tarefa 1, revisão 1 — ver relatório).
+    propósito na Tarefa 1, revisão 1 — ver relatório). Isso vale IGUAL para caminho
+    dinâmico: a igualdade exata roda sobre o caminho já resolvido, não sobre o
+    callable — nunca foi relaxada para `endswith` (rodada de correção 2 da T6).
+
+    `r.caminho` pode ser um callable (rota com `<id>` de banco — ver a
+    docstring de `Rota`); quando é, ele só é resolvido AQUI, depois que
+    `fabrica_usuario()` já rodou e devolveu o `Usuario` que o callable
+    precisa. `dataclasses.replace` devolve uma cópia da `Rota` com o campo
+    `caminho` já resolvido (string), para que os testes que recebem esta
+    fixture (`test_toque.py`, `test_responsivo.py`, `test_teclado.py`) leiam
+    `rota.caminho` como uma URL de verdade nas mensagens de falha, nunca como
+    o `repr` de uma função.
     """
     r = request.param
-    if r.fabrica_usuario is not None:
-        autentica_no_navegador(r.fabrica_usuario())
+    usuario = r.fabrica_usuario() if r.fabrica_usuario is not None else None
+    if usuario is not None:
+        autentica_no_navegador(usuario)
+    caminho = r.caminho(usuario) if callable(r.caminho) else r.caminho
+    r = replace(r, caminho=caminho)
     page.goto(f"{live_server.url}{r.caminho}")
     if r.h1:
         url_esperada = f"{live_server.url}{r.caminho}"

@@ -277,6 +277,7 @@ corrente e dos meses de corte definidos em `settings`.
 
 ```
 criar_tema(professor, area, titulo, descricao, por)      valida área ∈ professor.areas
+editar_tema(tema, area, titulo, descricao, por)          valida área ∈ professor.areas
 desativar_tema(tema, por)
 registrar_candidatura(aluno, opcoes)      → Candidatura  @atomic; dispara a 1ª opção
 aceitar_opcao(opcao, por)                 → Projeto      @atomic; revalida vaga sob trava
@@ -290,8 +291,16 @@ vagas_ocupadas(professor, etapa, ano, periodo)   → int
 limite_do_professor(professor, etapa, ano, periodo) → int
 ```
 
-`apps/projetos/permissions.py`: `pode_criar_tema`, `pode_responder_opcao`,
+`apps/projetos/permissions.py`: `pode_criar_tema`, `pode_criar_tema_para`,
+`pode_editar_tema`, `pode_desativar_tema`, `pode_responder_opcao`,
 `pode_ajustar_orientacao`, `pode_conceder_limite`.
+
+`pode_criar_tema` é permissão de **papel** (quem pede é professor com perfil); as três
+seguintes são de **posse** (o tema é de quem pede). A distinção decide a ordem nas views:
+o portão de papel roda antes de tocar `perfil_professor`, e a posse é aplicada escopando o
+próprio lookup (`get_object_or_404(Tema, pk=..., professor=...)`), para que "não é seu" e
+"não existe" respondam o mesmo 404 — sem isso a URL vira um oráculo de existência sobre
+temas desativados de outros professores, que o mural não lista.
 
 ### 5.1 Escolher um professor sem vaga
 
@@ -434,9 +443,15 @@ opções no prazo não.
 respondida, aceitar depois de o aluno cancelar, aceitar quando as vagas encheram entre o
 e-mail e o clique, conceder limite a professor que já está no teto.
 
-**As cinco rotas entram na suíte de acessibilidade** com âncora de identidade — URL e texto
+**As seis rotas entram na suíte de acessibilidade** com âncora de identidade — URL e texto
 do `<h1>` confirmados antes de qualquer outra asserção. Sem isso, uma rota quebrada passa
 medindo a tela de login, e isso já aconteceu duas vezes neste projeto.
+
+Rota com `<id>` de banco na URL (`/temas/<id>/editar/` é a primeira; as telas de resposta à
+candidatura e a do aluno também são) entra na mesma lista `ROTAS`, com `caminho` callable
+resolvido depois da fábrica — **não** em suíte própria ao lado. Uma suíte própria roda o axe
+e esquece as outras quatro verificações, e foi exatamente assim que um alvo de toque de
+24px passou despercebido numa tela nova.
 
 Valem as lições da Fase 1 que custaram rodadas de correção: `autocomplete` onde se aplica;
 `<fieldset>`/`<legend>` em grupos de opção, com teste próprio, porque o axe não detecta a
@@ -464,5 +479,5 @@ ausência; tabela em contêiner rolante **com `tabindex`**; alvo de toque medido
 12. A coordenação troca o orientador de um projeto; a vaga do professor novo é revalidada.
 13. Duas aceitações simultâneas para o mesmo professor no último lugar resultam em uma
     recusa, provado por teste com conexões reais.
-14. `docker compose exec web pytest` passa, incluindo acessibilidade nas cinco rotas novas.
+14. `docker compose exec web pytest` passa, incluindo acessibilidade nas seis rotas novas.
 15. Nenhuma das regras acima está implementada em `views.py` ou `models.py`.

@@ -67,11 +67,33 @@ def meus_temas(request):
 def desativar_tema(request, tema_id):
     """Desativa um tema do professor autenticado.
 
-    `services.desativar_tema` recusa (`PermissionDenied`, convertido em 403
-    pelo Django) quem não é o professor dono do tema — a checagem de
-    permissão fica inteira no serviço, esta view só orquestra o lookup e a
-    mensagem de resultado."""
-    tema = get_object_or_404(Tema, pk=tema_id)
+    Portão de PAPEL primeiro (`pode_criar_tema`, sem tocar
+    `perfil_professor` antes dele — mesma cautela de `meus_temas` para não
+    repetir o 500 de professor sem perfil), depois um lookup JÁ ESCOPADO ao
+    professor autenticado (`professor=request.user.perfil_professor`): tema
+    alheio e tema inexistente respondem os DOIS com 404, uniformemente
+    (rodada de correção 2 da T6).
+
+    A versão anterior buscava o tema por pk primeiro (sem escopo) e só então
+    checava posse via `services.desativar_tema` — que levanta
+    `PermissionDenied`/403 para tema alheio e 404 para pk inexistente. Essa
+    diferença é um ORÁCULO: com pk sequencial, dá para descobrir que uma
+    linha existe (403) sem descobrir de quem é ou qual o título, tentando
+    ids em sequência (medido pelo revisor: tema ativo alheio → 403, tema
+    inativo alheio → 403, id inexistente → 404). Como o mural da Tarefa 7
+    só lista temas ATIVOS, o que esse oráculo entregava a mais era
+    exatamente a contagem dos temas DESATIVADOS de outros professores —
+    pouco, sem PII, mas mensurável, o que basta para não ser "nada".
+
+    `services.desativar_tema` continua com sua própria checagem de posse
+    (`permissions.pode_desativar_tema`) — redundante quando chamada por
+    AQUI, porque o `get_object_or_404` já garante posse antes de chegar lá,
+    mas é o que protege qualquer outro chamador do serviço que não escope o
+    lookup do mesmo jeito."""
+    permissions.garante(
+        permissions.pode_criar_tema(request.user), "Somente professores cadastram temas."
+    )
+    tema = get_object_or_404(Tema, pk=tema_id, professor=request.user.perfil_professor)
     services.desativar_tema(tema, por=request.user)
     messages.success(request, "Tema desativado.")
     return redirect("projetos:meus_temas")
@@ -83,15 +105,22 @@ def editar_tema(request, tema_id):
     rodada de correção 1 da T6: o spec exige edição em §2 e §6, e nenhuma
     tarefa do plano original a implementava).
 
+    Mesma ordem de `desativar_tema` (rodada de correção 2 da T6): portão de
+    papel (`pode_criar_tema`) antes de tocar `perfil_professor`, depois um
+    lookup já escopado ao professor autenticado — tema alheio e tema
+    inexistente respondem os DOIS com 404, sem o oráculo que a versão
+    anterior (buscar por pk cru, checar posse com `permissions.pode_editar_tema`
+    depois) deixava passar: 403 para tema alheio existente, 404 para pk
+    inexistente, distinguíveis por tentativa.
+
     Reaproveita o mesmo formulário (`FormularioTema`) do cadastro, com
     `initial=` para pré-preencher os valores atuais — não duplica o
     formulário.
     """
-    tema = get_object_or_404(Tema, pk=tema_id)
     permissions.garante(
-        permissions.pode_editar_tema(request.user, tema),
-        "Você só pode editar temas que você mesmo cadastrou.",
+        permissions.pode_criar_tema(request.user), "Somente professores cadastram temas."
     )
+    tema = get_object_or_404(Tema, pk=tema_id, professor=request.user.perfil_professor)
     professor = tema.professor
 
     if request.method == "POST":
