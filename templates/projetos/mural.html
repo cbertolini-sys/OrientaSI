@@ -15,6 +15,30 @@
       lista), não uma mutação — por isso sem csrf_token, que só protege ações de estado.
     {% endcomment %}
     <form method="get" class="mt-4 flex flex-wrap items-end gap-4" novalidate>
+      {% if formulario.errors %}
+        {% comment %}
+          Mesmo padrão de templates/contas/perfil.html e
+          templates/projetos/meus_temas.html quanto à estrutura
+          (`formulario.errors`, não `non_field_errors` — o único erro possível
+          aqui é de campo — e foco movido para o resumo com
+          tabindex="-1"/autofocus), mas com um texto PRÓPRIO (M8, rodada de
+          correção 1): nas telas de POST citadas, um erro barra a ação
+          ("corrija antes de continuar" é verdade lá). Aqui não — a view
+          (`apps/projetos/views.py::mural`) já ignora um `area` inválido e
+          devolve TODOS os temas mesmo assim (M7: "área inválida ⇒ mostra
+          tudo" é a decisão), então dizer "antes de continuar" seria falso: a
+          continuação já aconteceu, está na lista abaixo do formulário.
+        {% endcomment %}
+        <div
+          id="resumo-erros"
+          role="alert"
+          tabindex="-1"
+          autofocus
+          class="alert alert-error w-full"
+        >
+          <p>Não foi possível aplicar o filtro de área escolhido — exibindo temas de todas as áreas.</p>
+        </div>
+      {% endif %}
       <div class="min-w-48 flex-1">
         {% for campo in formulario %}
           {% include "contas/_campo.html" with campo=campo %}
@@ -36,6 +60,20 @@
                 <p class="mt-2">{{ tema.descricao }}</p>
               </div>
               {% if tema.professor_tem_vaga %}
+                {% comment %}
+                  `badge-success` mede 5,12:1 (texto oklch(0.37 0.077 168.94)
+                  sobre fundo oklch(0.76 0.177 163.223)) — passa AA (rodada de
+                  correção 1 da T7). Medido renderizando o badge com o CSS
+                  compilado num Chromium real (Playwright) e lendo os pixels
+                  via canvas, porque o axe-core marca este nó como
+                  `incomplete` (não `pass`) para color-contrast — ele não
+                  resolve `oklch()` sozinho, então "o axe não acusou nada" não
+                  é evidência de contraste, só de ausência de outras
+                  violações. `--color-success` não tem override em
+                  static/css/entrada.css porque não precisa: ao contrário de
+                  `--color-warning` (documentado ali, 4,04:1 reprovando AA),
+                  o valor padrão do DaisyUI já passa.
+                {% endcomment %}
                 <span class="badge badge-success shrink-0">Vaga disponível</span>
               {% else %}
                 <span class="badge badge-neutral shrink-0">Sem vaga no momento</span>

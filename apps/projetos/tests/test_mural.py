@@ -21,7 +21,7 @@ from django.urls import reverse
 from apps.comum.semestre import semestre_vigente
 from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 from apps.projetos import services
-from apps.projetos.models import Projeto, Tema
+from apps.projetos.models import LimiteOrientacao, Projeto, Tema
 
 # CPFs válidos (dígito verificador de apps/contas/validators.py), gerados
 # fora dos já usados pelas demais suítes, para esta não colidir em UNIQUE(cpf).
@@ -84,6 +84,47 @@ def _cria_projeto_tcc1(aluno_usuario, professor):
         ano=ano,
         periodo=periodo,
     )
+
+
+def _cpf_valido(semente):
+    """CPF com dígitos verificadores válidos (mesmo algoritmo de
+    `apps/contas/validators.py::_digito`), gerado a partir de qualquer
+    inteiro — usado só pelo teste de equivalência abaixo, que precisa de
+    muitos CPFs distintos dentro de uma única execução e não tem por que
+    inflar a lista `CPFS` (usada pelas fábricas fixas do resto do arquivo)
+    para isso."""
+
+    def _digito(numero, peso_inicial):
+        soma = sum(int(d) * p for d, p in zip(numero, range(peso_inicial, 1, -1), strict=True))
+        resto = (soma * 10) % 11
+        return 0 if resto == 10 else resto
+
+    base = str(100_000_000 + semente * 1_234_567 % 900_000_000).zfill(9)
+    d1 = _digito(base, 10)
+    d2 = _digito(base + str(d1), 11)
+    return base + str(d1) + str(d2)
+
+
+def _professor_equivalencia(semente, nome):
+    usuario = Usuario.objects.create_user(
+        email=f"professor.equivalencia{semente}@ufsm.br",
+        password="x",
+        nome_completo=nome,
+        cpf=_cpf_valido(semente),
+    )
+    return PerfilProfessor.objects.create(usuario=usuario, siape=f"5{semente:06d}")
+
+
+def _aluno_equivalencia(semente, nome):
+    usuario = Usuario.objects.create_user(
+        email=f"aluno.equivalencia{semente}@ufsm.br",
+        password="x",
+        nome_completo=nome,
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(semente),
+    )
+    PerfilAluno.objects.create(usuario=usuario, matricula=f"6{semente:06d}")
+    return usuario
 
 
 @pytest.fixture
@@ -203,6 +244,217 @@ def test_temas_do_mural_sem_n_mais_um(django_assert_num_queries):
         list(services.temas_do_mural())
 
 
+@pytest.mark.django_db
+def test_temas_do_mural_bate_com_vagas_ocupadas_e_limite_do_professor():
+    """Importante 1, rodada de correção 1: `temas_do_mural` é uma SEGUNDA
+    implementação, em SQL, da mesma regra que `vagas_ocupadas`/
+    `limite_do_professor` já calculam em Python (usadas de verdade por
+    `criar_projeto_sob_limite`). Os testes de valor acima ("com 2 projetos,
+    tem vaga") prendem a agregação a números literais — o que faltava era
+    prender as DUAS implementações uma na outra, para que uma divergência
+    silenciosa entre elas (a anotação SQL "parecer" certa mas contar algo
+    diferente do que a função Python conta) reprove.
+
+    Cada cenário abaixo é escolhido para derrubar uma forma específica de a
+    anotação SQL divergir da função Python sem que nenhum teste de valor
+    perceba:
+
+    - `sem_projeto`: professor com tema mas nenhum `Projeto` — o caso mais
+      simples, sem filtro nenhum em jogo.
+    - `outro_semestre`: 3 projetos TCC_I, mas do semestre ANTERIOR — prova
+      que a anotação filtra por (ano, periodo) exatos (spec §3.5), não só
+      por etapa.
+    - `outra_etapa`: 3 projetos TCC_II no semestre vigente — prova que a
+      anotação filtra por etapa (só TCC_I conta), não só por semestre.
+    - `limite_elevado`: `LimiteOrientacao` autoriza 5 vagas nesta etapa e
+      semestre, com 4 projetos — prova que a anotação lê a autorização da
+      coordenação (spec §3.6), não só o teto padrão de 3.
+    - `autorizacao_de_outra_etapa`: a autorização existe, mas para TCC_II —
+      não pode valer para a contagem de TCC_I; com 3 projetos TCC_I, o
+      limite efetivo continua sendo o padrão (3).
+    - `autorizacao_de_outro_semestre`: a autorização existe, mas para o
+      semestre anterior — não pode valer para o semestre vigente; com 3
+      projetos TCC_I no semestre vigente, o limite efetivo continua sendo o
+      padrão (3).
+    - `varios_temas_mesmo_professor`: 4 `Tema` do MESMO professor, com 2
+      projetos — o erro clássico de JOIN que o revisor mediu: uma agregação
+      sem `distinct` correto faria a contagem de projetos aparecer
+      multiplicada pelo número de temas do professor (2 × 4 = 8, quando o
+      valor certo é 2).
+
+    O laço final não repete os valores computados aqui — ele pergunta a
+    `services.vagas_ocupadas`/`services.limite_do_professor` para CADA
+    professor que apareceu no mural, e afirma que a anotação da linha bate
+    com a resposta dessas funções. Uma implementação que ignore semestre,
+    etapa, ou `LimiteOrientacao` (as mutações que a rodada de correção 1
+    testou contra a suíte anterior — `sem_semestre`, `sem_etapa`,
+    `sem_limite_orientacao` — todas passavam 12/12 nos testes de valor)
+    reprova aqui, porque discorda da função Python nos cenários acima.
+    """
+    ano, periodo = semestre_vigente()
+    outro_ano = ano - 1
+
+    coordenador = Usuario.objects.create_user(
+        email="coordenador.equivalencia@ufsm.br",
+        password="x",
+        nome_completo="Coordenador Equivalência",
+        cpf=_cpf_valido(999),
+        is_coordenador=True,
+        is_staff=True,
+    )
+
+    # sem_projeto
+    p_sem_projeto = _professor_equivalencia(1, "Sem Projeto")
+    area_1 = Area.objects.create(nome="Área Equivalência 1")
+    p_sem_projeto.areas.add(area_1)
+    _cria_tema(p_sem_projeto, area_1, "Tema Sem Projeto")
+
+    # outro_semestre: 3 projetos TCC_I, mas no ano anterior
+    p_outro_semestre = _professor_equivalencia(2, "Outro Semestre")
+    area_2 = Area.objects.create(nome="Área Equivalência 2")
+    p_outro_semestre.areas.add(area_2)
+    _cria_tema(p_outro_semestre, area_2, "Tema Outro Semestre")
+    for i in range(3):
+        aluno_usuario = _aluno_equivalencia(10 + i, f"Aluno Outro Semestre {i}")
+        Projeto.objects.create(
+            aluno=aluno_usuario,
+            orientador=p_outro_semestre.usuario,
+            etapa=Projeto.TCC_I,
+            ano=outro_ano,
+            periodo=periodo,
+        )
+
+    # outra_etapa: 3 projetos TCC_II no semestre vigente
+    p_outra_etapa = _professor_equivalencia(3, "Outra Etapa")
+    area_3 = Area.objects.create(nome="Área Equivalência 3")
+    p_outra_etapa.areas.add(area_3)
+    _cria_tema(p_outra_etapa, area_3, "Tema Outra Etapa")
+    for i in range(3):
+        aluno_usuario = _aluno_equivalencia(20 + i, f"Aluno Outra Etapa {i}")
+        Projeto.objects.create(
+            aluno=aluno_usuario,
+            orientador=p_outra_etapa.usuario,
+            etapa=Projeto.TCC_II,
+            ano=ano,
+            periodo=periodo,
+        )
+
+    # limite_elevado: autorização de 5 vagas nesta etapa/semestre, 4 projetos
+    p_limite_elevado = _professor_equivalencia(4, "Limite Elevado")
+    area_4 = Area.objects.create(nome="Área Equivalência 4")
+    p_limite_elevado.areas.add(area_4)
+    _cria_tema(p_limite_elevado, area_4, "Tema Limite Elevado")
+    LimiteOrientacao.objects.create(
+        professor=p_limite_elevado,
+        etapa=Projeto.TCC_I,
+        ano=ano,
+        periodo=periodo,
+        limite=5,
+        justificativa="Teste de equivalência.",
+        autorizado_por=coordenador,
+    )
+    for i in range(4):
+        aluno_usuario = _aluno_equivalencia(30 + i, f"Aluno Limite Elevado {i}")
+        Projeto.objects.create(
+            aluno=aluno_usuario,
+            orientador=p_limite_elevado.usuario,
+            etapa=Projeto.TCC_I,
+            ano=ano,
+            periodo=periodo,
+        )
+
+    # autorizacao_de_outra_etapa: autorização vale para TCC_II, não para TCC_I
+    p_autorizacao_outra_etapa = _professor_equivalencia(5, "Autorização Outra Etapa")
+    area_5 = Area.objects.create(nome="Área Equivalência 5")
+    p_autorizacao_outra_etapa.areas.add(area_5)
+    _cria_tema(p_autorizacao_outra_etapa, area_5, "Tema Autorização Outra Etapa")
+    LimiteOrientacao.objects.create(
+        professor=p_autorizacao_outra_etapa,
+        etapa=Projeto.TCC_II,
+        ano=ano,
+        periodo=periodo,
+        limite=5,
+        justificativa="Teste de equivalência.",
+        autorizado_por=coordenador,
+    )
+    for i in range(3):
+        aluno_usuario = _aluno_equivalencia(40 + i, f"Aluno Autorização Outra Etapa {i}")
+        Projeto.objects.create(
+            aluno=aluno_usuario,
+            orientador=p_autorizacao_outra_etapa.usuario,
+            etapa=Projeto.TCC_I,
+            ano=ano,
+            periodo=periodo,
+        )
+
+    # autorizacao_de_outro_semestre: autorização vale para o ano anterior
+    p_autorizacao_outro_semestre = _professor_equivalencia(6, "Autorização Outro Semestre")
+    area_6 = Area.objects.create(nome="Área Equivalência 6")
+    p_autorizacao_outro_semestre.areas.add(area_6)
+    _cria_tema(p_autorizacao_outro_semestre, area_6, "Tema Autorização Outro Semestre")
+    LimiteOrientacao.objects.create(
+        professor=p_autorizacao_outro_semestre,
+        etapa=Projeto.TCC_I,
+        ano=outro_ano,
+        periodo=periodo,
+        limite=5,
+        justificativa="Teste de equivalência.",
+        autorizado_por=coordenador,
+    )
+    for i in range(3):
+        aluno_usuario = _aluno_equivalencia(50 + i, f"Aluno Autorização Outro Semestre {i}")
+        Projeto.objects.create(
+            aluno=aluno_usuario,
+            orientador=p_autorizacao_outro_semestre.usuario,
+            etapa=Projeto.TCC_I,
+            ano=ano,
+            periodo=periodo,
+        )
+
+    # varios_temas_mesmo_professor: 4 temas do mesmo professor, 2 projetos —
+    # o erro clássico de JOIN (sem `distinct`, renderia 8, não 2).
+    p_varios_temas = _professor_equivalencia(7, "Vários Temas")
+    area_7 = Area.objects.create(nome="Área Equivalência 7")
+    p_varios_temas.areas.add(area_7)
+    for i in range(4):
+        _cria_tema(p_varios_temas, area_7, f"Tema Vários {i}")
+    for i in range(2):
+        aluno_usuario = _aluno_equivalencia(60 + i, f"Aluno Vários Temas {i}")
+        Projeto.objects.create(
+            aluno=aluno_usuario,
+            orientador=p_varios_temas.usuario,
+            etapa=Projeto.TCC_I,
+            ano=ano,
+            periodo=periodo,
+        )
+
+    resultado = list(services.temas_do_mural())
+    assert (
+        len(resultado) == 10
+    ), "os 7 cenários acima somam 10 temas (4 do último, 1 cada dos 6 outros)"
+
+    for tema in resultado:
+        professor = tema.professor
+        ocupadas_esperado = services.vagas_ocupadas(professor, Projeto.TCC_I, ano, periodo)
+        limite_esperado = services.limite_do_professor(professor, Projeto.TCC_I, ano, periodo)
+
+        assert tema.vagas_ocupadas_do_professor == ocupadas_esperado, (
+            f'tema "{tema.titulo}" (professor {professor}): anotação disse '
+            f"{tema.vagas_ocupadas_do_professor} vagas ocupadas, "
+            f"vagas_ocupadas() disse {ocupadas_esperado}"
+        )
+        assert tema.limite_de_vagas_do_professor == limite_esperado, (
+            f'tema "{tema.titulo}" (professor {professor}): anotação disse limite '
+            f"{tema.limite_de_vagas_do_professor}, limite_do_professor() disse {limite_esperado}"
+        )
+        assert tema.professor_tem_vaga == (ocupadas_esperado < limite_esperado), (
+            f'tema "{tema.titulo}" (professor {professor}): professor_tem_vaga='
+            f"{tema.professor_tem_vaga}, mas vagas_ocupadas()={ocupadas_esperado} e "
+            f"limite_do_professor()={limite_esperado} implicam "
+            f"{ocupadas_esperado < limite_esperado}"
+        )
+
+
 # --- view projetos:mural ------------------------------------------------
 
 
@@ -274,6 +526,32 @@ def test_mural_marca_texto_de_vaga_disponivel_e_esgotada(client, aluno, professo
     assert sem_vaga.titulo in html
     assert "Vaga disponível" in html
     assert "Sem vaga no momento" in html
+
+
+@pytest.mark.django_db
+def test_mural_area_invalida_mostra_tudo_e_relata_o_erro(client, aluno, professor, area):
+    """M7, rodada de correção 1: `?area=abc` não é um pk válido —
+    `FormularioFiltroMural` fica inválido, e `views.mural` já cai para
+    `area=None` nesse caso (`formulario.cleaned_data["area"] if
+    formulario.is_valid() else None`). "Área inválida ⇒ mostra tudo" é a
+    decisão de produto que faltava um teste prendendo: sem este teste, uma
+    mudança que passasse a devolver 400/500 num `area` que não é um inteiro
+    não reprovaria nada.
+
+    Também confere que o erro aparece no HTML — tanto o do campo (via
+    `contas/_campo.html`, que já renderiza `campo.errors`) quanto o resumo
+    acrescentado no M8."""
+    professor.areas.add(area)
+    tema = _cria_tema(professor, area, "Tema Visível Apesar do Filtro Inválido")
+    client.force_login(aluno)
+
+    resposta = client.get(reverse("projetos:mural"), {"area": "abc"})
+
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    assert tema.titulo in html
+    assert "Faça uma escolha válida" in html
+    assert "Não foi possível aplicar o filtro" in html
 
 
 @pytest.mark.django_db

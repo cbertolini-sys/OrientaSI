@@ -250,8 +250,14 @@ def cria_coordenador_para_rotas():
 def cria_aluno_para_rotas():
     """Fábrica da variante aluno de `/perfil/` — o HTML difere de verdade da
     variante professor (sem o `<fieldset>`/`<legend>` do grupo de áreas), por isso
-    as duas entram em `ROTAS` separadamente. Também serve às telas autenticadas de
-    aluno que as tarefas seguintes do Bloco B (candidatura, mural) vão acrescentar."""
+    as duas entram em `ROTAS` separadamente.
+
+    NÃO é a fábrica de `/temas/` (mural, T7): o mural precisa de temas e de
+    professores com/sem vaga para medir os dois badges, e semear isso aqui
+    acrescentaria estado irrelevante à medição de `/perfil/` — mesmo motivo
+    pelo qual `cria_professor_para_rotas` não ganhou um `Tema` (ver a
+    docstring de `cria_professor_com_tema_para_rotas`). A fábrica do mural é
+    `cria_aluno_com_mural_para_rotas`, abaixo."""
     from apps.contas.models import PerfilAluno, Usuario
 
     usuario = Usuario.objects.create_user(
@@ -323,6 +329,100 @@ def cria_professor_com_tema_para_rotas():
     return usuario
 
 
+def cria_aluno_com_mural_para_rotas():
+    """Fábrica de `/temas/` (mural, T7 — acrescentada na rodada de correção
+    1): aluno autenticado, mais dois temas ATIVOS de DOIS professores
+    distintos — um com vaga, um sem —, para que os dois estados do badge
+    (`badge-success`/`badge-neutral`) entrem na medição.
+
+    Achado da revisão da rodada de correção 1: a `Rota` de `/temas/` media a
+    fábrica `cria_aluno_para_rotas`, que não semeia nenhum `Tema` — a suíte
+    inteira rodava contra o mural VAZIO, sem `<li>` nenhum, o mesmo padrão de
+    defeito que o acréscimo de escopo original da T7 já havia consertado
+    para `/temas/meus/` (ver `cria_professor_com_tema_para_rotas`, acima). A
+    responsabilidade é do brief da T7, não de quem implementou: o Passo 5
+    ditou a fábrica `cria_aluno_para_rotas` para esta rota, e o próprio
+    acréscimo de escopo — três parágrafos abaixo, na mesma página — já
+    condenava esse padrão para `/temas/meus/` sem que a contradição fosse
+    percebida a tempo de valer também para o mural.
+
+    O professor SEM vaga recebe 3 `Projeto` em TCC_I no semestre vigente —
+    o teto padrão (`LIMITE_PADRAO_VAGAS = 3`, apps/projetos/services.py),
+    sem nenhuma autorização de `LimiteOrientacao` — para que
+    `professor_tem_vaga` seja `False` só para o tema dele.
+
+    Não semeada em `cria_aluno_para_rotas`: ela também alimenta a variante
+    aluno de `/perfil/`, e semear temas/projetos lá acrescentaria estado
+    irrelevante àquela medição — mesmo motivo pelo qual
+    `cria_professor_para_rotas` não ganhou um `Tema` na T6."""
+    from apps.comum.semestre import semestre_vigente
+    from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Projeto, Tema
+
+    usuario = Usuario.objects.create_user(
+        email="aluno-mural-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Mural das Rotas",
+        cpf="20000000027",
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=usuario, matricula="202399998")
+
+    area = Area.objects.create(nome="Área do Mural das Rotas")
+
+    professor_com_vaga = PerfilProfessor.objects.create(
+        usuario=Usuario.objects.create_user(
+            email="professor-mural-com-vaga-das-rotas@ufsm.br",
+            password="x",
+            nome_completo="Professor Mural Com Vaga das Rotas",
+            cpf="20765432102",
+        ),
+        siape="1000003",
+    )
+    professor_com_vaga.areas.add(area)
+    Tema.objects.create(
+        professor=professor_com_vaga,
+        area=area,
+        titulo="Tema Com Vaga das Rotas",
+        descricao="Descrição do tema com vaga das rotas, para o badge-success entrar na medição.",
+    )
+
+    professor_sem_vaga = PerfilProfessor.objects.create(
+        usuario=Usuario.objects.create_user(
+            email="professor-mural-sem-vaga-das-rotas@ufsm.br",
+            password="x",
+            nome_completo="Professor Mural Sem Vaga das Rotas",
+            cpf="21530864267",
+        ),
+        siape="1000004",
+    )
+    professor_sem_vaga.areas.add(area)
+    Tema.objects.create(
+        professor=professor_sem_vaga,
+        area=area,
+        titulo="Tema Sem Vaga das Rotas",
+        descricao="Descrição do tema sem vaga das rotas, para o badge-neutral entrar na medição.",
+    )
+    ano, periodo = semestre_vigente()
+    cpfs_orientandos = ["22296296386", "23061728465", "23827160537"]
+    for indice, cpf in enumerate(cpfs_orientandos):
+        aluno_orientando = Usuario.objects.create_user(
+            email=f"aluno-orientando-mural-das-rotas-{indice}@ufsm.br",
+            password="x",
+            nome_completo=f"Aluno Orientando Mural das Rotas {indice}",
+            cpf=cpf,
+            papel=Usuario.ALUNO,
+        )
+        Projeto.objects.create(
+            aluno=aluno_orientando,
+            orientador=professor_sem_vaga.usuario,
+            etapa=Projeto.TCC_I,
+            ano=ano,
+            periodo=periodo,
+        )
+    return usuario
+
+
 # Lista única de rotas submetidas às cinco suítes transversais
 # (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
@@ -380,7 +480,17 @@ ROTAS = [
         fabrica_usuario=cria_professor_com_tema_para_rotas,
         h1="Meus temas",
     ),
-    Rota("/temas/", "h1", fabrica_usuario=cria_aluno_para_rotas, h1="Mural de temas"),
+    # `fabrica_usuario` trocada de `cria_aluno_para_rotas` para
+    # `cria_aluno_com_mural_para_rotas` na rodada de correção 1: a fábrica
+    # antiga não cria nenhum `Tema`, e a suíte inteira media o mural VAZIO —
+    # mesma classe de defeito que a correção acima já havia fechado para
+    # `/temas/meus/` (ver a docstring da fábrica nova).
+    Rota(
+        "/temas/",
+        "h1",
+        fabrica_usuario=cria_aluno_com_mural_para_rotas,
+        h1="Mural de temas",
+    ),
     # Caminho dinâmico (rodada de correção 2 da T6): o <id> só existe depois
     # de `cria_professor_com_tema_para_rotas` rodar, então `caminho` é um
     # callable que lê `usuario.tema_id_para_rota` (ver a fábrica) em vez de
