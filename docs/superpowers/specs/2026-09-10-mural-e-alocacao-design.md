@@ -191,8 +191,9 @@ o tema já ter recebido candidatura — o spec (§2 e §6) concede a edição se
 `OpcaoCandidatura.tema` aponta para o MESMO registro, não para uma cópia. Editar um tema
 depois que um aluno já se candidatou a ele muda a oferta debaixo de quem se candidatou: o
 título, a descrição ou a área que o aluno viu ao escolher deixam de bater com o que está
-gravado, retroativamente, sem aviso a ninguém. Inofensivo no Bloco B, onde a candidatura só
-guarda a referência; o Bloco C, que introduz prazo e cascata sobre essas opções, encosta
+gravado, retroativamente, sem aviso a ninguém. O Bloco B não guarda registro do que o aluno
+viu — `OpcaoCandidatura` tem só a FK, sem cópia de título ou descrição —, então a divergência
+não é sequer detectável aqui; o Bloco C, que introduz prazo e cascata sobre essas opções, encosta
 diretamente nisso: **este parágrafo não decide o caso, e precisa decidir antes do Bloco C**
 — se editar um tema com candidatura pendente deve ser bloqueado, avisar o aluno, ou versionar
 o tema em vez de sobrescrevê-lo.
@@ -296,11 +297,15 @@ limite_do_professor(professor, etapa, ano, periodo) → int
 `pode_ajustar_orientacao`, `pode_conceder_limite`.
 
 `pode_criar_tema` é permissão de **papel** (quem pede é professor com perfil); as três
-seguintes são de **posse** (o tema é de quem pede). A distinção decide a ordem nas views:
-o portão de papel roda antes de tocar `perfil_professor`, e a posse é aplicada escopando o
-próprio lookup (`get_object_or_404(Tema, pk=..., professor=...)`), para que "não é seu" e
-"não existe" respondam o mesmo 404 — sem isso a URL vira um oráculo de existência sobre
-temas desativados de outros professores, que o mural não lista.
+seguintes são de **posse** (o tema é de quem pede). A distinção decide a ordem nas views que
+recebem um `<id>` na URL (`editar_tema`, `desativar_tema`): o portão de papel roda primeiro,
+antes de tocar `perfil_professor`, e a posse é aplicada escopando o próprio lookup
+(`get_object_or_404(Tema, pk=..., professor=...)`), para que "não é seu" e "não existe"
+respondam o mesmo 404 — sem isso a URL vira um oráculo de existência sobre temas desativados
+de outros professores, que o mural não lista. `pode_criar_tema_para` não tem lookup a escopar:
+é aplicada dentro de `criar_tema`, sobre o `professor` recebido como argumento. Os serviços
+mantêm a checagem de posse **também** quando a view já escopou o lookup — a redundância é o
+que protege um chamador que não escope (outro serviço, um comando de management).
 
 ### 5.1 Escolher um professor sem vaga
 
@@ -383,7 +388,8 @@ Todas autenticadas.
 | rota | quem | o quê |
 |---|---|---|
 | `/temas/` | autenticado | mural, com filtro por área |
-| `/temas/meus/` | professor | criar, editar e desativar os próprios |
+| `/temas/meus/` | professor | criar e desativar os próprios, e listar todos |
+| `/temas/<id>/editar/` | professor dono | editar um tema seu |
 | `/candidatura/` | aluno | montar, acompanhar e cancelar |
 | `/orientacoes/` | professor | fila de manifestações e orientandos atuais |
 | `/painel/orientacoes/` | coordenação | visão geral, troca de orientador, limites |
@@ -447,11 +453,12 @@ e-mail e o clique, conceder limite a professor que já está no teto.
 do `<h1>` confirmados antes de qualquer outra asserção. Sem isso, uma rota quebrada passa
 medindo a tela de login, e isso já aconteceu duas vezes neste projeto.
 
-Rota com `<id>` de banco na URL (`/temas/<id>/editar/` é a primeira; as telas de resposta à
-candidatura e a do aluno também são) entra na mesma lista `ROTAS`, com `caminho` callable
-resolvido depois da fábrica — **não** em suíte própria ao lado. Uma suíte própria roda o axe
-e esquece as outras quatro verificações, e foi exatamente assim que um alvo de toque de
-24px passou despercebido numa tela nova.
+Rota com `<id>` de banco na URL entra na mesma lista `ROTAS`, com `caminho` callable
+resolvido depois da fábrica — **não** em suíte própria ao lado. `/temas/<id>/editar/` é a
+única do Bloco B (as demais rotas do bloco são caminhos estáticos), mas a regra vale para
+qualquer rota dinâmica futura: uma suíte própria roda o axe e esquece as outras quatro
+verificações, e foi exatamente assim que um alvo de toque de 24px passou despercebido numa
+tela nova.
 
 Valem as lições da Fase 1 que custaram rodadas de correção: `autocomplete` onde se aplica;
 `<fieldset>`/`<legend>` em grupos de opção, com teste próprio, porque o axe não detecta a

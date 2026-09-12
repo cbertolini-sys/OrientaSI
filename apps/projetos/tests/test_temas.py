@@ -390,22 +390,44 @@ def test_desativar_tema_de_outro_professor_recebe_404_nao_403(
 def test_desativar_tema_inexistente_e_alheio_respondem_o_mesmo_status(
     client, professor, outro_professor, area
 ):
-    """O oráculo só está fechado se os dois casos forem INDISTINGUÍVEIS.
+    """O oráculo só está fechado se os casos forem INDISTINGUÍVEIS.
 
     Os testes acima afirmam 404 para tema alheio; este afirma que um pk que
     não existe responde o MESMO, medido na mesma execução. Sem esta
     comparação, uma regressão que devolvesse 403 para alheio e 404 para
-    inexistente reabriria o oráculo sem derrubar nenhum dos outros testes."""
+    inexistente reabriria o oráculo sem derrubar nenhum dos outros testes.
+
+    Compara **status e corpo**, não só o status: o docstring anterior dizia
+    "indistinguíveis" e a asserção comparava apenas o código, que é mais
+    estreito do que a palavra promete (achado da revisão da rodada 2).
+
+    Inclui o tema alheio **INATIVO** de propósito. Ele é precisamente o
+    conjunto que o oráculo vazava: o mural da Tarefa 7 lista só os ATIVOS,
+    então um tema desativado de outro professor é invisível por qualquer
+    outro caminho, e era só aqui que sua existência aparecia."""
     professor.areas.add(area)
     tema = Tema.objects.create(
         professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."
     )
+    inativo = Tema.objects.create(
+        professor=professor,
+        area=area,
+        titulo="Tema inativo",
+        descricao="Descrição do tema inativo.",
+        ativo=False,
+    )
     client.force_login(outro_professor.usuario)
 
     alheio = client.post(reverse("projetos:desativar_tema", args=[tema.pk]))
+    alheio_inativo = client.post(reverse("projetos:desativar_tema", args=[inativo.pk]))
     inexistente = client.post(reverse("projetos:desativar_tema", args=[tema.pk + 10_000]))
 
-    assert alheio.status_code == inexistente.status_code == 404
+    respostas = [alheio, alheio_inativo, inexistente]
+    assert [r.status_code for r in respostas] == [404, 404, 404]
+    assert len({r.content for r in respostas}) == 1, (
+        "as três respostas têm que ser byte a byte iguais; corpos distintos "
+        "reabrem o oráculo mesmo com o status igual."
+    )
 
 
 @pytest.mark.django_db
@@ -641,8 +663,12 @@ def test_outro_professor_nao_edita_tema_alheio_pela_tela(client, professor, outr
     tema.refresh_from_db()
     assert tema.titulo == "Título"
 
-    inexistente = client.get(reverse("projetos:editar_tema", args=[tema.pk + 10_000]))
-    assert inexistente.status_code == resposta.status_code == 404
+    # GET contra GET: comparar o POST acima com este GET casaria métodos
+    # diferentes e a igualdade passaria a valer por coincidência.
+    alheio_get = client.get(reverse("projetos:editar_tema", args=[tema.pk]))
+    inexistente_get = client.get(reverse("projetos:editar_tema", args=[tema.pk + 10_000]))
+    assert alheio_get.status_code == inexistente_get.status_code == 404
+    assert alheio_get.content == inexistente_get.content
 
 
 @pytest.mark.django_db
@@ -663,3 +689,94 @@ def test_editar_tema_view_recusa_area_fora_das_declaradas(client, professor, out
     assert "Faça uma escolha válida" in resposta.content.decode()
     tema.refresh_from_db()
     assert tema.area == tema_area
+
+
+@pytest.mark.django_db
+def test_editar_tema_por_usuario_sem_perfil_recebe_403_nao_500(client, professor, area):
+    """Espelha `test_desativar_tema_por_usuario_sem_perfil_recebe_403_nao_500`
+    para a view de editar, que não tinha o irmão (achado da revisão da rodada 2).
+
+    A rodada 2 MOVEU o portão de papel para dentro de `editar_tema` — é ele que
+    impede tocar `request.user.perfil_professor` em quem não tem perfil — e não
+    deixou nada travando a linha. A revisão provou por mutação: apagando o
+    `garante()` de `editar_tema`, a suíte inteira de `apps/projetos` continuava
+    passando, enquanto a mesma mutação em `desativar_tema` reprovava na hora,
+    porque lá o teste existe. É a classe de defeito que a Fase 1 já pagou em
+    `/perfil/`: 500 para todo PROFESSOR sem `PerfilProfessor`, inclusive quem vem
+    de `createsuperuser`."""
+    professor.areas.add(area)
+    tema = Tema.objects.create(
+        professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."
+    )
+    usuario_sem_perfil = Usuario.objects.create_user(
+        email="sem.perfil.edita@ufsm.br",
+        password="x",
+        nome_completo="Sem Perfil Edita",
+        cpf="15350946056",
+    )
+    client.force_login(usuario_sem_perfil)
+
+    assert client.get(reverse("projetos:editar_tema", args=[tema.pk])).status_code == 403
+    resposta = client.post(
+        reverse("projetos:editar_tema", args=[tema.pk]),
+        {"titulo": "Adulterado", "descricao": "Adulterado.", "area": area.pk},
+    )
+
+    assert resposta.status_code == 403
+    tema.refresh_from_db()
+    assert tema.titulo == "Tema"
+
+
+@pytest.mark.django_db
+def test_editar_tema_recusa_aluno_com_403(client, professor, area, aluno):
+    """O portão de papel de `editar_tema` recusa aluno antes do lookup — e é 403,
+    não o 404 uniforme do tema alheio: quem não é professor não chega a disputar
+    posse de tema nenhum, então não há oráculo a fechar aqui."""
+    professor.areas.add(area)
+    tema = Tema.objects.create(
+        professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."
+    )
+    client.force_login(aluno)
+
+    assert client.get(reverse("projetos:editar_tema", args=[tema.pk])).status_code == 403
+    resposta = client.post(
+        reverse("projetos:editar_tema", args=[tema.pk]),
+        {"titulo": "Adulterado", "descricao": "Adulterado.", "area": area.pk},
+    )
+
+    assert resposta.status_code == 403
+    tema.refresh_from_db()
+    assert tema.titulo == "Tema"
+
+
+@pytest.mark.django_db
+def test_dono_edita_o_proprio_tema_inativo(client, professor, area):
+    """Fixa o comportamento atual: o lookup das views escopa por dono, NÃO por
+    `ativo=True`, então o professor continua podendo editar um tema que
+    desativou (achado da revisão da rodada 2, que notou que nada pinava isto).
+
+    É o comportamento desejado, não um acidente: desativar tira do mural sem
+    apagar histórico (spec §4.1), e corrigir o título de um tema desativado
+    antes de reativá-lo é justamente o que se espera poder fazer. O spec não
+    condiciona a edição a `ativo` em §2 nem em §6. Este teste existe para que
+    acrescentar `ativo=True` ao lookup — que hoje passaria despercebido — vire
+    uma decisão explícita, e não um efeito colateral."""
+    professor.areas.add(area)
+    tema = Tema.objects.create(
+        professor=professor,
+        area=area,
+        titulo="Título antigo",
+        descricao="Descrição.",
+        ativo=False,
+    )
+    client.force_login(professor.usuario)
+
+    assert client.get(reverse("projetos:editar_tema", args=[tema.pk])).status_code == 200
+    client.post(
+        reverse("projetos:editar_tema", args=[tema.pk]),
+        {"titulo": "Título novo", "descricao": "Descrição.", "area": area.pk},
+    )
+
+    tema.refresh_from_db()
+    assert tema.titulo == "Título novo"
+    assert tema.ativo is False, "editar não pode reativar o tema por efeito colateral"

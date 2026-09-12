@@ -137,8 +137,8 @@ def autentica_no_navegador(page, live_server):
     Extraída para cá na revisão 1 da T10: `/perfil/` foi a primeira rota
     autenticada do projeto, e sua suíte de acessibilidade
     (`apps/contas/tests/test_perfil_acessibilidade.py`) precisava navegar já
-    logada — as quatro suítes globais (`tests/test_acessibilidade.py` e
-    companhia) navegam sempre anônimas, então não serviam. Qualquer suíte de
+    logada — as suítes globais (`tests/test_acessibilidade.py` e companhia)
+    navegam sempre anônimas, então não serviam. Qualquer suíte de
     acessibilidade de uma rota autenticada futura (T11 em diante) deve reusar
     esta fábrica em vez de reimplementar login + injeção de cookie.
 
@@ -180,8 +180,13 @@ class Rota:
     `caminho` aceita uma STRING (rota estática) ou um CALLABLE que recebe o
     `Usuario` devolvido por `fabrica_usuario` e retorna o caminho (rodada de
     correção 2 da T6): uma rota com `<id>` de banco na URL — `/temas/<id>/editar/`
-    é a primeira, mas as Tarefas 8, 9 e 11 do Bloco B criam mais — não existe
-    antes de a fábrica rodar, então não cabe numa string fixa nesta lista. A
+    é a única hoje — não existe antes de a fábrica rodar, então não cabe numa
+    string fixa nesta lista. O mecanismo não é uma aposta em rotas futuras: o
+    resto do plano do Bloco B só produz caminhos estáticos (`/candidatura/`,
+    `/orientacoes/`, `/painel/orientacoes/`). Ele existe para que a PRÓXIMA rota
+    dinâmica, quando houver, não precise sair desta lista para uma suíte
+    própria — que foi o que aconteceu com `/temas/<id>/editar/` e custou um alvo
+    de toque de 24px passar despercebido. A
     fixture `rota`, abaixo, resolve o callable logo após autenticar, e a
     ÂNCORA DE IDENTIDADE (igualdade exata de URL, depois `<h1>`) continua
     exigida do mesmo jeito sobre o caminho já resolvido — sem isso, uma rota
@@ -293,10 +298,10 @@ def cria_professor_com_tema_para_rotas():
     return usuario
 
 
-# Lista única de rotas submetidas à suíte de acessibilidade, toque, responsividade
-# e teclado (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
-# test_teclado.py). Acrescentar uma rota aqui é o que submete uma página nova às
-# quatro verificações de uma vez — toda tarefa que criar uma página nova (pública
+# Lista única de rotas submetidas às cinco suítes transversais
+# (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
+# test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
+# página nova às cinco verificações de uma vez — toda tarefa que criar uma página nova (pública
 # ou autenticada, via `fabrica_usuario`) acrescenta sua rota a esta lista (spec §10.1).
 ROTAS = [
     Rota("/", "h1"),
@@ -343,9 +348,9 @@ ROTAS = [
     # de `cria_professor_com_tema_para_rotas` rodar, então `caminho` é um
     # callable que lê `usuario.tema_id_para_rota` (ver a fábrica) em vez de
     # uma string fixa. Substitui `apps/projetos/tests/test_temas_acessibilidade.py`
-    # (removido nesta rodada): era a cópia à mão que só rodava o axe, o
-    # mesmo padrão de cobertura incompleta que este mecanismo existe para
-    # não repetir a cada rota com <id> (Tarefas 8, 9 e 11 do Bloco B).
+    # (removido nesta rodada): era a cópia à mão que só rodava o axe — 1 das
+    # 5 verificações —, e foi por isso que um alvo de toque de 24px nesta
+    # tela passou despercebido até a revisão.
     Rota(
         lambda usuario: f"/temas/{usuario.tema_id_para_rota}/editar/",
         "form",
@@ -390,7 +395,14 @@ def _id_da_rota(r):
     banco), a URL só existe depois de autenticar e rodar a fábrica, então
     usamos o `h1` esperado como nome — estável e legível, ao contrário do
     `repr` de uma função (`<function ... at 0x...>`)."""
-    nome = r.caminho if isinstance(r.caminho, str) else (r.h1 or "rota-dinamica")
+    if isinstance(r.caminho, str):
+        nome = r.caminho
+    else:
+        # Sem espaços: `-k` trata espaço como separador de expressão e recusa o
+        # id inteiro ("Editar tema" vira erro de sintaxe), enquanto os ids de
+        # caminho estático sobrevivem a um `-k` completo. Normalizar mantém a
+        # legibilidade e a paridade com eles (rodada de correção 3 da T6).
+        nome = (r.h1 or "rota-dinamica").lower().replace(" ", "-")
     return f"{nome}[{r.persona}]" if r.persona else nome
 
 
