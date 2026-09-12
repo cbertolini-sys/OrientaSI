@@ -183,6 +183,14 @@ Tudo em `apps/projetos/`, hoje vazia.
 | `titulo` | CharField(200) | |
 | `descricao` | TextField | |
 | `ativo` | BooleanField | `default=True`; desativado some do mural sem apagar histórico |
+
+**Lacuna conhecida, registrada e não decidida (achada na revisão da rodada 3 da T6):** a
+desativação é de **mão única**. `desativar_tema` só escreve `ativo=False`, e não existe
+serviço, rota nem tela que escreva `ativo=True` — o Bloco B inteiro não tem caminho de
+reativação. Um professor que desativa um tema por engano não tem como desfazer pela
+interface, só pelo admin do Django. Nada neste spec exige que a desativação seja
+reversível, e nada exige que seja permanente: o caso simplesmente não foi decidido. Decidir
+antes de o Bloco C encostar em temas de novo.
 | `criado_em` | DateTimeField | `auto_now_add` |
 
 **Lacuna registrada na rodada de correção 1 da Tarefa 6, para não repetir a

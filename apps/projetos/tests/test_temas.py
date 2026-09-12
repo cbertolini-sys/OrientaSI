@@ -755,12 +755,15 @@ def test_dono_edita_o_proprio_tema_inativo(client, professor, area):
     `ativo=True`, então o professor continua podendo editar um tema que
     desativou (achado da revisão da rodada 2, que notou que nada pinava isto).
 
-    É o comportamento desejado, não um acidente: desativar tira do mural sem
-    apagar histórico (spec §4.1), e corrigir o título de um tema desativado
-    antes de reativá-lo é justamente o que se espera poder fazer. O spec não
-    condiciona a edição a `ativo` em §2 nem em §6. Este teste existe para que
-    acrescentar `ativo=True` ao lookup — que hoje passaria despercebido — vire
-    uma decisão explícita, e não um efeito colateral."""
+    A base é o spec, não uma expectativa minha: §2 e §6 concedem a edição sem
+    condicioná-la a `ativo`, e §4.1 diz que desativar tira do mural sem apagar
+    histórico. Um tema desativado continua existindo e continua sendo do
+    professor, então nada no spec o torna imutável.
+
+    Este teste não defende o comportamento — ele o PINA. Acrescentar `ativo=True`
+    ao lookup das views hoje passaria despercebido (medido na revisão da rodada
+    2: a suíte inteira continua verde com essa mudança); com este teste, vira uma
+    decisão explícita, que alguém precisa tomar e justificar."""
     professor.areas.add(area)
     tema = Tema.objects.create(
         professor=professor,
