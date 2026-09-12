@@ -266,16 +266,34 @@ def cria_aluno_para_rotas():
 
 
 def cria_professor_com_tema_para_rotas():
-    """Fábrica de `/temas/<id>/editar/` (rodada de correção 2 da T6): professor
-    com `PerfilProfessor`, uma `Area` declarada, e um `Tema` seu já cadastrado
-    — o `<id>` que a rota exige na URL.
+    """Fábrica de `/temas/<id>/editar/` (rodada de correção 2 da T6) e de
+    `/temas/meus/` (acréscimo de escopo da T7): professor com
+    `PerfilProfessor`, uma `Area` declarada, e DOIS temas seus já cadastrados
+    — um ativo e um inativo.
 
-    O pk do tema é anexado ao próprio `Usuario` devolvido
+    O pk do tema ATIVO é anexado ao próprio `Usuario` devolvido
     (`usuario.tema_id_para_rota`) porque a fixture `rota` só tem acesso ao que
     `fabrica_usuario()` RETORNA — ela não pode devolver um segundo objeto
     (tema) sem mudar o contrato de toda `ROTAS`. É esse atributo que o
     `caminho` callable da Rota, abaixo, lê para montar `/temas/<id>/editar/`
-    depois que a fábrica já rodou."""
+    depois que a fábrica já rodou.
+
+    O segundo tema, inativo, existe só para a suíte de `/temas/meus/`: antes
+    desta correção, aquela rota era medida com `cria_professor_para_rotas`,
+    que não cria nenhum `Tema` — a suíte de acessibilidade rodava inteira
+    contra a tela VAZIA (achado da revisão da T6, relatado no brief desta
+    T7: "TEM 'Temas cadastrados': True / TEM botao Desativar: False / TEM
+    estado vazio: True"). O botão `btn btn-outline btn-sm` de desativar (só
+    aparece para tema ativo), o `badge badge-neutral` de tema inativo e o
+    layout da lista com dois itens nunca passavam pelo axe, pelo alvo de
+    toque ou pela responsividade — exatamente o markup que mais muda quando
+    a lista cresce. Com um tema de cada estado, os dois ramos do template
+    (`{% if tema.ativo %}`/`{% if not tema.ativo %}` em
+    templates/projetos/meus_temas.html) entram na medição.
+
+    Não foi semeado em `cria_professor_para_rotas` (a fábrica que `/perfil/`
+    também usa, na variante professor): fazer isso acrescentaria um `Tema`
+    irrelevante à medição de `/perfil/`, que não lista temas."""
     from apps.contas.models import Area, PerfilProfessor, Usuario
     from apps.projetos.models import Tema
 
@@ -293,6 +311,13 @@ def cria_professor_com_tema_para_rotas():
         area=area,
         titulo="Tema das Rotas",
         descricao="Descrição do tema das rotas, para a tela de edição não ficar vazia.",
+    )
+    Tema.objects.create(
+        professor=perfil,
+        area=area,
+        titulo="Tema Inativo das Rotas",
+        descricao="Descrição do tema inativo das rotas, para o badge entrar na medição.",
+        ativo=False,
     )
     usuario.tema_id_para_rota = tema.pk
     return usuario
@@ -343,7 +368,19 @@ ROTAS = [
         fabrica_usuario=cria_coordenador_para_rotas,
         h1="Painel da coordenação",
     ),
-    Rota("/temas/meus/", "form", fabrica_usuario=cria_professor_para_rotas, h1="Meus temas"),
+    # `fabrica_usuario` trocada de `cria_professor_para_rotas` para
+    # `cria_professor_com_tema_para_rotas` no acréscimo de escopo da T7:
+    # a fábrica antiga não cria nenhum `Tema`, e a suíte inteira media a
+    # tela VAZIA (nem o badge "Inativo", nem o botão "Desativar" — ver a
+    # docstring da fábrica nova). Com ela, a rota mede um tema ativo e um
+    # inativo de uma vez.
+    Rota(
+        "/temas/meus/",
+        "form",
+        fabrica_usuario=cria_professor_com_tema_para_rotas,
+        h1="Meus temas",
+    ),
+    Rota("/temas/", "h1", fabrica_usuario=cria_aluno_para_rotas, h1="Mural de temas"),
     # Caminho dinâmico (rodada de correção 2 da T6): o <id> só existe depois
     # de `cria_professor_com_tema_para_rotas` rodar, então `caminho` é um
     # callable que lê `usuario.tema_id_para_rota` (ver a fábrica) em vez de

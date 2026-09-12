@@ -1,5 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import BooleanField, Count, ExpressionWrapper, F, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Coalesce
 
 from apps.comum.semestre import semestre_vigente
 from apps.contas.models import PerfilProfessor
@@ -258,3 +260,74 @@ def editar_tema(tema, area, titulo, descricao, por):
     tema.descricao = descricao
     tema.save(update_fields=["area", "titulo", "descricao"])
     return tema
+
+
+def temas_do_mural(area=None):
+    """Temas `ativo=True` para o mural que o aluno usa antes de se candidatar
+    (T7; a candidatura em si é a T8), com a vaga do professor já anotada por
+    linha — `professor_tem_vaga`, usado pelo template para marcar cada tema.
+
+    A vaga é contada em `Projeto.TCC_I`, sempre — não é um parâmetro, e não
+    existe uma opção "TCC_II" aqui. Isto não é uma escolha de UI: é a única
+    etapa em que este bloco cria `Projeto`. `criar_projeto_sob_limite`,
+    acima, sempre grava `etapa=Projeto.TCC_I` quando o professor aceita uma
+    candidatura (spec §3.7, linha 147: "quando o professor aceita, nasce um
+    `Projeto` com `etapa=TCC_I`"; critério 8 do §10 repete a mesma frase), e
+    `Candidatura` não tem campo `etapa` — não há como o mural saber de outra
+    etapa além desta.
+
+    N+1 evitado por construção, não por sorte: uma chamada a
+    `vagas_ocupadas`/`limite_do_professor` POR TEMA faria uma consulta por
+    linha do mural. Em vez disso, as duas contagens são resolvidas dentro do
+    MESMO SELECT que busca os temas — `vagas_ocupadas_do_professor` é um
+    `Count` com `filter` sobre os `Projeto` do professor daquela linha (uma
+    junção, não uma subconsulta por linha), e `limite_de_vagas_do_professor`
+    é uma subconsulta CORRELACIONADA (`Subquery`/`OuterRef`) ao professor da
+    mesma linha — o Postgres resolve as duas junto com a busca dos temas,
+    então o número de consultas não cresce com o número de temas nem de
+    professores. Provado com `django_assert_num_queries` comparando um mural
+    de 3 temas/3 professores com um de 6/6 em
+    `apps/projetos/tests/test_mural.py::test_temas_do_mural_sem_n_mais_um`.
+
+    `limite_de_vagas_do_professor` reflete uma eventual autorização da
+    coordenação (`LimiteOrientacao`, mesma regra de `limite_do_professor`
+    acima) para a etapa/semestre em questão; na ausência de uma,
+    `Coalesce` cai para `LIMITE_PADRAO_VAGAS` — mesmo comportamento de
+    `limite_do_professor`, sem chamá-la (chamá-la exigiria uma consulta por
+    professor, o N+1 que este serviço existe para evitar).
+    """
+    ano, periodo = semestre_vigente()
+    limite_concedido = LimiteOrientacao.objects.filter(
+        professor=OuterRef("professor"),
+        etapa=Projeto.TCC_I,
+        ano=ano,
+        periodo=periodo,
+    ).values("limite")[:1]
+
+    qs = (
+        Tema.objects.filter(ativo=True)
+        .select_related("professor__usuario", "area")
+        .annotate(
+            vagas_ocupadas_do_professor=Count(
+                "professor__usuario__projetos_orientados",
+                filter=Q(
+                    professor__usuario__projetos_orientados__etapa=Projeto.TCC_I,
+                    professor__usuario__projetos_orientados__ano=ano,
+                    professor__usuario__projetos_orientados__periodo=periodo,
+                ),
+                distinct=True,
+            ),
+            limite_de_vagas_do_professor=Coalesce(
+                Subquery(limite_concedido), Value(LIMITE_PADRAO_VAGAS)
+            ),
+        )
+        .annotate(
+            professor_tem_vaga=ExpressionWrapper(
+                Q(vagas_ocupadas_do_professor__lt=F("limite_de_vagas_do_professor")),
+                output_field=BooleanField(),
+            )
+        )
+    )
+    if area is not None:
+        qs = qs.filter(area=area)
+    return qs

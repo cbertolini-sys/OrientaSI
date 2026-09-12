@@ -35,3 +35,19 @@ class FormularioTema(MisturaAcessibilidadeFormulario, forms.Form):
         super().__init__(*args, **kwargs)
         if professor is not None:
             self.fields["area"].queryset = professor.areas.all()
+
+
+class FormularioFiltroMural(MisturaAcessibilidadeFormulario, forms.Form):
+    """Filtro de área do mural de temas (T7). Formulário de GET, não de POST:
+    `area` é sempre opcional (`required=False`) — em branco, o mural mostra
+    temas de todas as áreas, e não há "erro" possível de o aluno não
+    escolher nenhuma.
+    """
+
+    area = forms.ModelChoiceField(
+        label="Área",
+        queryset=Area.objects.all(),
+        required=False,
+        empty_label="Todas as áreas",
+        widget=forms.Select(attrs={"class": "select w-full"}),
+    )

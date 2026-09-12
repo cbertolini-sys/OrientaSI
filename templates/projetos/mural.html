@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Mural de temas{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-3xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Mural de temas</h1>
+    <p class="mt-2">
+      Temas de TCC oferecidos pelos professores. O selo ao lado de cada tema mostra se o
+      professor ainda tem vaga disponível.
+    </p>
+
+    {% comment %}
+      Formulário de GET, não de POST: filtrar por área é navegação (muda o que a página
+      lista), não uma mutação — por isso sem csrf_token, que só protege ações de estado.
+    {% endcomment %}
+    <form method="get" class="mt-4 flex flex-wrap items-end gap-4" novalidate>
+      <div class="min-w-48 flex-1">
+        {% for campo in formulario %}
+          {% include "contas/_campo.html" with campo=campo %}
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn btn-primary">Filtrar</button>
+    </form>
+
+    {% if temas %}
+      <ul class="mt-6 space-y-3">
+        {% for tema in temas %}
+          <li class="rounded-box border border-base-300 p-4">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="font-medium">{{ tema.titulo }}</p>
+                <p class="text-sm text-base-content/80">
+                  {{ tema.area.nome }} — {{ tema.professor.usuario.nome_completo }}
+                </p>
+                <p class="mt-2">{{ tema.descricao }}</p>
+              </div>
+              {% if tema.professor_tem_vaga %}
+                <span class="badge badge-success shrink-0">Vaga disponível</span>
+              {% else %}
+                <span class="badge badge-neutral shrink-0">Sem vaga no momento</span>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-6 text-base-content/80">Nenhum tema disponível no momento.</p>
+    {% endif %}
+  </article>
+{% endblock %}

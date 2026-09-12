@@ -5,8 +5,31 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.projetos import permissions, services
-from apps.projetos.forms import FormularioTema
+from apps.projetos.forms import FormularioFiltroMural, FormularioTema
 from apps.projetos.models import Tema
+
+
+@login_required
+def mural(request):
+    """Mural de temas (T7): o aluno navega os temas `ativo` de todos os
+    professores antes de se candidatar (candidatura em si é a T8).
+
+    Autenticada mas SEM portão de papel — ao contrário de `meus_temas`
+    (exclusiva de quem tem `PerfilProfessor`), qualquer usuário logado pode
+    abrir esta tela: um professor navegando o mural para ver a oferta dos
+    colegas não é um cenário que o spec proíba, e não há nenhuma ação nesta
+    tela (só listagem) que dependa do papel de quem olha.
+
+    O filtro de área é lido do próprio `request.GET` — `request.GET or None`
+    devolve `None` para um `QueryDict` vazio (usuário ainda não filtrou
+    nada), o que deixa o formulário DESLIGADO (sem erros, sem
+    `aria-invalid`) na primeira visita, em vez de "vinculado e válido com
+    tudo em branco".
+    """
+    formulario = FormularioFiltroMural(request.GET or None)
+    area = formulario.cleaned_data["area"] if formulario.is_valid() else None
+    temas = services.temas_do_mural(area=area)
+    return render(request, "projetos/mural.html", {"formulario": formulario, "temas": temas})
 
 
 @login_required
