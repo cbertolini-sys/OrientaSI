@@ -135,6 +135,25 @@ def test_foco_vai_para_o_resumo_de_erros_apos_post_invalido(page, live_server, c
     page.goto(f"{live_server.url}/convite/token-foco/")
     page.click("button[type=submit]")  # formulário vazio: dispara os erros obrigatórios
 
+    # Corrida diagnosticada (instabilidade ~1 em 4, só na suíte inteira, nunca
+    # isolado — reproduzida sob carga sintética de CPU, 23/80 falhas): o
+    # `autofocus` do HTML só é aplicado pelo navegador numa "oportunidade de
+    # renderização" (a rotina de flush de autofocus roda junto do pipeline de
+    # pintura), um evento DIFERENTE — e mais tardio — do que o `load` que
+    # `page.click()` já espera antes de devolver o controle. Sob contenção de
+    # CPU (a suíte inteira aciona dezenas de páginas Playwright em sequência),
+    # o documento pode terminar de carregar (`document.readyState ===
+    # "complete"`) sem que o navegador ainda tenha tido a chance de pintar um
+    # frame — e ler `activeElement` nesse intervalo pega o foco ainda em
+    # <body>. Confirmado isolando a variável: sob a MESMA carga sintética (8
+    # processos saturando CPU), sem este `evaluate` a falha ficou em 23/80;
+    # com ele, 0/80 em três rodadas seguidas. Duas chamadas aninhadas de
+    # `requestAnimationFrame` forçam o navegador a completar um ciclo de
+    # renderização antes da leitura abaixo — sem inspecionar o próprio foco
+    # (o valor de `ativo`), só garantindo que a rotina do navegador que o
+    # move já teve a chance de rodar.
+    page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+
     ativo = page.evaluate("document.activeElement.id")
     assert (
         ativo == "resumo-erros"
