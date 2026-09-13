@@ -209,6 +209,138 @@ def test_duas_aceitacoes_simultaneas_no_ultimo_lugar_resultam_em_uma_recusa():
 
 
 # --------------------------------------------------------------------------
+# T12: trocar_orientador (painel da coordenação) — spec §5.3, explícita:
+# "aplicada em aceitar_opcao e trocar_orientador, nunca só numa das duas".
+# A disputa é a MESMA da prova acima (a linha do PerfilProfessor do
+# professor NOVO), só que a escrita disputada é um UPDATE em `Projeto` já
+# existente, não um INSERT — ver a docstring de
+# `services.trocar_orientador` (apps/projetos/services.py) para a
+# comparação completa com `criar_projeto_sob_limite`.
+# --------------------------------------------------------------------------
+
+
+def _troca_em_thread(projeto_id, professor_novo_pk, por_id, resultados, chave):
+    """Roda `services.trocar_orientador` numa conexão de banco própria —
+    mesmo padrão de `_aceita_em_thread`, acima."""
+    connection.close()
+    try:
+        projeto = Projeto.objects.get(pk=projeto_id)
+        professor_novo = PerfilProfessor.objects.get(pk=professor_novo_pk)
+        por = Usuario.objects.get(pk=por_id)
+        services.trocar_orientador(projeto, professor_novo, por=por)
+        resultados[chave] = "trocado"
+    except ValidationError as erro:
+        resultados[chave] = f"recusado: {erro.messages[0]}"
+    finally:
+        connection.close()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_duas_trocas_simultaneas_para_o_mesmo_professor_no_ultimo_lugar_resultam_em_uma_recusa():
+    """Duas trocas de orientador, para dois PROJETOS de dois professores
+    ANTIGOS diferentes, disputam a MESMA última vaga do MESMO professor
+    NOVO. Sem a trava certa (a linha do `PerfilProfessor` do professor
+    novo), as duas leriam "2 de 3 vagas ocupadas" e as duas trocariam,
+    terminando com 4 projetos sob um teto de 3 — o mesmo furo que
+    `test_duas_aceitacoes_simultaneas_no_ultimo_lugar_resultam_em_uma_recusa`,
+    acima, prova para `criar_projeto_sob_limite`, só que aqui a escrita
+    disputada é um UPDATE (`Projeto.orientador`), não um INSERT.
+
+    Mesmo mecanismo de atraso forçado das provas acima: só a ESCRITA do
+    projeto de T1 (`Projeto.save`, que `trocar_orientador` chama depois de
+    já ter travado a linha do professor novo e decidido que cabe) é
+    atrasada em 1s — tempo real para T2 tentar (e bloquear tentando) travar
+    a MESMA linha do professor novo que T1 já travou.
+    """
+    professor_novo = _cria_professor(50)
+    professor_antigo_1 = _cria_professor(51)
+    professor_antigo_2 = _cria_professor(52)
+    coordenador = Usuario.objects.create_user(
+        email="coordenador.concorrencia.troca@ufsm.br",
+        password="x",
+        nome_completo="Coordenadora Concorrência Troca",
+        cpf=_gera_cpf(53),
+        is_coordenador=True,
+        is_staff=True,
+    )
+
+    # 2 de 3 vagas do professor NOVO já ocupadas — resta exatamente UMA
+    # vaga, e é essa vaga que as duas trocas disputam.
+    for indice in range(2):
+        Projeto.objects.create(
+            aluno=_cria_perfil_aluno(indice + 300).usuario,
+            orientador=professor_novo.usuario,
+            etapa=Projeto.TCC_I,
+            status=Projeto.EM_ANDAMENTO,
+            ano=ANO_VIGENTE,
+            periodo=PERIODO_VIGENTE,
+        )
+
+    projeto_1 = Projeto.objects.create(
+        aluno=_cria_perfil_aluno(310).usuario,
+        orientador=professor_antigo_1.usuario,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ANO_VIGENTE,
+        periodo=PERIODO_VIGENTE,
+    )
+    projeto_2 = Projeto.objects.create(
+        aluno=_cria_perfil_aluno(311).usuario,
+        orientador=professor_antigo_2.usuario,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ANO_VIGENTE,
+        periodo=PERIODO_VIGENTE,
+    )
+
+    resultados = {}
+    save_original = Projeto.save
+
+    def save_com_atraso(self, *args, **kwargs):
+        # Diferente da mutação de INSERT acima (`self.pk is None`): aqui a
+        # escrita disputada é um UPDATE de um Projeto que já existe, então o
+        # que identifica "a gravação de T1" é o PK do projeto que T1 está
+        # trocando, não a ausência de PK.
+        if self.pk == projeto_1.pk:
+            time.sleep(1.0)
+        return save_original(self, *args, **kwargs)
+
+    t1 = threading.Thread(
+        target=_troca_em_thread,
+        args=(projeto_1.pk, professor_novo.pk, coordenador.pk, resultados, "t1"),
+    )
+    t2 = threading.Thread(
+        target=_troca_em_thread,
+        args=(projeto_2.pk, professor_novo.pk, coordenador.pk, resultados, "t2"),
+    )
+
+    with mock.patch.object(Projeto, "save", save_com_atraso):
+        t1.start()
+        time.sleep(0.2)  # garante que T1 já leu a contagem antes de T2 começar
+        t2.start()
+        t1.join()
+        t2.join()
+
+    total_do_professor_novo = Projeto.objects.filter(
+        orientador=professor_novo.usuario, etapa=Projeto.TCC_I
+    ).count()
+
+    assert total_do_professor_novo == services.LIMITE_PADRAO_VAGAS, (
+        f"o teto de {services.LIMITE_PADRAO_VAGAS} vagas foi ultrapassado sob concorrência "
+        f"real: {total_do_professor_novo} projetos no final para o professor novo. "
+        f"Resultados de cada thread: {resultados}"
+    )
+    assert "recusado" in resultados["t1"] or "recusado" in resultados["t2"], (
+        f"esperava que uma das duas trocas concorrentes fosse recusada pelo teto de vagas, e "
+        f"nenhuma foi: {resultados}"
+    )
+    assert "trocado" in resultados["t1"] or "trocado" in resultados["t2"], (
+        f"esperava que uma das duas trocas concorrentes fosse aceita (a vaga existia antes "
+        f"das duas tentativas): {resultados}"
+    )
+
+
+# --------------------------------------------------------------------------
 # Acréscimo 3 do controlador da T9: aceitar_opcao (T9) contra avancar_cascata
 # (T8, chamada pelo Beat da T10 quando o prazo vence) sobre a MESMA
 # Candidatura. Hoje só uma opção fica ENVIADA por vez — dois professores não

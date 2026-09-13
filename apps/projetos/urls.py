@@ -18,4 +18,15 @@ urlpatterns = [
         views.cancelar_candidatura_view,
         name="cancelar_candidatura",
     ),
+    path("painel/orientacoes/", views.painel_orientacoes, name="painel_orientacoes"),
+    path(
+        "painel/orientacoes/<int:projeto_id>/trocar-orientador/",
+        views.trocar_orientador_view,
+        name="trocar_orientador",
+    ),
+    path(
+        "painel/orientacoes/limites/<int:limite_id>/revogar/",
+        views.revogar_limite_view,
+        name="revogar_limite",
+    ),
 ]

@@ -8,11 +8,13 @@ from django.views.decorators.http import require_POST
 from apps.projetos import permissions, services
 from apps.projetos.forms import (
     FormularioCandidatura,
+    FormularioConcederLimite,
     FormularioFiltroMural,
     FormularioRecusaOpcao,
     FormularioTema,
+    FormularioTrocarOrientador,
 )
-from apps.projetos.models import Candidatura, OpcaoCandidatura, Projeto, Tema
+from apps.projetos.models import Candidatura, LimiteOrientacao, OpcaoCandidatura, Projeto, Tema
 
 
 @login_required
@@ -446,3 +448,125 @@ def cancelar_candidatura_view(request, candidatura_id):
     else:
         messages.success(request, "Candidatura cancelada.")
     return redirect("projetos:candidatura")
+
+
+@login_required
+def painel_orientacoes(request):
+    """Painel da coordenação para trocar orientador e ajustar limites de
+    vaga (T12, spec §6: "/painel/orientacoes/ | coordenação | visão geral,
+    troca de orientador, limites").
+
+    Portão de PAPEL via `pode_ajustar_orientacao` — checagem direta de
+    `is_coordenador`, um campo booleano de `Usuario`, não um perfil
+    separado: ao contrário de `meus_temas`/`orientacoes`/`candidatura`
+    (acima), não há `RelatedObjectDoesNotExist` a evitar aqui.
+
+    A tela combina DUAS ações independentes (spec §6): trocar orientador
+    (um `FormularioTrocarOrientador` POR projeto listado, cada POST
+    endereçado à sua própria rota — `trocar_orientador_view`, abaixo) e
+    conceder limite (um único `FormularioConcederLimite`, tratado aqui
+    mesmo, no mesmo padrão de `apps/contas/views.py::painel`, que trata o
+    formulário de convite na própria rota do painel e delega
+    promover/revogar a rotas à parte).
+    """
+    permissions.garante(
+        permissions.pode_ajustar_orientacao(request.user),
+        "Esta área é exclusiva da coordenação.",
+    )
+
+    if request.method == "POST":
+        formulario_limite = FormularioConcederLimite(request.POST)
+        if formulario_limite.is_valid():
+            try:
+                services.conceder_limite(
+                    professor=formulario_limite.cleaned_data["professor"],
+                    etapa=formulario_limite.cleaned_data["etapa"],
+                    limite=formulario_limite.cleaned_data["limite"],
+                    justificativa=formulario_limite.cleaned_data["justificativa"],
+                    por=request.user,
+                )
+            except ValidationError as erro:
+                formulario_limite.add_error(None, erro.messages[0])
+            else:
+                messages.success(request, "Limite concedido.")
+                return redirect("projetos:painel_orientacoes")
+    else:
+        formulario_limite = FormularioConcederLimite()
+
+    projetos = Projeto.objects.select_related("aluno", "orientador", "tema").order_by(
+        "orientador__nome_completo", "aluno__nome_completo"
+    )
+    itens_projeto = [
+        {
+            "projeto": projeto,
+            "formulario_troca": FormularioTrocarOrientador(
+                projeto=projeto, auto_id=f"id_troca_{projeto.pk}_%s"
+            ),
+        }
+        for projeto in projetos
+    ]
+    limites = LimiteOrientacao.objects.select_related(
+        "professor__usuario", "autorizado_por"
+    ).order_by("-criado_em")
+
+    return render(
+        request,
+        "projetos/painel_orientacoes.html",
+        {
+            "itens_projeto": itens_projeto,
+            "limites": limites,
+            "formulario_limite": formulario_limite,
+            "limite_padrao": services.LIMITE_PADRAO_VAGAS,
+        },
+    )
+
+
+@login_required
+@require_POST
+def trocar_orientador_view(request, projeto_id):
+    """Troca o orientador do projeto indicado pelo formulário do painel da
+    coordenação (T12).
+
+    Portão de papel ANTES do lookup do projeto — mesmo motivo de
+    `apps/contas/views.py::promover`/`revogar`: checar quem pede antes de
+    buscar o alvo evita que a ordem das respostas (403 vs. 404) revele a
+    existência de um projeto a quem não tem acesso a esta tela. Sem escopo
+    no lookup (ao contrário de `desativar_tema`/`aceitar_opcao_view`,
+    acima): a coordenação tem "visão geral" (spec §6) sobre TODO projeto,
+    não só os de um professor ou aluno específico.
+    """
+    permissions.garante(
+        permissions.pode_ajustar_orientacao(request.user),
+        "Esta área é exclusiva da coordenação.",
+    )
+    projeto = get_object_or_404(Projeto, pk=projeto_id)
+    formulario = FormularioTrocarOrientador(request.POST, projeto=projeto)
+    if not formulario.is_valid():
+        messages.error(request, "Selecione um novo orientador válido.")
+        return redirect("projetos:painel_orientacoes")
+
+    try:
+        services.trocar_orientador(
+            projeto, formulario.cleaned_data["novo_orientador"], por=request.user
+        )
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Orientador do projeto atualizado.")
+    return redirect("projetos:painel_orientacoes")
+
+
+@login_required
+@require_POST
+def revogar_limite_view(request, limite_id):
+    """Revoga um limite elevado de vagas (T12). Mesmo padrão de portão de
+    papel antes do lookup, sem escopo (visão geral da coordenação), de
+    `trocar_orientador_view`, acima."""
+    permissions.garante(
+        permissions.pode_conceder_limite(request.user),
+        "Esta área é exclusiva da coordenação.",
+    )
+    limite = get_object_or_404(LimiteOrientacao, pk=limite_id)
+    services.revogar_limite(limite, por=request.user)
+    messages.success(request, "Limite revogado.")
+    return redirect("projetos:painel_orientacoes")

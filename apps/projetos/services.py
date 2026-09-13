@@ -819,6 +819,192 @@ def cancelar_candidatura(candidatura, por):
     ).update(situacao=OpcaoCandidatura.CANCELADA)
 
 
+@transaction.atomic
+def trocar_orientador(projeto, novo_professor, por):
+    """Troca o orientador de `projeto` para `novo_professor` (T12, painel da
+    coordenação — spec §6 e §10 critério 12: "a coordenação troca o
+    orientador de um projeto; a vaga do professor novo é revalidada").
+
+    MESMA disciplina de travamento de `criar_projeto_sob_limite` (T5,
+    acima) — leia a docstring dela inteira antes de mexer aqui. A única
+    diferença estrutural é que ali a escrita disputada é um INSERT de
+    `Projeto` novo, e aqui é um UPDATE de um `Projeto` já existente; o
+    recurso disputado continua sendo a MESMA linha, a do `PerfilProfessor`
+    do professor NOVO — travar `Projeto` não ajudaria aqui pela mesma razão
+    que não ajudaria lá (a segunda transação não precisa da linha do
+    `Projeto` para decidir se cabe mais um, só da contagem e do limite do
+    professor).
+
+    GARANTIA, e limite dela: idêntica à de `criar_projeto_sob_limite` — duas
+    (ou mais) chamadas concorrentes para o MESMO professor novo são
+    serializadas pela trava da linha dele; para professores novos
+    DIFERENTES não há contenção nenhuma. Também depende de READ COMMITTED
+    (o padrão deste projeto), pelo mesmo motivo de lá: esta função trava a
+    linha do professor mas não a MODIFICA (só lê `vagas_ocupadas`/
+    `limite_do_professor` e grava no `Projeto`, outra linha) — sob REPEATABLE
+    READ o mesmo furo documentado em `criar_projeto_sob_limite` se
+    aplicaria aqui. Não medido de novo nesta tarefa: reaproveita a mesma
+    análise, não uma segunda medição. Provado com threads e conexões reais
+    em `test_concorrencia.py::
+    test_duas_trocas_simultaneas_para_o_mesmo_professor_no_ultimo_lugar_resultam_em_uma_recusa`.
+
+    SEMESTRE: revalida usando `projeto.ano`/`projeto.periodo` — o carimbo
+    que o próprio `Projeto` já carrega desde que nasceu e que não muda
+    depois (`apps/projetos/models.py::Projeto`) — e NUNCA
+    `semestre_vigente()`. Um projeto pertence ao semestre em que nasceu;
+    trocar de orientador não muda isso. Usar o semestre vigente contaria a
+    vaga do professor novo no semestre ERRADO se a troca acontecer depois
+    da virada — discriminado em
+    `test_painel_orientacoes.py::test_trocar_orientador_usa_semestre_do_projeto_nao_o_vigente`
+    (professor lotado no semestre do projeto, com vaga de sobra no vigente:
+    só a implementação que olha o semestre do projeto recusa).
+
+    LACUNA REGISTRADA, não decidida aqui (mesmo formato das demais lacunas
+    deste arquivo — ver, por exemplo, a de `editar_tema`, acima, sobre tema
+    editado depois de já ter candidatura): `novo_professor` sendo o MESMO
+    professor que já orienta `projeto` conta a vaga já ocupada por este
+    projeto contra o teto do próprio professor, e pode recusar uma "troca"
+    que não muda nada. A tela (`FormularioTrocarOrientador`,
+    `apps/projetos/forms.py`) evita o caso excluindo o orientador atual do
+    `<select>`, mas este serviço, chamado direto, não tem essa proteção.
+    """
+    permissions.garante(
+        permissions.pode_ajustar_orientacao(por),
+        "Somente a coordenação troca o orientador de um projeto.",
+    )
+    professor = PerfilProfessor.objects.select_for_update().get(pk=novo_professor.pk)
+    ocupadas = vagas_ocupadas(professor, projeto.etapa, projeto.ano, projeto.periodo)
+    limite = limite_do_professor(professor, projeto.etapa, projeto.ano, projeto.periodo)
+    if ocupadas >= limite:
+        etapa_legivel = dict(Projeto.ETAPAS).get(projeto.etapa, projeto.etapa)
+        raise ValidationError(
+            f"{professor.usuario.nome_completo} já tem {ocupadas} de {limite} vagas "
+            f"ocupadas em {etapa_legivel} no semestre {projeto.ano}/{projeto.periodo}. "
+            "Conceda um limite maior a ele ou escolha outro orientador."
+        )
+    projeto.orientador = professor.usuario
+    projeto.save(update_fields=["orientador"])
+    return projeto
+
+
+def _possui_limite_para_chave(professor, etapa, ano, periodo):
+    """Checagem AMIGÁVEL de "já existe uma autorização para esta chave
+    exata" — mesmo formato de `_possui_candidatura_em_curso`/
+    `_possui_projeto_ativo`, acima, e mesma limitação: só reflete o banco no
+    instante em que é chamada, sem trava nenhuma. Extraída à parte para que
+    o teste de corrida
+    (`test_painel_orientacoes.py::test_conceder_limite_converte_erro_de_integridade_em_validationerror`)
+    consiga substituí-la por `monkeypatch`, simulando a janela entre esta
+    leitura e o INSERT de `conceder_limite` abaixo — mesmo mecanismo dos
+    dois exemplos citados.
+    """
+    return LimiteOrientacao.objects.filter(
+        professor=professor, etapa=etapa, ano=ano, periodo=periodo
+    ).exists()
+
+
+@transaction.atomic
+def conceder_limite(professor, etapa, limite, justificativa, por):
+    """Concede um limite ELEVADO de vagas a `professor`, nesta `etapa`, no
+    semestre VIGENTE (T12, painel da coordenação — spec §3.6 e §10 critério
+    10: "a coordenação eleva o limite daquele professor com justificativa;
+    o quarto aceite passa").
+
+    SEMESTRE: sempre `semestre_vigente()`, nunca um parâmetro — ao contrário
+    de `trocar_orientador`, acima, que revalida sobre o semestre CONGELADO
+    do projeto que já existe, uma concessão NOVA só pode servir para
+    decisões FUTURAS (o próximo aceite, a próxima troca); não há tela nem
+    pedido do spec (§6) para a coordenação escolher um ano/período
+    arbitrário na hora de conceder.
+
+    RECUSAS, nesta ordem: permissão (só coordenação); limite que não eleva
+    nada acima do teto padrão (ambiguidade 1 do controlador da T12 —
+    `LimiteOrientacao.Meta.constraints` já impõe `limite > 3` no banco com
+    `CheckConstraint`, esta checagem só dá uma mensagem legível ANTES do
+    INSERT, no mesmo espírito de outras checagens deste arquivo que
+    antecipam uma trigger/constraint com uma mensagem melhor); justificativa
+    vazia (spec §3.6: "a justificativa é obrigatória... a decisão precisa
+    sobreviver à memória de quem estava na coordenação"); e por fim a chave
+    (professor, etapa, ano, periodo) já autorizada.
+
+    CHAVE JÁ AUTORIZADA (ambiguidade 1 do controlador): recusada com
+    `ValidationError`, nunca uma atualização in-place — sobrescrever
+    apagaria a `justificativa` e o `autorizado_por` da concessão anterior
+    sem deixar rastro. Mesmo raciocínio que `registrar_candidatura` (acima)
+    usa para candidatura em curso ("cancele antes de registrar outra") e que
+    a T11 usou para `Projeto` ativo. A checagem amigável
+    (`_possui_limite_para_chave`) tem a MESMA limitação estrutural das
+    outras deste arquivo — lida fora de qualquer trava, pode ficar
+    desatualizada entre esta leitura e uma concessão concorrente para a
+    MESMA chave. Quem garante de fato é o `UniqueConstraint`
+    "limite_unico_por_professor_etapa_e_semestre"
+    (`apps/projetos/models.py::LimiteOrientacao.Meta`), via o
+    `try/except IntegrityError` abaixo — mesmo padrão de
+    `registrar_candidatura` e `criar_projeto_sob_limite` (T5), acima: o
+    SAVEPOINT aninhado (`with transaction.atomic()`) isola o INSERT para que
+    o `IntegrityError`, se disparar, não "envenene" a transação inteira
+    desta função.
+    """
+    permissions.garante(
+        permissions.pode_conceder_limite(por),
+        "Somente a coordenação concede limites de orientação.",
+    )
+    if limite <= LIMITE_PADRAO_VAGAS:
+        raise ValidationError(
+            f"O limite precisa ser maior que {LIMITE_PADRAO_VAGAS} — esse já é o teto padrão "
+            f"que vale para todo professor; conceder {limite} não muda nada."
+        )
+    if not justificativa or not justificativa.strip():
+        raise ValidationError("Informe uma justificativa para conceder o limite.")
+
+    ano, periodo = semestre_vigente()
+    etapa_legivel = dict(Projeto.ETAPAS).get(etapa, etapa)
+    mensagem_ja_autorizado = (
+        f"{professor.usuario.nome_completo} já tem uma autorização de limite para "
+        f"{etapa_legivel} neste semestre ({ano}/{periodo}). Revogue a existente antes de "
+        "conceder outra."
+    )
+    if _possui_limite_para_chave(professor, etapa, ano, periodo):
+        raise ValidationError(mensagem_ja_autorizado)
+    try:
+        with transaction.atomic():
+            return LimiteOrientacao.objects.create(
+                professor=professor,
+                etapa=etapa,
+                ano=ano,
+                periodo=periodo,
+                limite=limite,
+                justificativa=justificativa.strip(),
+                autorizado_por=por,
+            )
+    except IntegrityError:
+        raise ValidationError(mensagem_ja_autorizado) from None
+
+
+@transaction.atomic
+def revogar_limite(limite, por):
+    """Revoga `limite` (T12, spec §3.6 e §10 critério 11: "revogar o limite
+    não desfaz os projetos já criados, e trava o próximo aceite").
+
+    Revogar é DELETAR a linha — nada em `LimiteOrientacao` marca "revogado"
+    (não há campo para isso, e nenhum `PROTECT` aponta para este modelo —
+    `apps/projetos/models.py::LimiteOrientacao` só declara `PROTECT` NELE
+    PRÓPRIO apontando para `PerfilProfessor`/`Usuario`, na direção
+    contrária). Sem a linha, `limite_do_professor` (acima) simplesmente
+    deixa de encontrar uma autorização para a chave (professor, etapa, ano,
+    periodo) e volta a responder `LIMITE_PADRAO_VAGAS` — é essa queda, não
+    uma escrita nova, quem "trava o próximo aceite": nenhum `Projeto` já
+    criado sob a autorização é tocado, só a PRÓXIMA leitura de vaga
+    (`criar_projeto_sob_limite`/`trocar_orientador`) volta a ver o teto
+    padrão.
+    """
+    permissions.garante(
+        permissions.pode_conceder_limite(por),
+        "Somente a coordenação revoga limites de orientação.",
+    )
+    limite.delete()
+
+
 def _erro_de_conflito_de_estado():
     return ValidationError(
         "Esta manifestação não está mais disponível para resposta — outra ação já a "

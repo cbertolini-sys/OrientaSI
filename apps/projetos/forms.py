@@ -2,8 +2,8 @@ from django import forms
 from django.core.exceptions import ValidationError
 
 from apps.contas.forms import MisturaAcessibilidadeFormulario
-from apps.contas.models import Area
-from apps.projetos.models import Tema
+from apps.contas.models import Area, PerfilProfessor
+from apps.projetos.models import Projeto, Tema
 
 
 class FormularioTema(MisturaAcessibilidadeFormulario, forms.Form):
@@ -156,6 +156,76 @@ class FormularioCandidatura(MisturaAcessibilidadeFormulario, forms.Form):
                 "professores diferentes."
             )
         return cleaned
+
+
+class FormularioTrocarOrientador(MisturaAcessibilidadeFormulario, forms.Form):
+    """Formulário de troca de orientador de um `Projeto` (T12, painel da
+    coordenação — spec §6: "/painel/orientacoes/ | coordenação | visão
+    geral, troca de orientador, limites").
+
+    A view instancia um formulário POR projeto listado no painel, com
+    `auto_id` próprio (mesmo padrão de `FormularioRecusaOpcao`, acima) —
+    sem isso, o `id` do campo "novo_orientador" se repetiria a cada `<li>`
+    da lista de projetos.
+
+    `projeto=` no construtor exclui o ORIENTADOR ATUAL do `<select>`: a
+    troca é sempre PARA outro professor. Oferecer o próprio orientador como
+    opção levaria `services.trocar_orientador` a contar a vaga já ocupada
+    por ESTE projeto contra o teto do próprio professor (ver a LACUNA
+    REGISTRADA na docstring daquele serviço) — excluir a opção evita o caso
+    aqui, na tela, sem exigir uma checagem nova no serviço para um cenário
+    que esta tela nunca oferece.
+    """
+
+    novo_orientador = forms.ModelChoiceField(
+        label="Novo orientador",
+        queryset=PerfilProfessor.objects.select_related("usuario").order_by(
+            "usuario__nome_completo"
+        ),
+        widget=forms.Select(attrs={"class": "select w-full"}),
+    )
+
+    def __init__(self, *args, projeto=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if projeto is not None:
+            self.fields["novo_orientador"].queryset = self.fields[
+                "novo_orientador"
+            ].queryset.exclude(usuario=projeto.orientador)
+
+
+class FormularioConcederLimite(MisturaAcessibilidadeFormulario, forms.Form):
+    """Formulário de concessão de limite elevado de vagas a um professor
+    (T12, painel da coordenação — spec §3.6).
+
+    `limite` só recebe `min_value=1` aqui — a recusa de um limite menor ou
+    igual a `LIMITE_PADRAO_VAGAS` é regra de NEGÓCIO
+    (`services.conceder_limite`, que conhece a constante), não validação de
+    formulário: `min_value=1` é só a primeira linha de defesa contra um
+    valor obviamente errado (negativo ou zero), e a mensagem específica
+    ("precisa ser maior que 3") vem do serviço.
+    """
+
+    professor = forms.ModelChoiceField(
+        label="Professor",
+        queryset=PerfilProfessor.objects.select_related("usuario").order_by(
+            "usuario__nome_completo"
+        ),
+        widget=forms.Select(attrs={"class": "select w-full"}),
+    )
+    etapa = forms.ChoiceField(
+        label="Etapa",
+        choices=Projeto.ETAPAS,
+        widget=forms.Select(attrs={"class": "select w-full"}),
+    )
+    limite = forms.IntegerField(
+        label="Novo limite de vagas",
+        min_value=1,
+        widget=forms.NumberInput(attrs={"class": "input w-full"}),
+    )
+    justificativa = forms.CharField(
+        label="Justificativa",
+        widget=forms.Textarea(attrs={"class": "textarea w-full"}),
+    )
 
 
 class FormularioFiltroMural(MisturaAcessibilidadeFormulario, forms.Form):

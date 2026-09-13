@@ -70,6 +70,28 @@ def pode_montar_candidatura(usuario):
     return bool(usuario and usuario.is_authenticated and hasattr(usuario, "perfil_aluno"))
 
 
+def pode_ajustar_orientacao(usuario):
+    """Só a coordenação troca o orientador de um projeto (T12, spec §6:
+    "/painel/orientacoes/ | coordenação | visão geral, troca de orientador,
+    limites").
+
+    Checa `usuario.is_coordenador` diretamente — um campo booleano de
+    `Usuario` (`apps/contas/models.py`), não um perfil separado como
+    `perfil_professor`/`perfil_aluno`: coordenador é um professor promovido
+    (`apps/contas/services.py::promover_a_coordenador`), sem modelo de
+    perfil próprio. Por isso, ao contrário de `pode_criar_tema`/
+    `pode_montar_candidatura` (acima), não há `RelatedObjectDoesNotExist` a
+    evitar aqui — `is_coordenador` sempre existe, com `default=False`.
+    """
+    return bool(usuario and usuario.is_authenticated and usuario.is_coordenador)
+
+
+def pode_conceder_limite(usuario):
+    """Mesma regra de `pode_ajustar_orientacao`, acima: só a coordenação
+    concede ou revoga limites elevados de vaga (T12, spec §3.6)."""
+    return bool(usuario and usuario.is_authenticated and usuario.is_coordenador)
+
+
 def pode_responder_opcao(usuario, opcao):
     """`usuario` pode aceitar/recusar `opcao` — só o professor DONO dela
     (T9), mesma checagem de POSSE de `_e_o_dono`: pergunta "é ESTE

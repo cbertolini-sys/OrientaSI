@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Painel de orientações{% endblock %}
+
+{% block conteudo %}
+  <h1 class="font-display text-2xl font-bold text-primary">Painel de orientações</h1>
+
+  <section aria-labelledby="titulo-conceder-limite"
+           class="mt-6 rounded-box bg-base-100 p-6 shadow-sm">
+    <h2 id="titulo-conceder-limite" class="font-display text-xl font-semibold">
+      Conceder limite de vagas
+    </h2>
+    <p class="mt-2 text-sm text-base-content/80">
+      O teto padrão é de {{ limite_padrao }} vagas por professor, etapa e semestre. Um limite
+      concedido aqui vale só para o semestre vigente e para a etapa escolhida.
+    </p>
+
+    <form method="post" action="{% url 'projetos:painel_orientacoes' %}"
+          class="mt-4 max-w-md space-y-4" novalidate>
+      {% csrf_token %}
+      {% if formulario_limite.errors %}
+        {% comment %}
+          Mesmo padrão de painel_coordenacao.html (T11): tabindex="-1" +
+          autofocus move o foco do teclado para o resumo do erro depois de
+          um POST inválido, em vez de deixar o foco voltar ao topo do
+          documento sem nenhum sinal.
+        {% endcomment %}
+        <div id="resumo-erros-limite" role="alert" tabindex="-1" autofocus class="alert alert-error">
+          <p>Corrija os campos indicados abaixo antes de continuar.</p>
+          {% for erro in formulario_limite.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      {% for campo in formulario_limite %}
+        {% include "contas/_campo.html" with campo=campo %}
+      {% endfor %}
+
+      <button type="submit" class="btn btn-primary w-full">Conceder limite</button>
+    </form>
+  </section>
+
+  <section aria-labelledby="titulo-limites" class="mt-6 rounded-box bg-base-100 p-6 shadow-sm">
+    <h2 id="titulo-limites" class="font-display text-xl font-semibold">Limites concedidos</h2>
+    <ul class="mt-4 space-y-3">
+      {% for limite in limites %}
+        <li class="flex flex-wrap items-center justify-between gap-3 border-b
+                    border-base-300 pb-3 last:border-b-0">
+          <span>
+            {{ limite.professor.usuario.nome_completo }} — {{ limite.get_etapa_display }}
+            ({{ limite.ano }}/{{ limite.periodo }}): limite {{ limite.limite }}.
+            <br>
+            <span class="text-sm text-base-content/80">
+              Justificativa: {{ limite.justificativa }} — concedido por
+              {{ limite.autorizado_por.nome_completo }}.
+            </span>
+          </span>
+          {% comment %}
+            <details>/<summary> como confirmação acessível — mesmo mecanismo
+            de painel_coordenacao.html (T11): funciona por teclado sem
+            JavaScript, e leitores de tela anunciam o estado sozinhos.
+          {% endcomment %}
+          <details>
+            <summary class="btn btn-error"
+                      aria-label="Revogar limite de {{ limite.professor.usuario.nome_completo }}">
+              Revogar
+            </summary>
+            <div class="mt-2 max-w-sm rounded-box bg-base-200 p-3">
+              <p>
+                Confirma revogar o limite de <strong>{{ limite.professor.usuario.nome_completo }}</strong>
+                em {{ limite.get_etapa_display }} ({{ limite.ano }}/{{ limite.periodo }})? Isto NÃO
+                desfaz orientações já aceitas sob este limite — só trava o próximo aceite acima do
+                teto padrão de {{ limite_padrao }}. Para cancelar, clique de novo em "Revogar".
+              </p>
+              <form method="post" action="{% url 'projetos:revogar_limite' limite.pk %}" class="mt-3">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-error w-full"
+                        aria-label="Confirmar revogação do limite de {{ limite.professor.usuario.nome_completo }}">
+                  Confirmar revogação
+                </button>
+              </form>
+            </div>
+          </details>
+        </li>
+      {% empty %}
+        <li>Nenhum limite elevado concedido no momento.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section aria-labelledby="titulo-projetos" class="mt-6 rounded-box bg-base-100 p-6 shadow-sm">
+    <h2 id="titulo-projetos" class="font-display text-xl font-semibold">Projetos e orientadores</h2>
+    <ul class="mt-4 space-y-4">
+      {% for item in itens_projeto %}
+        {% with projeto=item.projeto %}
+          <li class="rounded-box border border-base-300 p-4">
+            <p class="font-medium">{{ projeto.aluno.nome_completo }}</p>
+            <p class="text-sm text-base-content/80">
+              {{ projeto.get_etapa_display }} ({{ projeto.ano }}/{{ projeto.periodo }}) —
+              orientador atual: {{ projeto.orientador.nome_completo }}
+              {% if projeto.tema %} — Tema: {{ projeto.tema.titulo }}{% endif %}
+            </p>
+            <form method="post" action="{% url 'projetos:trocar_orientador' projeto.pk %}"
+                  class="mt-3 flex flex-wrap items-end gap-3">
+              {% csrf_token %}
+              <div class="min-w-48 flex-1">
+                {% for campo in item.formulario_troca %}
+                  {% include "contas/_campo.html" with campo=campo %}
+                {% endfor %}
+              </div>
+              <button type="submit" class="btn btn-outline">
+                Trocar orientador
+                <span class="sr-only"> de {{ projeto.aluno.nome_completo }}</span>
+              </button>
+            </form>
+          </li>
+        {% endwith %}
+      {% empty %}
+        <li>Nenhum projeto de orientação em andamento no momento.</li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endblock %}
