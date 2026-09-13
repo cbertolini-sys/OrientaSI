@@ -345,9 +345,8 @@ def manifestacoes_pendentes(professor):
     morava direto na view, assimétrica com `temas_do_mural`, acima, que já
     tem a sua no serviço — a leitura sem regra de negócio não é proibida em
     `views.py` (CLAUDE.md §4 proíbe REGRA DE NEGÓCIO lá, não leitura), mas
-    manter as duas juntas aqui evita que a próxima tela que precise da mesma
-    lista (o painel da coordenação, T12) tenha que decidir entre copiar a
-    consulta ou importar a view.
+    manter as duas juntas aqui evita que consumidores futuros decidam entre
+    copiar a consulta ou importar a view.
     """
     return (
         OpcaoCandidatura.objects.filter(professor=professor, situacao=OpcaoCandidatura.ENVIADA)

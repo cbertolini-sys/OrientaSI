@@ -606,8 +606,9 @@ ROTAS = [
         h1="Editar tema",
     ),
     # Fila do professor (T9): duas manifestações pendentes (com e sem tema)
-    # para que os dois ramos condicionais do template entrem na medição —
-    # ver a docstring de `cria_professor_com_manifestacao_para_rotas`.
+    # e um orientando atual, para que os ramos condicionais das duas seções
+    # do template (fila e "orientandos atuais") entrem na medição — ver a
+    # docstring de `cria_professor_com_manifestacao_para_rotas`.
     Rota(
         "/orientacoes/",
         "form",

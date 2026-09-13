@@ -579,6 +579,23 @@ def test_orientandos_atuais_so_lista_projetos_em_andamento_do_professor_no_semes
     # filtro `status=EM_ANDAMENTO`).
     assert list(services.orientandos_atuais(outro_professor)) == []
 
+    # Nem um projeto de um semestre ANTERIOR (Importante da rodada de
+    # correção 2 — o filtro de `ano`/`periodo` não tinha teste: removê-lo,
+    # mantendo `orientador=`/`status=`, não derrubava nenhum dos 142 testes
+    # de `apps/projetos/`). `Projeto.objects.create` direto, não
+    # `criar_projeto_sob_limite`, porque este cria sempre no semestre
+    # VIGENTE — não há como pedir um projeto de outro semestre por essa
+    # função.
+    Projeto.objects.create(
+        aluno=_cria_aluno(69).usuario,
+        orientador=professor.usuario,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ANO_VIGENTE - 1,
+        periodo=PERIODO_VIGENTE,
+    )
+    assert list(services.orientandos_atuais(professor)) == [projeto]
+
     projeto.status = Projeto.CONCLUIDO
     projeto.save(update_fields=["status"])
     assert list(services.orientandos_atuais(professor)) == []

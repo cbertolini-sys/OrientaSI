@@ -185,8 +185,9 @@ def orientacoes(request):
     A segunda metade (orientandos atuais) foi acrescentada na rodada de
     correção 1: nenhuma das treze tarefas do plano original a implementava
     — defeito do plano, fechado aqui em vez de numa tarefa futura, pelo
-    mesmo motivo da edição de tema na T6 (é a mesma tela; reabri-la depois
-    custa resubmetê-la às cinco suítes de acessibilidade de novo). Sem ela,
+    mesmo motivo citado em `tarefa-9-fix-1-brief.md:62-63` para a edição de
+    tema na T6: é a mesma tela, os mesmos arquivos, e reabri-la depois custa
+    resubmetê-la às cinco suítes de acessibilidade de novo. Sem ela,
     a tela mentia por omissão logo depois de um aceite: a manifestação
     aceita some da fila, e "Nenhuma manifestação aguardando sua resposta no
     momento" ficava como se fosse a única informação da página — um
