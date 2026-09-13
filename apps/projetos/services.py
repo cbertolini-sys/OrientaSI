@@ -394,7 +394,19 @@ def registrar_candidatura(aluno, opcoes):
         )
 
     ano, periodo = semestre_vigente()
+    professores_ja_escolhidos = set()
     for professor, tema in opcoes:
+        # M11 da rodada de correção 1: o mural (T7) não oferece nenhum dos
+        # dois casos abaixo, mas o serviço é a camada de guarda (CLAUDE.md
+        # §4) — ele já confere posse do tema duas linhas abaixo, então
+        # deixar de conferir "ativo" e "repetido" seria uma assimetria dele
+        # consigo mesmo, não uma omissão inofensiva.
+        if professor.pk in professores_ja_escolhidos:
+            raise ValidationError(
+                f"{professor.usuario.nome_completo} aparece mais de uma vez na candidatura."
+            )
+        professores_ja_escolhidos.add(professor.pk)
+
         if tema is not None and tema.professor_id != professor.pk:
             # A trigger `valida_tema_do_professor_da_opcao` (migração 0002)
             # recusaria este INSERT de qualquer forma — esta checagem NÃO a
@@ -404,7 +416,17 @@ def registrar_candidatura(aluno, opcoes):
             raise ValidationError(
                 f'O tema "{tema.titulo}" não pertence a {professor.usuario.nome_completo}.'
             )
-        # Ambiguidade 2 (ver docstring acima): aviso, não garantia.
+        if tema is not None and not tema.ativo:
+            raise ValidationError(
+                f'O tema "{tema.titulo}" não está mais ativo. Escolha outro tema ou '
+                "candidate-se ao professor sem um tema específico."
+            )
+        # Ambiguidade 2 (ver docstring acima): aviso, não garantia. `Projeto.TCC_I`
+        # é fixo, não um parâmetro: aceitar sempre cria o Projeto com
+        # etapa=TCC_I (spec §3.7, linha 147; critério 8 do §10, linha 489), e
+        # `Candidatura` não tem campo `etapa` — não há outra etapa para esta
+        # checagem considerar (Importante 4 da rodada de correção 1; mesma
+        # citação já usada por `temas_do_mural`, acima).
         ocupadas = vagas_ocupadas(professor, Projeto.TCC_I, ano, periodo)
         limite = limite_do_professor(professor, Projeto.TCC_I, ano, periodo)
         if ocupadas >= limite:
@@ -414,7 +436,21 @@ def registrar_candidatura(aluno, opcoes):
             )
 
     try:
-        with transaction.atomic():  # savepoint: isola o IntegrityError da constraint
+        # O `with transaction.atomic()` aninhado abre um SAVEPOINT (esta
+        # função já está dentro do `@transaction.atomic` da própria
+        # `registrar_candidatura`). CORREÇÃO ao relatório original da T8
+        # (M6 da rodada de correção 1): a afirmação de que um teste provava
+        # este savepoint necessário estava errada — removendo-o (mantendo o
+        # `try/except`), a suíte inteira continua passando, porque hoje o
+        # `except` relança IMEDIATAMENTE e a transação externa é desfeita por
+        # inteiro na saída da função; a transação "envenenada" pelo
+        # `IntegrityError` nunca chega a ser consultada de novo. O savepoint
+        # fica mesmo assim, como defesa para quem adicionar código DEPOIS
+        # deste bloco `try` no futuro (uma escrita adicional na mesma
+        # transação encontraria "current transaction is aborted" sem ele) —
+        # é custo baixo (um SAVEPOINT a mais) contra uma classe de erro que
+        # já mordeu este projeto antes (ver o resto desta docstring).
+        with transaction.atomic():
             candidatura = Candidatura.objects.create(aluno=aluno, ano=ano, periodo=periodo)
     except IntegrityError:
         # A corrida da ambiguidade 3: a checagem amigável acima não viu a
@@ -465,12 +501,80 @@ def avancar_cascata(candidatura):
       `RECUSADA`, com a justificativa, ANTES de chamar `avancar_cascata` —
       esta função não sobrescreve isso. Ela só toca a situação da opção
       corrente quando a encontra ainda `ENVIADA`.
+
+    TRAVAMENTO (Crítico da rodada de correção 1). Antes desta correção, a
+    função só olhava `ordem`, nunca `candidatura.status` — chamada sobre uma
+    candidatura já `ACEITA` ou `CANCELADA`, ela ressuscitava a próxima opção
+    de `CANCELADA` para `ENVIADA` e mandava e-mail a um professor convidando-o
+    a orientar um aluno que já tem orientador (ou que desistiu). Reproduzido
+    sem trava nenhuma: aceitar a opção 1 e chamar `avancar_cascata` de novo
+    trazia a opção 2 de volta à vida; cancelar a candidatura e chamar de novo
+    fazia o mesmo.
+
+    A causa era uma só: esta função é `@transaction.atomic`, mas
+    atomicidade sozinha não serializa nada — só embrulha várias escritas
+    numa transação. O recurso disputado é a PRÓPRIA linha de `candidatura`,
+    e ninguém a travava. Ao contrário do `INSERT` de `Projeto` novo que
+    `criar_projeto_sob_limite` (T5) protege — onde travar um conjunto vazio
+    não adianta nada, porque a linha nova ainda não existe para ser travada
+    —, aqui a disputa é sobre uma linha que JÁ EXISTE e sofre `UPDATE`: o
+    mesmo formato do teto de coordenadores do Bloco A
+    (`apps/contas/services.py::promover_a_coordenador`). A receita muda
+    junto: `select_for_update` na PRÓPRIA linha basta, sem precisar travar
+    nenhuma tabela relacionada.
+
+    GARANTIA que esta trava entrega, e só esta: recarregada sob
+    `select_for_update`, a candidatura só é lida DEPOIS de qualquer chamada
+    concorrente anterior sobre a MESMA linha ter comitado (ou revertido) —
+    esta chamada nunca parte de um valor em memória desatualizado, sempre do
+    último estado commitado. Combinada com a checagem de `status` logo a
+    seguir, uma candidatura que já saiu de `EM_CURSO` nunca tem opção
+    nenhuma tocada por esta função, não importa o que o objeto `candidatura`
+    passado pelo chamador dizia antes da trava.
+
+    NÃO GARANTE: que duas chamadas para o MESMO evento lógico (dois workers
+    do Beat processando o mesmo prazo estourado, por exemplo) resultem num
+    único avanço. A segunda chamada, ao ser liberada, enxerga o estado JÁ
+    avançado pela primeira e opera sobre ELE — a opção que a primeira acabou
+    de enviar — como se o prazo dela também tivesse estourado, avançando um
+    passo a mais do que um único evento deveria causar. Isto fecha o defeito
+    medido na revisão (duas chamadas reenviando e-mail para o MESMO
+    professor e reescrevendo o prazo da MESMA opção: com a trava, a segunda
+    chamada sempre opera sobre uma opção DIFERENTE da primeira, então nenhum
+    professor recebe duplicata nem tem seu prazo esticado) — mas não torna a
+    função imune a ser chamada duas vezes para o mesmo evento; evitar a
+    chamada redundante é responsabilidade de quem chama (T9 chama uma vez
+    por resposta; a tarefa periódica da T10 precisa evitar reprocessar o
+    mesmo prazo já tratado, por exemplo excluindo da própria consulta as
+    opções cuja situação já mudou).
+
+    Isolamento: esta garantia depende de READ COMMITTED (o padrão do
+    PostgreSQL e o que este projeto usa), mesma premissa documentada em
+    `criar_projeto_sob_limite`.
+
+    Provado com threads e conexões reais em test_concorrencia.py: uma
+    chamada sobre candidatura `ACEITA` ou `CANCELADA` nunca reenvia e-mail
+    nem ressuscita opção `CANCELADA`; duas chamadas concorrentes na mesma
+    candidatura `EM_CURSO` nunca mandam dois e-mails para o mesmo professor
+    nem reescrevem o prazo da mesma opção. Removendo o `select_for_update`
+    (ou a checagem de `status` abaixo) os mesmos testes reprovam.
     """
+    candidatura = Candidatura.objects.select_for_update().get(pk=candidatura.pk)
+    if candidatura.status != Candidatura.EM_CURSO:
+        # A candidatura já terminou (ACEITA, ESGOTADA ou CANCELADA) — nada
+        # aqui é "a próxima opção" de mais nada. Retorno silencioso, não
+        # erro: para quem chama (T9 depois de aceitar/recusar, T10 depois do
+        # aluno ter cancelado enquanto o prazo corria), "não há mais cascata
+        # para avançar" não é uma falha, é o estado esperado.
+        return
+
     atual = candidatura.opcoes.filter(ordem=candidatura.opcao_atual).first()
     if atual is not None and atual.situacao == OpcaoCandidatura.ENVIADA:
+        # `respondida_em` NÃO é preenchido aqui (M10 da rodada de correção
+        # 1): o campo, por spec §4.3, é nulo "até acontecer" — e expirar por
+        # prazo não é uma resposta de ninguém. Só `situacao` muda.
         atual.situacao = OpcaoCandidatura.EXPIRADA
-        atual.respondida_em = timezone.now()
-        atual.save(update_fields=["situacao", "respondida_em"])
+        atual.save(update_fields=["situacao"])
 
     proxima = candidatura.opcoes.filter(ordem=candidatura.opcao_atual + 1).first()
     if proxima is None:

@@ -1,0 +1,9 @@
+Olá,
+
+{{ aluno.nome_completo }} esgotou {{ total_opcoes|pluralize:"a,as" }} {{ total_opcoes }} opç{{ total_opcoes|pluralize:"ão,ões" }} de orientação da candidatura, sem nenhum aceite: {{ total_opcoes|pluralize:"ela foi recusada ou expirou,todas foram recusadas ou expiraram" }} sem resposta.
+
+Este(a) aluno(a) precisa de alocação manual pela coordenação. Acesse o OrientaSI para agir:
+
+{{ link }}
+
+OrientaSI — Sistema de Gestão de TCC

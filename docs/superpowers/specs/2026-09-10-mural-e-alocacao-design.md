@@ -342,11 +342,30 @@ registrar_candidatura
               existe próxima opção?
                   sim ──▶ envia, reinicia o prazo
                   não ──▶ candidatura ESGOTADA
+
+  (a qualquer momento, enquanto candidatura = EM_CURSO)
+        │
+        └── aluno cancela ──▶ candidatura CANCELADA
+                              opções AGUARDANDO/ENVIADA → CANCELADA
+                              opções já respondidas (ACEITA/RECUSADA/EXPIRADA)
+                              mantêm o desfecho
 ```
 
 `ESGOTADA` notifica **a coordenação**, além do aluno: quem esgotou as três opções é
 precisamente quem precisa de alocação manual, e a coordenação é quem tem esse poder. Se o
 estado só existir na tela do aluno, ninguém age.
+
+**Cancelamento (acréscimo descritivo, rodada de correção 1 da Tarefa 8).** O diagrama acima
+não desenhava o cancelamento, embora o estado já estivesse listado em `Candidatura.status`
+(§4.2) e a tela `/candidatura/` já fosse concedida ao aluno para "montar, acompanhar e
+**cancelar**" (§6). Cancelar é um estado terminal alcançável de QUALQUER ponto em que a
+candidatura ainda esteja `EM_CURSO` — não uma transição a partir de uma opção específica da
+cascata. Só as opções sem desfecho ainda (`AGUARDANDO` ou `ENVIADA`) viram `CANCELADA` junto;
+uma opção já `ACEITA`, `RECUSADA` ou `EXPIRADA` mantém seu resultado — cancelar não reescreve
+histórico. E, simetricamente: uma vez `ACEITA`, `CANCELADA` ou `ESGOTADA`, a candidatura é
+terminal — nenhuma seta deste diagrama parte de nenhum dos três. Uma candidatura `ACEITA` com
+uma opção `ENVIADA` viva era exatamente o estado impossível que a rodada de correção 1 da
+Tarefa 8 encontrou em `avancar_cascata` (implementação sem essa checagem).
 
 ### 5.3 A regra das vagas e o travamento
 
