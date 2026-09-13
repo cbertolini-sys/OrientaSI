@@ -5,58 +5,113 @@
 {% block conteudo %}
   <article class="mx-auto max-w-3xl rounded-box bg-base-100 p-6 shadow-sm">
     <h1 class="font-display text-2xl font-bold text-primary">Minhas orientações</h1>
-    <p class="mt-2">
-      Manifestações de interesse aguardando sua resposta. Aceitar cria o projeto de
-      orientação; recusar exige uma justificativa, que é enviada ao aluno.
-    </p>
 
-    {% if itens %}
-      <ul class="mt-6 space-y-6">
-        {% for item in itens %}
-          {% with opcao=item.opcao %}
+    <section class="mt-6">
+      <h2 class="font-display text-xl font-bold text-primary">Manifestações pendentes</h2>
+      <p class="mt-2">
+        Manifestações de interesse aguardando sua resposta. Aceitar cria o projeto de
+        orientação; recusar exige uma justificativa, que é enviada ao aluno.
+      </p>
+
+      {% if itens %}
+        <ul class="mt-4 space-y-6">
+          {% for item in itens %}
+            {% with opcao=item.opcao %}
+              <li class="rounded-box border border-base-300 p-4">
+                <p class="font-medium">{{ opcao.candidatura.aluno.usuario.nome_completo }}</p>
+                <p class="text-sm text-base-content/80">
+                  {% if opcao.tema %}
+                    Tema: {{ opcao.tema.titulo }}
+                  {% else %}
+                    Sem tema específico — orientação em aberto
+                  {% endif %}
+                </p>
+                <p class="text-sm text-base-content/80">
+                  Prazo para responder: {{ opcao.prazo }}
+                </p>
+
+                <div class="mt-4 flex flex-wrap items-start gap-6">
+                  <form method="post" action="{% url 'projetos:aceitar_opcao' opcao.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary">
+                      Aceitar
+                      <span class="sr-only"> manifestação de {{ opcao.candidatura.aluno.usuario.nome_completo }}</span>
+                    </button>
+                  </form>
+
+                  <form
+                    method="post"
+                    action="{% url 'projetos:recusar_opcao' opcao.pk %}"
+                    class="w-full flex-1 space-y-2 sm:min-w-64"
+                  >
+                    {% comment %}
+                      M6 da rodada de correção 1: `min-w-64` sozinho (sem
+                      `w-full`) estourava o padding do `<article>` a 360px —
+                      o axe não acusa (não há rolagem horizontal de verdade,
+                      a régua oficial de test_responsivo.py aprova), mas o
+                      formulário encostava na borda do cartão. `w-full` deixa
+                      o formulário ocupar a largura disponível em qualquer
+                      viewport, e `sm:min-w-64` só impõe o mínimo de 16rem a
+                      partir do breakpoint onde sobra espaço ao lado do botão
+                      "Aceitar".
+                    {% endcomment %}
+                    {% csrf_token %}
+                    {% with campo=item.formulario_recusa.justificativa %}
+                      {% include "contas/_campo.html" with campo=campo %}
+                    {% endwith %}
+                    <button type="submit" class="btn btn-outline">
+                      Recusar
+                      <span class="sr-only"> manifestação de {{ opcao.candidatura.aluno.usuario.nome_completo }}</span>
+                    </button>
+                  </form>
+                </div>
+              </li>
+            {% endwith %}
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="mt-4 text-base-content/80">Nenhuma manifestação aguardando sua resposta no momento.</p>
+      {% endif %}
+    </section>
+
+    {% comment %}
+      Acréscimo da rodada de correção 1 (spec §6: "/orientacoes/" mostra
+      "fila de manifestações e orientandos atuais" — nenhuma tarefa do plano
+      original implementava a segunda metade). Sem esta seção, a tela
+      mentia por omissão logo depois de um aceite: a manifestação aceita
+      some da fila acima, e "Nenhuma manifestação..." ficava parecendo a
+      única informação da página, mesmo para um professor com vários
+      orientandos.
+    {% endcomment %}
+    <section class="mt-8">
+      <h2 class="font-display text-xl font-bold text-primary">Orientandos atuais</h2>
+      <p class="mt-2 text-sm text-base-content/80">
+        Alunos que você orienta em TCC I neste semestre.
+      </p>
+
+      {% if orientandos %}
+        <ul class="mt-4 space-y-3">
+          {% for projeto in orientandos %}
             <li class="rounded-box border border-base-300 p-4">
-              <p class="font-medium">{{ opcao.candidatura.aluno.usuario.nome_completo }}</p>
+              <p class="font-medium">{{ projeto.aluno.nome_completo }}</p>
               <p class="text-sm text-base-content/80">
-                {% if opcao.tema %}
-                  Tema: {{ opcao.tema.titulo }}
-                {% else %}
-                  Sem tema específico — orientação em aberto
-                {% endif %}
+                {{ projeto.get_etapa_display }}
+                {% if projeto.tema %} — {{ projeto.tema.titulo }}{% endif %}
               </p>
-              <p class="text-sm text-base-content/80">
-                Prazo para responder: {{ opcao.prazo }}
-              </p>
-
-              <div class="mt-4 flex flex-wrap items-start gap-6">
-                <form method="post" action="{% url 'projetos:aceitar_opcao' opcao.pk %}">
-                  {% csrf_token %}
-                  <button type="submit" class="btn btn-primary">
-                    Aceitar
-                    <span class="sr-only"> manifestação de {{ opcao.candidatura.aluno.usuario.nome_completo }}</span>
-                  </button>
-                </form>
-
-                <form
-                  method="post"
-                  action="{% url 'projetos:recusar_opcao' opcao.pk %}"
-                  class="min-w-64 flex-1 space-y-2"
-                >
-                  {% csrf_token %}
-                  {% with campo=item.formulario_recusa.justificativa %}
-                    {% include "contas/_campo.html" with campo=campo %}
-                  {% endwith %}
-                  <button type="submit" class="btn btn-outline">
-                    Recusar
-                    <span class="sr-only"> manifestação de {{ opcao.candidatura.aluno.usuario.nome_completo }}</span>
-                  </button>
-                </form>
-              </div>
             </li>
-          {% endwith %}
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p class="mt-6 text-base-content/80">Nenhuma manifestação aguardando sua resposta no momento.</p>
-    {% endif %}
+          {% endfor %}
+        </ul>
+      {% else %}
+        {% comment %}
+          Texto DISTINTO do estado vazio da fila acima, de propósito (brief
+          da rodada de correção 1): "nenhum orientando" e "nenhuma
+          manifestação" são fatos diferentes, e confundir os dois textos
+          faria uma seção vazia parecer a outra.
+        {% endcomment %}
+        <p class="mt-4 text-base-content/80">
+          Você ainda não tem orientandos em andamento neste semestre.
+        </p>
+      {% endif %}
+    </section>
   </article>
 {% endblock %}

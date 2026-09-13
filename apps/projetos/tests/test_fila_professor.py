@@ -15,11 +15,14 @@ então `transaction.on_commit` nunca dispara de qualquer forma (nenhum destes
 testes afirma nada sobre `mail.outbox`).
 """
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.core import mail
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.comum.semestre import semestre_vigente
 from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
@@ -113,6 +116,34 @@ def recusa(settings, django_capture_on_commit_callbacks):
             return services.recusar_opcao(*args, **kwargs)
 
     return _recusa
+
+
+@pytest.fixture
+def avanca(settings, django_capture_on_commit_callbacks):
+    """Chama `services.avancar_cascata` capturando os callbacks de
+    `transaction.on_commit` — usado pelo teste do Menor 1 (rodada de
+    correção 1) para simular o prazo vencendo e a cascata avançando por
+    conta própria (T10), sem passar por `recusar_opcao`."""
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+
+    def _avanca(*args, **kwargs):
+        with django_capture_on_commit_callbacks(execute=True):
+            return services.avancar_cascata(*args, **kwargs)
+
+    return _avanca
+
+
+def _avanca_por_prazo(avanca, candidatura):
+    """`avanca(candidatura)` depois de expirar de verdade a opção que
+    `opcao_atual` aponta — mesmo padrão de
+    `test_candidatura.py::_avanca_por_prazo` (linha 121): o guarda de prazo
+    de `avancar_cascata` não faz nada se a opção ainda está `ENVIADA` mas o
+    prazo real não passou."""
+    candidatura.refresh_from_db()
+    atual = candidatura.opcoes.get(ordem=candidatura.opcao_atual)
+    atual.prazo = timezone.now() - timedelta(seconds=1)
+    atual.save(update_fields=["prazo"])
+    return avanca(candidatura)
 
 
 # --------------------------------------------------------------------------
@@ -475,3 +506,129 @@ def test_recusar_opcao_de_outro_professor_recebe_404_nao_403(client, opcao1, tre
     assert resposta.status_code == 404
     opcao1.refresh_from_db()
     assert opcao1.situacao == OpcaoCandidatura.ENVIADA
+
+
+# --------------------------------------------------------------------------
+# Menor 1 (rodada de correção 1): o ramo `opcao.situacao != ENVIADA` da
+# guarda de `aceitar_opcao`/`recusar_opcao` não tinha teste — o de "já
+# respondida" acima é pego pela guarda de STATUS da candidatura (que também
+# muda quando a opção é aceita/recusada). Este cenário mantém a candidatura
+# `EM_CURSO` e só move a SITUAÇÃO da opção, para exercitar especificamente a
+# metade da guarda que "já respondida" não alcança: opção 1 expira, a
+# cascata avança para a 2 (candidatura segue EM_CURSO), e o professor 1
+# clica "Aceitar" no e-mail antigo.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_aceitar_opcao_expirada_e_recusado_mesmo_com_candidatura_em_curso(
+    avanca, candidatura_em_curso, opcao1, tres_professores
+):
+    _avanca_por_prazo(avanca, candidatura_em_curso)
+    opcao1.refresh_from_db()
+    assert opcao1.situacao == OpcaoCandidatura.EXPIRADA
+    candidatura_em_curso.refresh_from_db()
+    assert candidatura_em_curso.status == Candidatura.EM_CURSO  # a guarda de status não pega isto
+
+    with pytest.raises(ValidationError):
+        services.aceitar_opcao(opcao1, por=tres_professores[0].usuario)
+
+    opcao1.refresh_from_db()
+    assert opcao1.situacao == OpcaoCandidatura.EXPIRADA  # não virou ACEITA por cima da expiração
+
+
+@pytest.mark.django_db
+def test_recusar_opcao_expirada_e_recusado_mesmo_com_candidatura_em_curso(
+    avanca, candidatura_em_curso, opcao1, tres_professores
+):
+    _avanca_por_prazo(avanca, candidatura_em_curso)
+    candidatura_em_curso.refresh_from_db()
+    assert candidatura_em_curso.status == Candidatura.EM_CURSO
+
+    with pytest.raises(ValidationError):
+        services.recusar_opcao(opcao1, por=tres_professores[0].usuario, justificativa="Tarde.")
+
+
+# --------------------------------------------------------------------------
+# services.manifestacoes_pendentes / services.orientandos_atuais
+# (Menor 8 e acréscimo de escopo "orientandos atuais" da rodada de correção 1)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_manifestacoes_pendentes_so_lista_as_enviadas_do_professor(
+    candidatura_em_curso, opcao1, tres_professores
+):
+    pendentes = services.manifestacoes_pendentes(tres_professores[0])
+    assert list(pendentes) == [opcao1]
+
+    # Nada para o professor 2 (a opção dele ainda está AGUARDANDO, não ENVIADA).
+    assert list(services.manifestacoes_pendentes(tres_professores[1])) == []
+
+
+@pytest.mark.django_db
+def test_orientandos_atuais_so_lista_projetos_em_andamento_do_professor_no_semestre(
+    tres_professores, aluno
+):
+    professor = tres_professores[0]
+    outro_professor = tres_professores[1]
+    projeto = services.criar_projeto_sob_limite(aluno, professor, None, Projeto.TCC_I)
+
+    assert list(services.orientandos_atuais(professor)) == [projeto]
+    # Nem no outro professor, nem contando um projeto concluído (fora do
+    # filtro `status=EM_ANDAMENTO`).
+    assert list(services.orientandos_atuais(outro_professor)) == []
+
+    projeto.status = Projeto.CONCLUIDO
+    projeto.save(update_fields=["status"])
+    assert list(services.orientandos_atuais(professor)) == []
+
+
+# --------------------------------------------------------------------------
+# view projetos:orientacoes — seção "orientandos atuais"
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_orientacoes_mostra_orientandos_mesmo_sem_manifestacao_pendente(
+    client, tres_professores, aluno
+):
+    """A tela não deve mentir por omissão (achado da rodada de correção 1):
+    um professor sem manifestação pendente, mas com orientandos, precisa ver
+    os orientandos — não só "nenhuma manifestação..." como se fosse a única
+    informação da página."""
+    professor = tres_professores[0]
+    services.criar_projeto_sob_limite(aluno, professor, None, Projeto.TCC_I)
+    client.force_login(professor.usuario)
+
+    html = client.get(reverse("projetos:orientacoes")).content.decode()
+
+    assert "Nenhuma manifestação aguardando sua resposta no momento." in html
+    assert aluno.usuario.nome_completo in html
+    assert "Orientandos atuais" in html
+
+
+@pytest.mark.django_db
+def test_orientacoes_mostra_estado_vazio_de_orientandos_distinto_do_da_fila(
+    client, candidatura_em_curso, opcao1, tres_professores
+):
+    """Professor com manifestação pendente e SEM orientando ainda: a seção
+    de orientandos mostra seu PRÓPRIO estado vazio — texto diferente do da
+    fila, para não confundir "nenhum orientando" com "nenhuma manifestação"
+    (brief da rodada de correção 1)."""
+    client.force_login(tres_professores[0].usuario)
+
+    html = client.get(reverse("projetos:orientacoes")).content.decode()
+
+    assert candidatura_em_curso.aluno.usuario.nome_completo in html  # a manifestação pendente
+    assert "Você ainda não tem orientandos em andamento neste semestre." in html
+
+
+@pytest.mark.django_db
+def test_orientacoes_nao_mostra_orientando_de_outro_professor(client, tres_professores, aluno):
+    services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+    client.force_login(tres_professores[1].usuario)
+
+    html = client.get(reverse("projetos:orientacoes")).content.decode()
+
+    assert aluno.usuario.nome_completo not in html

@@ -177,8 +177,21 @@ def editar_tema(request, tema_id):
 
 @login_required
 def orientacoes(request):
-    """Fila do professor: manifestações de interesse pendentes de resposta
-    (T9, spec §6 — "/orientacoes/ | professor | fila de manifestações").
+    """Fila do professor: manifestações de interesse pendentes de resposta,
+    e os orientandos que ele já tem no semestre vigente (T9, spec §6 —
+    "/orientacoes/ | professor | fila de manifestações **e orientandos
+    atuais**").
+
+    A segunda metade (orientandos atuais) foi acrescentada na rodada de
+    correção 1: nenhuma das treze tarefas do plano original a implementava
+    — defeito do plano, fechado aqui em vez de numa tarefa futura, pelo
+    mesmo motivo da edição de tema na T6 (é a mesma tela; reabri-la depois
+    custa resubmetê-la às cinco suítes de acessibilidade de novo). Sem ela,
+    a tela mentia por omissão logo depois de um aceite: a manifestação
+    aceita some da fila, e "Nenhuma manifestação aguardando sua resposta no
+    momento" ficava como se fosse a única informação da página — um
+    professor com três orientandos e zero pendências via uma tela que,
+    pelo título, parecia dizer que ele não tem nada.
 
     Portão de PAPEL antes de tocar `perfil_professor` — mesma cautela de
     `meus_temas`, acima, para não repetir o 500 de professor sem perfil
@@ -188,6 +201,11 @@ def orientacoes(request):
     mesma pergunta que esta tela precisa fazer antes de listar a fila —
     `pode_responder_opcao` é checagem de POSSE de uma opção específica, não
     serve como portão de entrada da tela.
+
+    As duas consultas moram em `services.py`
+    (`manifestacoes_pendentes`/`orientandos_atuais`, Menor 8 da rodada de
+    correção 1) — simétrico com `mural` (T7), que já usa
+    `services.temas_do_mural` em vez de montar o queryset aqui.
 
     Um `FormularioRecusaOpcao` por opção pendente, cada um com `auto_id`
     próprio (`FormularioRecusaOpcao`, em `forms.py`): sem isso, o `id` do
@@ -200,19 +218,17 @@ def orientacoes(request):
         "Somente professores acessam a fila de orientações.",
     )
     professor = request.user.perfil_professor
-    opcoes_pendentes = (
-        OpcaoCandidatura.objects.filter(professor=professor, situacao=OpcaoCandidatura.ENVIADA)
-        .select_related("candidatura__aluno__usuario", "tema")
-        .order_by("prazo")
-    )
     itens = [
         {
             "opcao": opcao,
             "formulario_recusa": FormularioRecusaOpcao(auto_id=f"id_recusa_{opcao.pk}_%s"),
         }
-        for opcao in opcoes_pendentes
+        for opcao in services.manifestacoes_pendentes(professor)
     ]
-    return render(request, "projetos/orientacoes.html", {"itens": itens})
+    orientandos = services.orientandos_atuais(professor)
+    return render(
+        request, "projetos/orientacoes.html", {"itens": itens, "orientandos": orientandos}
+    )
 
 
 @login_required

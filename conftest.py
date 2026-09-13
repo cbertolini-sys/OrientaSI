@@ -437,11 +437,14 @@ def _gera_cpf_das_rotas(indice):
 
 
 def cria_professor_com_manifestacao_para_rotas():
-    """Fábrica de `/orientacoes/` (T9, fila do professor): professor com
-    `PerfilProfessor` e DUAS manifestações de interesse pendentes
-    (`OpcaoCandidatura` `situacao=ENVIADA`), de dois alunos diferentes — uma
-    com tema escolhido, uma sem — para que os dois ramos do template
-    (`{% if opcao.tema %}`) entrem na medição, mesmo motivo pelo qual
+    """Fábrica de `/orientacoes/` (T9, fila do professor + orientandos
+    atuais — a segunda metade acrescentada na rodada de correção 1):
+    professor com `PerfilProfessor`, DUAS manifestações de interesse
+    pendentes (`OpcaoCandidatura` `situacao=ENVIADA`), de dois alunos
+    diferentes — uma com tema escolhido, uma sem — e UM `Projeto`
+    `EM_ANDAMENTO` no semestre vigente, para que as três seções condicionais
+    do template (`{% if opcao.tema %}`, a lista de manifestações e a lista
+    de orientandos) entrem na medição, mesmo motivo pelo qual
     `cria_professor_com_tema_para_rotas` (T6) semeia um tema ativo e um
     inativo em vez de só um.
 
@@ -454,7 +457,7 @@ def cria_professor_com_manifestacao_para_rotas():
     """
     from apps.comum.semestre import semestre_vigente
     from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
-    from apps.projetos.models import Candidatura, OpcaoCandidatura, Tema
+    from apps.projetos.models import Candidatura, OpcaoCandidatura, Projeto, Tema
 
     usuario = Usuario.objects.create_user(
         email="professor-orientacoes-das-rotas@ufsm.br",
@@ -495,6 +498,29 @@ def cria_professor_com_manifestacao_para_rotas():
             enviada_em=agora,
             prazo=prazo,
         )
+
+    # Um orientando ATUAL (acréscimo de escopo da rodada de correção 1):
+    # sem isto, a suíte de acessibilidade mediria só a metade nova do
+    # template no estado VAZIO (`{% else %}` de "Orientandos atuais"), nunca
+    # o `<li>` de verdade — mesma classe de defeito que a rodada de correção
+    # 1 da T7 já corrigiu para o mural (`cria_aluno_com_mural_para_rotas`).
+    orientando = Usuario.objects.create_user(
+        email="aluno-orientacoes-orientando-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Orientações Orientando das Rotas",
+        cpf=_gera_cpf_das_rotas(3),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=orientando, matricula="2026399903")
+    Projeto.objects.create(
+        aluno=orientando,
+        orientador=usuario,
+        tema=tema,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ano,
+        periodo=periodo,
+    )
     return usuario
 
 

@@ -337,3 +337,90 @@ def test_aceitar_opcao_e_avancar_cascata_concorrentes_nao_duplicam_desfecho(sett
     # e-mail nesta corrida — só o e-mail da manifestação original (T8),
     # limpo do outbox antes das threads começarem.
     assert mail.outbox == []
+
+
+# --------------------------------------------------------------------------
+# Importante 1 da rodada de correção 1 da T9: `cancelar_candidatura` ganhou
+# `select_for_update` no acréscimo 4 do brief original, mas nenhum teste
+# provava que a trava fazia diferença — a revisão mediu que removê-la NÃO
+# derruba nenhum dos 134 testes do app nem dos 421 do projeto. Este teste é
+# a prova que faltava: professor aceita a opção 1 no exato instante em que o
+# aluno cancela a mesma candidatura.
+# --------------------------------------------------------------------------
+
+
+def _cancela_candidatura_em_thread(candidatura_id, aluno_usuario_id, resultados, chave):
+    """Roda `services.cancelar_candidatura` numa conexão de banco própria —
+    mesmo padrão de `_aceita_opcao_em_thread`, acima."""
+    connection.close()
+    try:
+        candidatura = Candidatura.objects.get(pk=candidatura_id)
+        por = Usuario.objects.get(pk=aluno_usuario_id)
+        services.cancelar_candidatura(candidatura, por=por)
+        resultados[chave] = "cancelada"
+    except ValidationError as erro:
+        resultados[chave] = f"recusada: {erro.messages[0]}"
+    finally:
+        connection.close()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_aceitar_opcao_e_cancelar_candidatura_concorrentes_nao_deixam_projeto_orfao():
+    """Professor aceita a opção 1 no exato instante em que o aluno cancela a
+    candidatura. Sem a trava de `Candidatura` em `cancelar_candidatura`
+    (`select_for_update`, acréscimo 4 do brief original da T9), o `UPDATE`
+    do cancelamento espera o aceite comitar e depois SOBRESCREVE `ACEITA`
+    por `CANCELADA` — o `Projeto` criado pelo aceite sobra órfão de uma
+    candidatura que o próprio sistema diz estar cancelada.
+
+    Mesmo mecanismo de atraso forçado das duas provas acima: a thread do
+    aceite (`t_aceita`) começa primeiro e tem a gravação do `Projeto`
+    atrasada em 1s, dando tempo real para a thread do cancelamento
+    (`t_cancela`) tentar (e bloquear tentando) travar a MESMA linha de
+    `Candidatura`. Com a trava certa, `t_cancela` só lê o estado depois que
+    `t_aceita` comita, encontra `candidatura.status == ACEITA` (não
+    `EM_CURSO`) e é recusada pela checagem de status — sem tocar em nada.
+    """
+    professor = _cria_professor(30)
+    aluno = _cria_perfil_aluno(30)
+
+    candidatura = services.registrar_candidatura(aluno, [(professor, None)])
+    opcao1 = candidatura.opcoes.get(ordem=1)
+
+    resultados = {}
+    save_original = Projeto.save
+
+    def save_com_atraso(self, *args, **kwargs):
+        if self.pk is None:
+            time.sleep(1.0)
+        return save_original(self, *args, **kwargs)
+
+    t_aceita = threading.Thread(
+        target=_aceita_opcao_em_thread,
+        args=(opcao1.pk, professor.usuario.pk, resultados, "aceita"),
+    )
+    t_cancela = threading.Thread(
+        target=_cancela_candidatura_em_thread,
+        args=(candidatura.pk, aluno.usuario.pk, resultados, "cancela"),
+    )
+
+    with mock.patch.object(Projeto, "save", save_com_atraso):
+        t_aceita.start()
+        time.sleep(0.2)  # garante que a thread do aceite trava a candidatura primeiro
+        t_cancela.start()
+        t_aceita.join()
+        t_cancela.join()
+
+    candidatura.refresh_from_db()
+
+    assert resultados["aceita"] == "aceita", resultados
+    assert resultados["cancela"].startswith("recusada"), (
+        f"o cancelamento concorrente deveria ser recusado (a candidatura já foi aceita "
+        f"quando ele conseguiu ler o estado), e não foi: {resultados}"
+    )
+    assert candidatura.status == Candidatura.ACEITA, (
+        f"a candidatura deveria continuar ACEITA — se o cancelamento sobrescreveu isso para "
+        f"CANCELADA, sobra um Projeto órfão de uma candidatura cancelada. "
+        f"status={candidatura.status}"
+    )
+    assert Projeto.objects.filter(aluno=aluno.usuario, orientador=professor.usuario).exists()

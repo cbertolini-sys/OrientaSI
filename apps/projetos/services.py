@@ -337,6 +337,59 @@ def temas_do_mural(area=None):
     return qs
 
 
+def manifestacoes_pendentes(professor):
+    """Manifestações de interesse aguardando resposta de `professor` — a
+    fila que `projetos:orientacoes` lista (T9, spec §6).
+
+    Extraída para cá na rodada de correção 1 da T9 (Menor 8): a consulta
+    morava direto na view, assimétrica com `temas_do_mural`, acima, que já
+    tem a sua no serviço — a leitura sem regra de negócio não é proibida em
+    `views.py` (CLAUDE.md §4 proíbe REGRA DE NEGÓCIO lá, não leitura), mas
+    manter as duas juntas aqui evita que a próxima tela que precise da mesma
+    lista (o painel da coordenação, T12) tenha que decidir entre copiar a
+    consulta ou importar a view.
+    """
+    return (
+        OpcaoCandidatura.objects.filter(professor=professor, situacao=OpcaoCandidatura.ENVIADA)
+        .select_related("candidatura__aluno__usuario", "tema")
+        .order_by("prazo")
+    )
+
+
+def orientandos_atuais(professor):
+    """Projetos de orientação em andamento de `professor` no semestre
+    vigente — a segunda metade de `/orientacoes/` que o spec §6 pede ("fila
+    de manifestações **e orientandos atuais**") e que nenhuma das treze
+    tarefas do plano original implementava (`grep -n "orientandos"` vazio no
+    plano inteiro — defeito do plano, fechado nesta rodada de correção da T9,
+    ver `tarefa-9-fix-1-brief.md`).
+
+    Filtra por `status=Projeto.EM_ANDAMENTO`: um projeto já `CONCLUIDO` ou
+    `REPROVADO` não é mais uma orientação ATUAL. O spec não decide se um
+    orientando recém-concluído deveria continuar aparecendo aqui por algum
+    tempo (ex.: até o professor "arquivar"), e esta função também não
+    decide por ele — LACUNA REGISTRADA, não uma escolha silenciosa, no
+    mesmo formato das demais lacunas deste bloco (ver, por exemplo, a de
+    `editar_tema`, acima, sobre tema editado depois de já ter candidatura).
+
+    Sem `ano`/`periodo` como parâmetro, ao contrário de `vagas_ocupadas`:
+    esta função sempre olha o semestre VIGENTE (`semestre_vigente()`) — a
+    tela não tem motivo para mostrar orientandos de semestres passados, e
+    não expõe esse filtro ao professor.
+    """
+    ano, periodo = semestre_vigente()
+    return (
+        Projeto.objects.filter(
+            orientador=professor.usuario,
+            ano=ano,
+            periodo=periodo,
+            status=Projeto.EM_ANDAMENTO,
+        )
+        .select_related("aluno", "tema")
+        .order_by("aluno__nome_completo")
+    )
+
+
 def _possui_candidatura_em_curso(aluno):
     """A checagem AMIGÁVEL de "este aluno já tem um pedido em andamento" —
     extraída como função à parte só para que o teste de corrida
@@ -743,6 +796,18 @@ def aceitar_opcao(opcao, por):
     cancelou" — a checagem genérica de `candidatura.status` já cobre isso,
     porque cancelar marca a candidatura `CANCELADA` (`cancelar_candidatura`,
     acima).
+
+    GARANTIA da trava de `Candidatura`, vista A PARTIR DAQUI (Menor 4 da
+    rodada de correção 1 — o texto completo da garantia mora em
+    `avancar_cascata`, acima, para não duplicar; esta função só acrescenta o
+    que falta ver do lado de quem chama): esta função nunca decide sobre um
+    estado de `Candidatura`/`OpcaoCandidatura` mais velho que o último commit
+    concorrente sobre a MESMA linha. Ela NÃO garante nada sobre um chamador
+    que leia `Candidatura`/`OpcaoCandidatura` por fora desta função (ou de
+    `recusar_opcao`/`avancar_cascata`/`cancelar_candidatura`, que travam a
+    mesma linha, na mesma ordem) sem usar `select_for_update` — um `admin.py`
+    ou um comando de management que leia essas tabelas direto não tem
+    nenhuma das garantias documentadas aqui.
     """
     candidatura = Candidatura.objects.select_for_update().get(pk=opcao.candidatura_id)
     opcao = candidatura.opcoes.select_related("professor", "tema").get(pk=opcao.pk)
@@ -783,7 +848,15 @@ def recusar_opcao(opcao, por, justificativa):
 
     `justificativa` é validada ANTES de travar qualquer coisa: é checagem de
     entrada, não de concorrência, e falhar rápido evita tomar a trava da
-    candidatura por uma chamada que já se sabe inválida.
+    candidatura por uma chamada que já se sabe inválida. Isso NÃO é um
+    oráculo (Preocupação 3 do relatório original, aceita como está pela
+    revisão da rodada de correção 1): a mensagem de erro só ecoa o próprio
+    input do chamador ("informe uma justificativa"), sem revelar nada sobre
+    o estado de `opcao`/`candidatura` que a checagem de posse ou de status —
+    ambas feitas DEPOIS, sob a trava — protegeriam. Um professor sem posse
+    da opção que envie justificativa vazia recebe o mesmo `ValidationError`
+    de entrada que qualquer outro chamador receberia; ele só aprende que
+    esqueceu a justificativa, não se a opção é dele.
 
     MESMA ORDEM DE TRAVAS que `aceitar_opcao`, acima: trava a `Candidatura`
     primeiro, com a mesma checagem de posse e status.
@@ -826,7 +899,12 @@ def recusar_opcao(opcao, por, justificativa):
         raise _erro_de_conflito_de_estado()
 
     opcao.situacao = OpcaoCandidatura.RECUSADA
-    opcao.justificativa = justificativa
+    # `.strip()` (Menor 7 da rodada de correção 1): a validação acima já usa
+    # `.strip()` para decidir se a justificativa é vazia, mas gravava o
+    # texto ORIGINAL, com espaços nas pontas se houvesse algum. Não
+    # alcançável pela tela hoje — `forms.CharField` já normaliza — mas a
+    # gravação não deveria depender disso para estar correta.
+    opcao.justificativa = justificativa.strip()
     opcao.respondida_em = timezone.now()
     opcao.save(update_fields=["situacao", "justificativa", "respondida_em"])
 
