@@ -31,7 +31,8 @@ garantia cobre, não só confirma o esperado (o caso do filtro de `prazo`,
 abaixo): aí o resumo do experimento é narrado ao lado da própria garantia,
 na docstring de `avancar_candidaturas_vencidas`
 (`apps/projetos/tasks.py`) — porque o limite de uma garantia se escreve ao
-lado dela (CLAUDE.md), não só no relatório que ninguém mais vai reabrir.
+lado dela, convenção deste bloco (não do `CLAUDE.md`, que não trata disso),
+não só no relatório que ninguém mais vai reabrir.
 """
 
 import logging
