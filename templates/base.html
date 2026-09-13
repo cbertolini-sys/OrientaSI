@@ -46,24 +46,39 @@
              width="264" height="144" class="h-12 w-auto">
       </a>
       {% comment %}
-        T9 preenche o essencial (entrar/sair); as Tarefas 10-11 acrescentam os
-        links de cada perfil (aluno, orientador, coordenador) a este bloco.
-        T11 acrescenta "Painel da coordenação", visível só para quem tem
-        `is_coordenador` — sem ele, a tela só seria alcançável digitando a
-        URL na barra de endereços, o mesmo problema que a T10 corrigiu para
-        "Meu perfil".
+        T9 preenche o essencial (entrar/sair). T11 acrescenta "Painel da
+        coordenação", visível só para quem tem `is_coordenador` — sem ele, a
+        tela só seria alcançável digitando a URL na barra de endereços, o
+        mesmo problema que a T10 corrigiu para "Meu perfil".
+
+        Os links das TELAS do Bloco B (mural, meus temas, minhas
+        orientações, minha candidatura, painel de orientações) só chegam
+        aqui na T12 (acréscimo de escopo, tarefa-12-brief.md) — nenhuma
+        tarefa do plano original deste bloco tocava `base.html`, apesar do
+        que este comentário dizia até aqui ("as Tarefas 10-11 acrescentam os
+        links de cada perfil"): só o link de coordenador (T11) foi
+        acrescentado de fato; os de aluno e professor ficaram alcançáveis só
+        por URL digitada até esta tarefa fechar a lacuna.
       {% endcomment %}
       <nav aria-label="Principal">
         {% block navegacao %}
           {% comment %}
             flex-wrap na `<ul>` e no contêiner do cabeçalho (acima): achado
-            desta tarefa (T11) ao acrescentar "Painel da coordenação" — com
-            quatro itens (nome + três ações) numa única linha sem quebra, o
-            cabeçalho ultrapassava 360px de largura e
+            da T11, ao acrescentar "Painel da coordenação" — com quatro itens
+            (nome + três ações) numa única linha sem quebra, o cabeçalho
+            ultrapassava 360px de largura e
             tests/test_coordenacao_acessibilidade.py::
-            test_sem_rolagem_horizontal_em_360px reprovava. Sem flex-wrap,
-            qualquer papel com mais de dois botões no cabeçalho no futuro
-            reproduziria o mesmo estouro.
+            test_sem_rolagem_horizontal_em_360px reprovava. O comentário
+            daquela tarefa previu exatamente o que a T12 faz agora: "qualquer
+            papel com mais de dois botões no cabeçalho no futuro reproduziria
+            o mesmo estouro" — um coordenador que também é professor chega a
+            seis botões (painel da coordenação, painel de orientações, mural,
+            meus temas, minhas orientações, meu perfil) além do nome e do
+            "Sair". Sem flex-wrap, o cabeçalho estouraria 360px de novo; com
+            ele, a suíte de acessibilidade INTEIRA (não só as rotas novas)
+            foi reexecutada depois deste acréscimo para confirmar que o alvo
+            de toque de 44px e a ausência de rolagem horizontal continuam
+            valendo em toda página do sistema — ver tarefa-12-report.md.
           {% endcomment %}
           <ul class="flex flex-wrap items-center gap-2">
             {% if user.is_authenticated %}
@@ -72,6 +87,43 @@
                 <li>
                   <a href="{% url 'contas:painel' %}" class="btn btn-ghost">
                     Painel da coordenação
+                  </a>
+                </li>
+                <li>
+                  <a href="{% url 'projetos:painel_orientacoes' %}" class="btn btn-ghost">
+                    Painel de orientações
+                  </a>
+                </li>
+              {% endif %}
+              <li><a href="{% url 'projetos:mural' %}" class="btn btn-ghost">Mural de temas</a></li>
+              {% comment %}
+                `user.perfil_professor`/`user.perfil_aluno`: acesso reverso de
+                OneToOne que levanta `RelatedObjectDoesNotExist` (subclasse de
+                `ObjectDoesNotExist`) para quem não tem o perfil — o Django
+                marca essa família de exceções como `silent_variable_failure`,
+                então a resolução de variável do template a converte em um
+                valor falso, em vez de derrubar a página com 500. É o mesmo
+                fato que `permissions.pode_criar_tema`/`pode_montar_candidatura`
+                já verificam com `hasattr()` do lado do Python — aqui, do lado
+                do template, o comportamento padrão do motor já resolve sem
+                precisar de um filtro/tag customizado. Um coordenador
+                promovido de professor (`apps/contas/services.py::
+                promover_a_coordenador` não remove `PerfilProfessor`) continua
+                vendo "Meus temas"/"Minhas orientações" — correto, porque ele
+                continua PODENDO entrar nessas telas.
+              {% endcomment %}
+              {% if user.perfil_professor %}
+                <li><a href="{% url 'projetos:meus_temas' %}" class="btn btn-ghost">Meus temas</a></li>
+                <li>
+                  <a href="{% url 'projetos:orientacoes' %}" class="btn btn-ghost">
+                    Minhas orientações
+                  </a>
+                </li>
+              {% endif %}
+              {% if user.perfil_aluno %}
+                <li>
+                  <a href="{% url 'projetos:candidatura' %}" class="btn btn-ghost">
+                    Minha candidatura
                   </a>
                 </li>
               {% endif %}

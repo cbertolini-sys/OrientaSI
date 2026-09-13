@@ -644,6 +644,103 @@ def cria_aluno_com_candidatura_para_rotas():
     return usuario
 
 
+def cria_coordenador_com_painel_orientacoes_para_rotas():
+    """Fábrica de `/painel/orientacoes/` (T12): coordenador autenticado, mais
+    dois `Projeto` de professores DIFERENTES — um com tema, um sem (os dois
+    ramos de `{% if projeto.tema %}` do template) — e um `LimiteOrientacao`
+    concedido a um deles, para que a seção "Limites concedidos" também entre
+    na medição — mesma lição de `cria_professor_com_manifestacao_para_rotas`
+    (T9) sobre não deixar um ramo inteiro do template fora da suíte."""
+    from apps.comum.semestre import semestre_vigente
+    from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import LimiteOrientacao, Projeto, Tema
+
+    coordenador = Usuario.objects.create_user(
+        email="coordenador-painel-orientacoes-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Coordenador Painel Orientações das Rotas",
+        cpf=_gera_cpf_das_rotas(20),
+        is_coordenador=True,
+        is_staff=True,
+    )
+
+    area = Area.objects.create(nome="Área do Painel de Orientações das Rotas")
+    professor1 = PerfilProfessor.objects.create(
+        usuario=Usuario.objects.create_user(
+            email="professor-painel-orientacoes-1-das-rotas@ufsm.br",
+            password="x",
+            nome_completo="Professor Painel Orientações 1 das Rotas",
+            cpf=_gera_cpf_das_rotas(21),
+        ),
+        siape="1000010",
+    )
+    professor1.areas.add(area)
+    professor2 = PerfilProfessor.objects.create(
+        usuario=Usuario.objects.create_user(
+            email="professor-painel-orientacoes-2-das-rotas@ufsm.br",
+            password="x",
+            nome_completo="Professor Painel Orientações 2 das Rotas",
+            cpf=_gera_cpf_das_rotas(22),
+        ),
+        siape="1000011",
+    )
+    professor2.areas.add(area)
+    tema = Tema.objects.create(
+        professor=professor1,
+        area=area,
+        titulo="Tema do Painel de Orientações das Rotas",
+        descricao="Descrição do tema do painel de orientações das rotas.",
+    )
+
+    ano, periodo = semestre_vigente()
+    aluno1 = Usuario.objects.create_user(
+        email="aluno-painel-orientacoes-1-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Painel Orientações 1 das Rotas",
+        cpf=_gera_cpf_das_rotas(23),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=aluno1, matricula="2026399910")
+    Projeto.objects.create(
+        aluno=aluno1,
+        orientador=professor1.usuario,
+        tema=tema,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ano,
+        periodo=periodo,
+    )
+
+    aluno2 = Usuario.objects.create_user(
+        email="aluno-painel-orientacoes-2-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Painel Orientações 2 das Rotas",
+        cpf=_gera_cpf_das_rotas(24),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=aluno2, matricula="2026399911")
+    Projeto.objects.create(
+        aluno=aluno2,
+        orientador=professor2.usuario,
+        tema=None,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ano,
+        periodo=periodo,
+    )
+
+    LimiteOrientacao.objects.create(
+        professor=professor2,
+        etapa=Projeto.TCC_I,
+        ano=ano,
+        periodo=periodo,
+        limite=4,
+        justificativa="Sobrecarga temporária autorizada para a suíte de rotas.",
+        autorizado_por=coordenador,
+    )
+    return coordenador
+
+
 # Lista única de rotas submetidas às cinco suítes transversais
 # (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
@@ -756,6 +853,17 @@ ROTAS = [
         fabrica_usuario=cria_aluno_com_candidatura_para_rotas,
         h1="Minha candidatura",
         persona="acompanhar",
+    ),
+    # Painel da coordenação para ajustar orientações (T12): entra na MESMA
+    # lista das demais, não numa suíte própria — já aconteceu duas vezes
+    # neste bloco (T6, T9) de uma rota isolada em suíte própria esconder um
+    # defeito de acessibilidade que as cinco verificações transversais
+    # pegariam.
+    Rota(
+        "/painel/orientacoes/",
+        "form",
+        fabrica_usuario=cria_coordenador_com_painel_orientacoes_para_rotas,
+        h1="Painel de orientações",
     ),
 ]
 
