@@ -54,6 +54,22 @@ def pode_editar_tema(usuario, tema):
     return _e_o_dono(usuario, tema.professor)
 
 
+def pode_montar_candidatura(usuario):
+    """Só quem tem `PerfilAluno` monta, acompanha ou cancela uma candidatura
+    de orientação (T11, spec §6 — "/candidatura/ | aluno | montar, acompanhar
+    e cancelar").
+
+    Mesmo formato de `pode_criar_tema`, acima: a checagem é a EXISTÊNCIA do
+    perfil (`hasattr(usuario, "perfil_aluno")`), não `usuario.papel ==
+    Usuario.ALUNO` — nada cria `PerfilAluno` automaticamente quando um
+    `Usuario` é criado com `papel=ALUNO` (mesma lacuna que `create_user`/
+    `create_superuser` deixam para `PerfilProfessor`), e usar `papel` aqui
+    reproduziria, para `/candidatura/`, o mesmo `RelatedObjectDoesNotExist`
+    (500) que `apps/contas/views.py::perfil` já teve na Fase 1.
+    """
+    return bool(usuario and usuario.is_authenticated and hasattr(usuario, "perfil_aluno"))
+
+
 def pode_responder_opcao(usuario, opcao):
     """`usuario` pode aceitar/recusar `opcao` — só o professor DONO dela
     (T9), mesma checagem de POSSE de `_e_o_dono`: pergunta "é ESTE

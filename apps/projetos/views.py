@@ -1,12 +1,18 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.projetos import permissions, services
-from apps.projetos.forms import FormularioFiltroMural, FormularioRecusaOpcao, FormularioTema
-from apps.projetos.models import OpcaoCandidatura, Tema
+from apps.projetos.forms import (
+    FormularioCandidatura,
+    FormularioFiltroMural,
+    FormularioRecusaOpcao,
+    FormularioTema,
+)
+from apps.projetos.models import Candidatura, OpcaoCandidatura, Tema
 
 
 @login_required
@@ -298,3 +304,113 @@ def recusar_opcao_view(request, opcao_id):
     else:
         messages.success(request, "Manifestação recusada. O aluno foi avisado.")
     return redirect("projetos:orientacoes")
+
+
+@login_required
+def candidatura(request):
+    """Tela do aluno para montar, acompanhar e cancelar sua candidatura de
+    orientação (T11, spec §6: "/candidatura/ | aluno | montar, acompanhar e
+    cancelar").
+
+    Portão de PAPEL antes de tocar `perfil_aluno` — mesma cautela de
+    `meus_temas`/`orientacoes`, acima, para não repetir o 500 de usuário com
+    papel mas sem perfil correspondente (Fase 1, `apps/contas/views.py::perfil`).
+
+    DUAS TELAS NA MESMA ROTA, escolhidas pela EXISTÊNCIA de uma `Candidatura`
+    `EM_CURSO` do aluno autenticado — nunca mais de uma ao mesmo tempo
+    (`Candidatura.Meta.constraints`, `apps/projetos/models.py`, "uma
+    candidatura em curso por aluno"): havendo uma, a tela mostra o
+    ACOMPANHAMENTO (as até três opções, qual delas a cascata está
+    processando agora — `opcao_atual` — e a justificativa de qualquer
+    recusa já recebida) e o formulário de CANCELAR; não havendo nenhuma
+    (aluno nunca se candidatou, ou a candidatura anterior já terminou —
+    `ACEITA`/`ESGOTADA`/`CANCELADA`), mostra o formulário de MONTAR uma
+    candidatura nova. Isto NÃO é lacuna: os três verbos do spec ("montar,
+    acompanhar e cancelar") descrevem exatamente essas duas telas — nenhum
+    deles pede um resumo histórico de candidaturas já encerradas.
+
+    ESCOPO da escolha (ver a docstring de `FormularioCandidatura`,
+    `apps/projetos/forms.py`): só `Tema`, nunca "professor sem tema
+    específico" — decisão do controlador desta tarefa. `professor` é
+    derivado de `tema.professor` ao montar `opcoes` para
+    `services.registrar_candidatura` (T8); o caminho `tema=None` do serviço
+    continua existindo, só não é alcançável por este formulário.
+    """
+    permissions.garante(
+        permissions.pode_montar_candidatura(request.user),
+        "Somente alunos montam candidatura de orientação.",
+    )
+    aluno = request.user.perfil_aluno
+    candidatura_atual = (
+        aluno.candidaturas.filter(status=Candidatura.EM_CURSO)
+        .prefetch_related(
+            Prefetch(
+                "opcoes",
+                queryset=OpcaoCandidatura.objects.select_related("professor__usuario", "tema"),
+            )
+        )
+        .first()
+    )
+
+    if candidatura_atual is not None:
+        return render(
+            request, "projetos/candidatura.html", {"candidatura_atual": candidatura_atual}
+        )
+
+    if request.method == "POST":
+        formulario = FormularioCandidatura(request.POST)
+        if formulario.is_valid():
+            opcoes = [
+                (tema.professor, tema)
+                for tema in (
+                    formulario.cleaned_data["opcao_1"],
+                    formulario.cleaned_data.get("opcao_2"),
+                    formulario.cleaned_data.get("opcao_3"),
+                )
+                if tema is not None
+            ]
+            try:
+                services.registrar_candidatura(aluno, opcoes)
+            except ValidationError as erro:
+                formulario.add_error(None, erro.messages[0])
+            else:
+                messages.success(request, "Candidatura registrada.")
+                return redirect("projetos:candidatura")
+    else:
+        formulario = FormularioCandidatura()
+
+    return render(
+        request,
+        "projetos/candidatura.html",
+        {"formulario": formulario, "candidatura_atual": None},
+    )
+
+
+@login_required
+@require_POST
+def cancelar_candidatura_view(request, candidatura_id):
+    """Cancela a candidatura em curso do aluno autenticado (T11).
+
+    Portão de papel primeiro, depois lookup JÁ ESCOPADO ao aluno autenticado
+    (`get_object_or_404(Candidatura, pk=..., aluno=...)`) — mesmo padrão de
+    `desativar_tema`/`aceitar_opcao_view`, acima: candidatura alheia e
+    candidatura inexistente respondem os DOIS com 404, sem abrir um oráculo
+    de existência sobre candidaturas de outros alunos.
+    `services.cancelar_candidatura` mantém sua própria checagem de posse
+    (`por == candidatura.aluno.usuario`) — redundante aqui, mas protege
+    qualquer outro chamador que não escope o lookup do mesmo jeito.
+    """
+    permissions.garante(
+        permissions.pode_montar_candidatura(request.user),
+        "Somente alunos montam candidatura de orientação.",
+    )
+    candidatura_obj = get_object_or_404(
+        Candidatura, pk=candidatura_id, aluno=request.user.perfil_aluno
+    )
+    try:
+        services.cancelar_candidatura(candidatura_obj, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Candidatura cancelada.")
+    return redirect("projetos:candidatura")

@@ -12,4 +12,10 @@ urlpatterns = [
     path("orientacoes/", views.orientacoes, name="orientacoes"),
     path("orientacoes/<int:opcao_id>/aceitar/", views.aceitar_opcao_view, name="aceitar_opcao"),
     path("orientacoes/<int:opcao_id>/recusar/", views.recusar_opcao_view, name="recusar_opcao"),
+    path("candidatura/", views.candidatura, name="candidatura"),
+    path(
+        "candidatura/<int:candidatura_id>/cancelar/",
+        views.cancelar_candidatura_view,
+        name="cancelar_candidatura",
+    ),
 ]

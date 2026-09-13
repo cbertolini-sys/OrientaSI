@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Minha candidatura{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-2xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Minha candidatura</h1>
+
+    {% if candidatura_atual %}
+      <p class="mt-2">
+        Sua candidatura está na {{ candidatura_atual.opcao_atual }}ª opção de até três.
+        Assim que um professor responder, esta página é atualizada.
+      </p>
+
+      <h2 class="mt-6 font-display text-xl font-bold text-primary">Suas opções</h2>
+      <ul class="mt-4 space-y-3">
+        {% for opcao in candidatura_atual.opcoes.all %}
+          <li class="rounded-box border border-base-300 p-4">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="font-medium">
+                  {{ opcao.ordem }}ª opção — {{ opcao.professor.usuario.nome_completo }}
+                  {% if opcao.ordem == candidatura_atual.opcao_atual %}
+                    <span class="text-sm font-normal text-base-content/80">(processando agora)</span>
+                  {% endif %}
+                </p>
+                <p class="text-sm text-base-content/80">
+                  {% if opcao.tema %}
+                    Tema: {{ opcao.tema.titulo }}
+                  {% else %}
+                    Sem tema específico — orientação em aberto
+                  {% endif %}
+                </p>
+                {% comment %}
+                  `justificativa` só é preenchida quando a situação é
+                  RECUSADA (apps/projetos/models.py, OpcaoCandidatura) — checar
+                  o próprio campo, em vez de comparar `opcao.situacao ==
+                  "RECUSADA"`, mantém o template alinhado com o contrato do
+                  modelo sem repetir a string literal do estado.
+                {% endcomment %}
+                {% if opcao.justificativa %}
+                  <p class="mt-2 text-sm">
+                    <span class="font-medium">Justificativa da recusa:</span>
+                    {{ opcao.justificativa }}
+                  </p>
+                {% endif %}
+              </div>
+              <span class="badge badge-neutral shrink-0">{{ opcao.get_situacao_display }}</span>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+
+      <form
+        method="post"
+        action="{% url 'projetos:cancelar_candidatura' candidatura_atual.pk %}"
+        class="mt-6"
+      >
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline">Cancelar candidatura</button>
+      </form>
+    {% else %}
+      <p class="mt-2">
+        Escolha até três temas do <a href="{% url 'projetos:mural' %}" class="link">mural</a>,
+        em ordem de preferência. Só a 1ª opção é obrigatória — se o professor da 1ª recusar ou
+        não responder em 7 dias, a candidatura passa para a próxima automaticamente.
+      </p>
+
+      <form method="post" class="mt-4 space-y-4" novalidate>
+        {% csrf_token %}
+
+        {% if formulario.errors %}
+          {% comment %}
+            Mesmo padrão de templates/projetos/meus_temas.html:
+            `formulario.errors` (não só `non_field_errors`) decide se o
+            resumo aparece, porque os erros desta tela — buraco entre
+            opções, professor repetido, e a ValidationError de
+            `services.registrar_candidatura` (falta de vaga, professor
+            repetido pego só na camada de serviço) — chegam todos via
+            `add_error(None, ...)`/`raise ValidationError` no `clean()`, ou
+            seja, como erro NÃO ligado a um campo (`non_field_errors`).
+          {% endcomment %}
+          <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
+            <p>Corrija os itens abaixo antes de continuar.</p>
+            {% for erro in formulario.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+          </div>
+        {% endif %}
+
+        {% for campo in formulario %}
+          {% include "contas/_campo.html" with campo=campo %}
+        {% endfor %}
+
+        <button type="submit" class="btn btn-primary w-full">Enviar candidatura</button>
+      </form>
+    {% endif %}
+  </article>
+{% endblock %}

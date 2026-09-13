@@ -524,6 +524,126 @@ def cria_professor_com_manifestacao_para_rotas():
     return usuario
 
 
+def cria_aluno_sem_candidatura_para_rotas():
+    """Fábrica de `/candidatura/` na variante MONTAR (T11): aluno com
+    `PerfilAluno` e sem nenhuma `Candidatura` — a tela mostra o formulário de
+    até três opções. Semeia um `Tema` ativo (professor com uma `Area`
+    declarada) para o `<select>` das três opções não ficar vazio — mesma
+    lição de `cria_aluno_com_mural_para_rotas`, acima, sobre não medir uma
+    tela com lista vazia."""
+    from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Tema
+
+    usuario = Usuario.objects.create_user(
+        email="aluno-candidatura-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Candidatura das Rotas",
+        cpf=_gera_cpf_das_rotas(4),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=usuario, matricula="2026399904")
+
+    area = Area.objects.create(nome="Área da Candidatura das Rotas")
+    professor = PerfilProfessor.objects.create(
+        usuario=Usuario.objects.create_user(
+            email="professor-candidatura-das-rotas@ufsm.br",
+            password="x",
+            nome_completo="Professor Candidatura das Rotas",
+            cpf=_gera_cpf_das_rotas(5),
+        ),
+        siape="1000006",
+    )
+    professor.areas.add(area)
+    Tema.objects.create(
+        professor=professor,
+        area=area,
+        titulo="Tema da Candidatura das Rotas",
+        descricao="Descrição do tema da candidatura das rotas.",
+    )
+    return usuario
+
+
+def cria_aluno_com_candidatura_para_rotas():
+    """Fábrica de `/candidatura/` na variante ACOMPANHAR (T11): aluno com uma
+    `Candidatura` `EM_CURSO` cujas três opções cobrem os três ramos
+    condicionais do template `projetos/candidatura.html` de uma vez — mesma
+    lição de `cria_professor_com_manifestacao_para_rotas`, acima, sobre
+    semear os dois lados de um `{% if %}` em vez de só o estado vazio:
+
+    - opção 1 `RECUSADA`, com justificativa (só aqui o trecho "Justificativa
+      da recusa" aparece);
+    - opção 2 `ENVIADA` — a que `opcao_atual` aponta —, sem tema ("Sem tema
+      específico");
+    - opção 3 `AGUARDANDO` (ainda não alcançada pela cascata).
+    """
+    from apps.comum.semestre import semestre_vigente
+    from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Candidatura, OpcaoCandidatura, Tema
+
+    usuario = Usuario.objects.create_user(
+        email="aluno-candidatura-acompanha-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Candidatura Acompanha das Rotas",
+        cpf=_gera_cpf_das_rotas(6),
+        papel=Usuario.ALUNO,
+    )
+    perfil_aluno = PerfilAluno.objects.create(usuario=usuario, matricula="2026399905")
+
+    area = Area.objects.create(nome="Área da Candidatura Acompanha das Rotas")
+    professores = []
+    for indice in range(7, 10):
+        professor = PerfilProfessor.objects.create(
+            usuario=Usuario.objects.create_user(
+                email=f"professor-candidatura-acompanha-das-rotas-{indice}@ufsm.br",
+                password="x",
+                nome_completo=f"Professor Candidatura Acompanha das Rotas {indice}",
+                cpf=_gera_cpf_das_rotas(indice),
+            ),
+            siape=f"100000{indice}",
+        )
+        professor.areas.add(area)
+        professores.append(professor)
+
+    tema_recusado = Tema.objects.create(
+        professor=professores[0],
+        area=area,
+        titulo="Tema Recusado da Candidatura das Rotas",
+        descricao="Descrição do tema recusado da candidatura das rotas.",
+    )
+
+    ano, periodo = semestre_vigente()
+    agora = timezone.now()
+    candidatura = Candidatura.objects.create(
+        aluno=perfil_aluno, ano=ano, periodo=periodo, opcao_atual=2
+    )
+    OpcaoCandidatura.objects.create(
+        candidatura=candidatura,
+        ordem=1,
+        professor=professores[0],
+        tema=tema_recusado,
+        situacao=OpcaoCandidatura.RECUSADA,
+        justificativa="Já atingi o limite de orientandos nesta área.",
+        respondida_em=agora,
+    )
+    OpcaoCandidatura.objects.create(
+        candidatura=candidatura,
+        ordem=2,
+        professor=professores[1],
+        tema=None,
+        situacao=OpcaoCandidatura.ENVIADA,
+        enviada_em=agora,
+        prazo=agora + timezone.timedelta(days=7),
+    )
+    OpcaoCandidatura.objects.create(
+        candidatura=candidatura,
+        ordem=3,
+        professor=professores[2],
+        tema=None,
+        situacao=OpcaoCandidatura.AGUARDANDO,
+    )
+    return usuario
+
+
 # Lista única de rotas submetidas às cinco suítes transversais
 # (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
@@ -614,6 +734,28 @@ ROTAS = [
         "form",
         fabrica_usuario=cria_professor_com_manifestacao_para_rotas,
         h1="Minhas orientações",
+    ),
+    # Tela do aluno (T11): duas variantes da MESMA URL, com HTML
+    # genuinamente diferente (mesmo padrão de /perfil/, acima) — "montar"
+    # (sem candidatura em curso, mostra o formulário) e "acompanhar" (com
+    # uma em curso, mostra as opções e o botão de cancelar). Sem a segunda
+    # variante, a suíte mediria só a metade do template que
+    # `cria_aluno_sem_candidatura_para_rotas` alcança — mesma lição de
+    # `cria_aluno_com_mural_para_rotas`/`cria_professor_com_manifestacao_para_rotas`,
+    # acima, sobre não deixar um ramo inteiro do template fora da medição.
+    Rota(
+        "/candidatura/",
+        "form",
+        fabrica_usuario=cria_aluno_sem_candidatura_para_rotas,
+        h1="Minha candidatura",
+        persona="montar",
+    ),
+    Rota(
+        "/candidatura/",
+        "form",
+        fabrica_usuario=cria_aluno_com_candidatura_para_rotas,
+        h1="Minha candidatura",
+        persona="acompanhar",
     ),
 ]
 
