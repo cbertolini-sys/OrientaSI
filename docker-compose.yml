@@ -78,10 +78,20 @@ services:
     # no horário certo — quem de fato EXECUTA a tarefa é o `celery_worker`,
     # acima. Sem `minio` no `depends_on`: ao contrário do worker, o
     # agendador nunca toca em mídia, só publica mensagens no Redis.
+    #
+    # `--schedule=/tmp/celerybeat-schedule` (rodada de correção 1, medido):
+    # sem esta flag, o `PersistentScheduler` grava seu banco de "último
+    # disparo" na raiz do repositório (bind mount `.:/app`), poluindo o
+    # working tree do host a cada `docker compose up`. Com `crontab(minute=0)`
+    # o próximo disparo é derivado do relógio, não de estado persistido —
+    # perder este arquivo num restart não duplica nem perde tick, então o
+    # valor do `PersistentScheduler` aqui é quase nulo; apontá-lo para
+    # `/tmp` (dentro do container, não bind-montado) mantém o comportamento
+    # e tira o arquivo do caminho do host.
     build:
       context: .
       target: dev
-    command: celery -A config beat --loglevel=info
+    command: celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     volumes:
       - .:/app
     env_file:

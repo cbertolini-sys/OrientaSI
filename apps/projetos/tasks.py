@@ -85,19 +85,26 @@ def enviar_recusa(self, opcao_id):
 def avancar_candidaturas_vencidas():
     """Tarefa periódica (Celery Beat, `CELERY_BEAT_SCHEDULE` em
     `config/settings.py`, de hora em hora) que avança a cascata de toda
-    candidatura cuja opção corrente venceu o prazo de resposta (spec §3.2 e
-    §5.2), sem esperar o professor responder.
+    candidatura cuja opção corrente venceu o prazo de resposta (spec §3.2,
+    §5.2 e, principalmente, §3.8 linha 158 — "O prazo avança por tarefa
+    periódica, com agendamento estático": é essa linha, não §3.2 nem §5.2,
+    que decide a EXISTÊNCIA desta tarefa e a recusa de `django-celery-beat`
+    que o comentário de `CELERY_BEAT_SCHEDULE`, em `config/settings.py`,
+    reproduz), sem esperar o professor responder.
 
     `@shared_task` simples, sem `bind`/`max_retries`, ao contrário das três
     tarefas acima: esta tarefa não envia e-mail diretamente — quem envia é
     `avancar_cascata`, através de `_enviar_opcao` → `enviar_manifestacao`,
-    já com seu próprio retry. Se uma chamada de `avancar_cascata` aqui
-    dentro falhar (exceção não tratada), a exceção sobe e o Celery marca
-    esta execução como falha, mas a PRÓXIMA execução horária do Beat
-    encontra a mesma opção ainda `ENVIADA` e vencida (nada aqui muda seu
-    estado antes de `avancar_cascata` rodar) e tenta de novo — não há
-    e-mail desta tarefa para duplicar sob retry, então retry automático não
-    compraria nada que o próprio agendamento horário não já dê de graça.
+    já com seu próprio retry. Não há e-mail desta tarefa para duplicar sob
+    retry automático do Celery, então isso não compraria nada que o próprio
+    agendamento horário não já dê de graça — mas isso NÃO significa "deixar
+    a exceção subir e derrubar a execução inteira": ver o `try/except` por
+    ITERAÇÃO logo abaixo (Importante 2 da rodada de correção 1), que isola
+    a falha de uma candidatura sem interromper as demais do mesmo tick. Uma
+    falha (tratada ou não) na candidatura X não muda o estado dela antes de
+    `avancar_cascata` rodar, então a PRÓXIMA execução horária do Beat
+    encontra a mesma opção ainda `ENVIADA` e vencida e tenta de novo —
+    isso continua valendo por candidatura, com o isolamento.
 
     A CONSULTA — o que decide QUAIS candidatas oferecer a `avancar_cascata`,
     nunca SE ela deve avançar (isso é só dela, ver a docstring de
@@ -155,7 +162,32 @@ def avancar_candidaturas_vencidas():
     ).select_related("candidatura")
 
     for opcao in opcoes_vencidas:
-        avancar_cascata(opcao.candidatura)
+        try:
+            avancar_cascata(opcao.candidatura)
+        except Exception:  # noqa: BLE001 — uma candidatura ruim não pode travar as outras
+            # Importante 2 da rodada de correção 1: sem este isolamento por
+            # iteração, uma exceção na candidatura N interrompe o `for` antes
+            # de alcançar N+1, N+2... — e não é transitório: um dado sujo ou
+            # um `IntegrityError` recorrente aborta no MESMO ponto a cada
+            # tick horário, para sempre, deixando as candidaturas seguintes
+            # (cujas opções não têm nada de errado) presas indefinidamente
+            # numa opção vencida, sem sinal além deste traceback no log do
+            # worker. A falha em SI não é escondida (é logada com stack
+            # trace) nem silenciosamente "resolvida": a candidatura que
+            # falhou continua com a opção vencida no próximo tick, porque
+            # nada mudou de estado — mesmo raciocínio de retry que já valia
+            # sem este `try` (ver acima), só que agora sem starvation das
+            # candidaturas saudáveis do mesmo tick.
+            logger.exception(
+                "Falha ao avançar a cascata da candidatura %s (opção %s) — "
+                "as demais do mesmo tick seguem.",
+                opcao.candidatura_id,
+                opcao.pk,
+            )
+    # Provado por mutação (removido este `try/except`) em
+    # `apps/projetos/tests/test_prazo.py::
+    # test_candidatura_com_erro_nao_trava_as_demais_do_mesmo_tick` — ver a
+    # transcrição no relatório da rodada de correção 1.
 
 
 @shared_task(bind=True, max_retries=3)

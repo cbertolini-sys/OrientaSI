@@ -10,6 +10,11 @@ staticfiles/
 .pytest_cache/
 .ruff_cache/
 # Banco de agendamento do celery_beat (T10): o PersistentScheduler grava
-# aqui o "último disparo" de cada entrada de CELERY_BEAT_SCHEDULE, no bind
-# mount da raiz do projeto — estado de execução local, não código.
-celerybeat-schedule
+# aqui o "último disparo" de cada entrada de CELERY_BEAT_SCHEDULE — estado
+# de execução local, não código. Desde a rodada de correção 1, o serviço
+# `celery_beat` (docker-compose.yml) aponta esse arquivo para /tmp DENTRO do
+# container, fora do bind mount da raiz do projeto, então ele não deveria
+# mais aparecer aqui — esta entrada fica como defesa em profundidade.
+# Padrão largo (não só o nome nu): o `shelve` do Python pode gerar
+# `.dat`/`.dir`/`.bak` dependendo do backend `dbm` disponível no ambiente.
+celerybeat-schedule*

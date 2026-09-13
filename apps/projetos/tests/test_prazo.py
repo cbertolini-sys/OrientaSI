@@ -1,6 +1,7 @@
 """Testes de `apps/projetos/tasks.py::avancar_candidaturas_vencidas` (T10,
-spec §3.2 e §5.2): a tarefa periódica que liga o Celery Beat a
-`avancar_cascata` (T8) pela primeira vez neste bloco.
+spec §3.2, §5.2 e §3.8 — esta última é quem decide a existência da tarefa
+periódica em si, "M4" da rodada de correção 1): a tarefa periódica que liga
+o Celery Beat a `avancar_cascata` (T8) pela primeira vez neste bloco.
 
 `avancar_cascata` já é, sozinha, a única autoridade sobre QUANDO avançar —
 ela tem seu próprio guarda de prazo e sua própria trava (ver a docstring
@@ -21,11 +22,19 @@ e não se sobrepõe ao que `test_candidatura.py` já prova sobre
 Cada teste de filtro (`test_opcao_vencida_avanca`,
 `test_opcao_no_prazo_nao_avanca`,
 `test_opcao_ja_resolvida_com_prazo_no_passado_nao_e_reprocessada`) foi
-confirmado por mutação explícita — a transcrição está no relatório da T10,
-não aqui: comentário e docstring descrevem o que o código FAZ, o
-experimento que provou isso mora fora do código.
+confirmado por mutação explícita. Convenção deste arquivo (M5 da rodada de
+correção 1, para não haver duas regras diferentes competindo): a
+transcrição completa de cada rodada de mutação mora no relatório da T10,
+fora do código — comentário e docstring aqui descrevem o que o código FAZ.
+A única exceção deliberada é quando o RESULTADO da medição muda o que a
+garantia cobre, não só confirma o esperado (o caso do filtro de `prazo`,
+abaixo): aí o resumo do experimento é narrado ao lado da própria garantia,
+na docstring de `avancar_candidaturas_vencidas`
+(`apps/projetos/tasks.py`) — porque o limite de uma garantia se escreve ao
+lado dela (CLAUDE.md), não só no relatório que ninguém mais vai reabrir.
 """
 
+import logging
 import threading
 import time
 from datetime import timedelta
@@ -137,14 +146,31 @@ def test_opcao_vencida_avanca(registra, roda_tarefa, dois_professores, aluno):
     opção 1 vence, a tarefa periódica avança a cascata para a opção 2 e
     notifica o professor 2 — exatamente o que `avancar_cascata` faria se
     fosse chamada diretamente (T8), só que agora é a tarefa periódica quem
-    decide chamá-la."""
+    decide chamá-la.
+
+    Importante 1 da rodada de correção 1: este é o único dos quatro testes
+    do arquivo que também precisa do espião, com asserção POSITIVA
+    (`assert_called_once`, não `assert_not_called`). Os outros três provam
+    a consulta pela ausência de chamada — uma asserção negativa que passa
+    tanto quando o filtro está certo quanto quando o `mock.patch` do alvo
+    simplesmente não pega em nada (por exemplo, se alguém hastear o import
+    de `avancar_cascata` para o topo do módulo — o `ruff` até sugere isso).
+    Sem este teste, nada na suíte prova que o espião tem mira: os quatro
+    poderiam estar cegos ao mesmo tempo, e passariam do mesmo jeito. `wraps=`
+    garante que a função real roda de ponta a ponta — a asserção de estado
+    abaixo continua sendo o teste de verdade; o espião só ancora que ela
+    passou PORQUE o código certo rodou, não porque o patch furou."""
     candidatura = registra(aluno, [(professor, None) for professor in dois_professores])
     opcao1 = candidatura.opcoes.get(ordem=1)
     _expira_prazo(opcao1)
     mail.outbox.clear()
 
-    roda_tarefa()
+    with mock.patch(
+        "apps.projetos.services.avancar_cascata", wraps=services.avancar_cascata
+    ) as espiao:
+        roda_tarefa()
 
+    espiao.assert_called_once()
     opcao1.refresh_from_db()
     candidatura.refresh_from_db()
     assert opcao1.situacao == OpcaoCandidatura.EXPIRADA
@@ -347,3 +373,74 @@ def test_dois_ticks_do_beat_sobrepostos_nao_duplicam_avanco(settings):
     # opção 2 teria o prazo reescrito por uma segunda passagem.
     assert len(mail.outbox) == 1
     assert mail.outbox[0].to == [professor2.usuario.email]
+
+
+# --------------------------------------------------------------------------
+# Importante 2 da rodada de correção 1: uma candidatura com erro não pode
+# travar as demais do mesmo tick — o `for` original propagava a primeira
+# exceção e abortava antes de alcançar as candidaturas seguintes, mesmo que
+# elas não tivessem nada de errado.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_candidatura_com_erro_nao_trava_as_demais_do_mesmo_tick(registra, roda_tarefa):
+    """Três candidaturas vencidas no mesmo tick; a do MEIO (`candidatura2`,
+    identificada por `pk`, não por posição — a ordem de iteração da consulta
+    não é garantida) levanta uma exceção dentro de `avancar_cascata`.
+
+    Prova por mutação (transcrição no relatório da rodada de correção 1):
+    revertido o `try/except` por iteração em `avancar_candidaturas_vencidas`
+    (voltando ao `for` que só chama `avancar_cascata` direto), este teste
+    reprova — a exceção da candidatura 2 propaga e interrompe o `for` antes
+    de alcançar a candidatura processada depois dela na ordem de iteração
+    real, e a asserção de que AS DUAS outras avançaram falha para uma delas.
+    """
+    professores = [_cria_professor(indice) for indice in range(20, 26)]
+    aluno1, aluno2, aluno3 = (_cria_aluno(indice) for indice in range(30, 33))
+
+    candidatura1 = registra(aluno1, [(professores[0], None), (professores[1], None)])
+    candidatura2 = registra(aluno2, [(professores[2], None), (professores[3], None)])
+    candidatura3 = registra(aluno3, [(professores[4], None), (professores[5], None)])
+
+    for candidatura in (candidatura1, candidatura2, candidatura3):
+        _expira_prazo(candidatura.opcoes.get(ordem=1))
+    mail.outbox.clear()
+
+    avancar_de_verdade = services.avancar_cascata
+
+    def avancar_com_erro_na_candidatura_2(candidatura):
+        if candidatura.pk == candidatura2.pk:
+            raise RuntimeError("falha proposital de teste — dado sujo simulado")
+        return avancar_de_verdade(candidatura)
+
+    logger_da_tarefa = logging.getLogger("apps.projetos.tasks")
+    with mock.patch(
+        "apps.projetos.services.avancar_cascata",
+        side_effect=avancar_com_erro_na_candidatura_2,
+    ):
+        with mock.patch.object(logger_da_tarefa, "exception") as espiao_log:
+            roda_tarefa()
+
+    candidatura1.refresh_from_db()
+    candidatura2.refresh_from_db()
+    candidatura3.refresh_from_db()
+
+    # As duas candidaturas SEM erro avançaram normalmente — não ficaram
+    # presas esperando a vez de uma candidatura que nunca chegaria a rodar.
+    assert candidatura1.opcao_atual == 2
+    assert candidatura3.opcao_atual == 2
+    # A candidatura COM erro não avançou — nem deveria: `avancar_cascata`
+    # levantou antes de gravar qualquer coisa. Ela continua na opção 1,
+    # ainda `ENVIADA` e vencida, pronta para ser tentada de novo no próximo
+    # tick (mesma lógica de retry que já valia sem o isolamento).
+    candidatura2.refresh_from_db()
+    assert candidatura2.opcao_atual == 1
+    opcao1_da_2 = candidatura2.opcoes.get(ordem=1)
+    assert opcao1_da_2.situacao == OpcaoCandidatura.ENVIADA
+    # A falha foi logada com stack trace (`logger.exception`), não
+    # engolida em silêncio — é o único sinal que sobra no log do worker.
+    espiao_log.assert_called_once()
+    argumentos_do_log = espiao_log.call_args
+    assert candidatura2.pk in argumentos_do_log.args
+    assert len(mail.outbox) == 2  # um e-mail por candidatura que avançou de verdade
