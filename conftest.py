@@ -423,6 +423,81 @@ def cria_aluno_com_mural_para_rotas():
     return usuario
 
 
+def _gera_cpf_das_rotas(indice):
+    """Mesmo mecanismo de `_gera_cpf` nos arquivos de teste de
+    `apps/projetos/tests/` (dígito verificador calculado, não digitado à
+    mão), com faixa própria (810000000+) para a fábrica de `/orientacoes/`
+    (T9) não colidir com nenhum CPF literal já usado pelas fábricas acima."""
+    from apps.contas.validators import _digito
+
+    base = f"{810000000 + indice:09d}"
+    d1 = _digito(base, 10)
+    d2 = _digito(base + str(d1), 11)
+    return base + str(d1) + str(d2)
+
+
+def cria_professor_com_manifestacao_para_rotas():
+    """Fábrica de `/orientacoes/` (T9, fila do professor): professor com
+    `PerfilProfessor` e DUAS manifestações de interesse pendentes
+    (`OpcaoCandidatura` `situacao=ENVIADA`), de dois alunos diferentes — uma
+    com tema escolhido, uma sem — para que os dois ramos do template
+    (`{% if opcao.tema %}`) entrem na medição, mesmo motivo pelo qual
+    `cria_professor_com_tema_para_rotas` (T6) semeia um tema ativo e um
+    inativo em vez de só um.
+
+    Duas `Candidatura`s distintas (uma por aluno), cada uma com sua única
+    opção `ENVIADA` apontando para o MESMO professor: nada na regra de
+    negócio impede um professor de ter mais de uma manifestação pendente ao
+    mesmo tempo, vinda de alunos diferentes — só uma `OpcaoCandidatura` por
+    `Candidatura` fica `ENVIADA` de cada vez (a cascata, T8), não uma por
+    professor.
+    """
+    from apps.comum.semestre import semestre_vigente
+    from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Candidatura, OpcaoCandidatura, Tema
+
+    usuario = Usuario.objects.create_user(
+        email="professor-orientacoes-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Professor Orientações das Rotas",
+        cpf=_gera_cpf_das_rotas(0),
+    )
+    perfil = PerfilProfessor.objects.create(usuario=usuario, siape="1000005")
+    area = Area.objects.create(nome="Área das Orientações das Rotas")
+    perfil.areas.add(area)
+    tema = Tema.objects.create(
+        professor=perfil,
+        area=area,
+        titulo="Tema das Orientações das Rotas",
+        descricao="Descrição do tema das orientações das rotas.",
+    )
+
+    ano, periodo = semestre_vigente()
+    agora = timezone.now()
+    prazo = agora + timezone.timedelta(days=7)
+
+    for indice, tema_da_opcao in [(1, tema), (2, None)]:
+        aluno = Usuario.objects.create_user(
+            email=f"aluno-orientacoes-das-rotas-{indice}@ufsm.br",
+            password="x",
+            nome_completo=f"Aluno Orientações das Rotas {indice}",
+            cpf=_gera_cpf_das_rotas(indice),
+            papel=Usuario.ALUNO,
+        )
+        perfil_aluno = PerfilAluno.objects.create(usuario=aluno, matricula=f"20263999{indice:02d}")
+        candidatura = Candidatura.objects.create(aluno=perfil_aluno, ano=ano, periodo=periodo)
+        OpcaoCandidatura.objects.create(
+            candidatura=candidatura,
+            ordem=1,
+            professor=perfil,
+            tema=tema_da_opcao,
+            situacao=OpcaoCandidatura.ENVIADA,
+            enviada_em=agora,
+            prazo=prazo,
+        )
+    return usuario
+
+
 # Lista única de rotas submetidas às cinco suítes transversais
 # (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
@@ -503,6 +578,15 @@ ROTAS = [
         "form",
         fabrica_usuario=cria_professor_com_tema_para_rotas,
         h1="Editar tema",
+    ),
+    # Fila do professor (T9): duas manifestações pendentes (com e sem tema)
+    # para que os dois ramos condicionais do template entrem na medição —
+    # ver a docstring de `cria_professor_com_manifestacao_para_rotas`.
+    Rota(
+        "/orientacoes/",
+        "form",
+        fabrica_usuario=cria_professor_com_manifestacao_para_rotas,
+        h1="Minhas orientações",
     ),
 ]
 

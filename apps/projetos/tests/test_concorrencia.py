@@ -68,17 +68,20 @@ haveria concorrência nenhuma para provar.
 
 import threading
 import time
+from datetime import timedelta
 from unittest import mock
 
 import pytest
+from django.core import mail
 from django.core.exceptions import ValidationError
 from django.db import connection
+from django.utils import timezone
 
 from apps.comum.semestre import semestre_vigente
 from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
 from apps.projetos import services
-from apps.projetos.models import Projeto, Tema
+from apps.projetos.models import Candidatura, OpcaoCandidatura, Projeto, Tema
 
 ANO_VIGENTE, PERIODO_VIGENTE = semestre_vigente()
 
@@ -203,3 +206,134 @@ def test_duas_aceitacoes_simultaneas_no_ultimo_lugar_resultam_em_uma_recusa():
         f"esperava que uma das duas aceitações concorrentes fosse aceita (a vaga existia "
         f"antes das duas tentativas): {resultados}"
     )
+
+
+# --------------------------------------------------------------------------
+# Acréscimo 3 do controlador da T9: aceitar_opcao (T9) contra avancar_cascata
+# (T8, chamada pelo Beat da T10 quando o prazo vence) sobre a MESMA
+# Candidatura. Hoje só uma opção fica ENVIADA por vez — dois professores não
+# disputam a mesma linha por vias normais —, mas os dois CAMINHOS DE CÓDIGO
+# disputam, porque ambos travam `Candidatura` (mesma trava, mesma ordem:
+# `aceitar_opcao`/`recusar_opcao`, apps/projetos/services.py, e
+# `avancar_cascata`, também lá).
+# --------------------------------------------------------------------------
+
+
+def _aceita_opcao_em_thread(opcao_id, por_id, resultados, chave):
+    """Roda `services.aceitar_opcao` numa conexão de banco própria — mesmo
+    padrão de `_aceita_em_thread`, acima, adaptado para o caminho de
+    resposta de uma `OpcaoCandidatura` específica (T9)."""
+    connection.close()
+    try:
+        opcao = OpcaoCandidatura.objects.get(pk=opcao_id)
+        por = Usuario.objects.get(pk=por_id)
+        services.aceitar_opcao(opcao, por=por)
+        resultados[chave] = "aceita"
+    except ValidationError as erro:
+        resultados[chave] = f"recusada: {erro.messages[0]}"
+    finally:
+        connection.close()
+
+
+def _avanca_cascata_em_thread(candidatura_id, resultados, chave):
+    """Roda `services.avancar_cascata` numa conexão de banco própria —
+    simula o Beat da T10 chamando-a quando o prazo de uma opção vence,
+    concorrendo com a resposta manual de um professor sobre a mesma
+    candidatura."""
+    connection.close()
+    try:
+        candidatura = Candidatura.objects.get(pk=candidatura_id)
+        services.avancar_cascata(candidatura)
+        resultados[chave] = "processada"
+    finally:
+        connection.close()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_aceitar_opcao_e_avancar_cascata_concorrentes_nao_duplicam_desfecho(settings):
+    """Acréscimo 3 do controlador da T9: o professor 1 aceita a opção 1 no
+    exato instante em que o prazo dela vence e o Beat (T10) chama
+    `avancar_cascata` sobre a mesma candidatura.
+
+    Sem a trava de `Candidatura` que `aceitar_opcao` usa (mesma trava e
+    mesma ordem de `avancar_cascata` — ambas em apps/projetos/services.py),
+    as duas transações poderiam intercalar: `avancar_cascata` marcaria a
+    opção 1 `EXPIRADA` e notificaria o professor 2 (a opção 2 viraria
+    `ENVIADA`) enquanto `aceitar_opcao` ainda decide criar o `Projeto` a
+    partir da MESMA opção 1 — um aluno com projeto criado a partir de uma
+    opção que o próprio sistema já tinha marcado expirada, e um segundo
+    professor notificado por engano sobre uma candidatura já resolvida.
+
+    Mesmo mecanismo de atraso forçado de
+    `test_duas_aceitacoes_simultaneas_no_ultimo_lugar_resultam_em_uma_recusa`,
+    acima: a thread do aceite (`t_aceita`) começa primeiro e tem sua escrita
+    do `Projeto` atrasada em 1s — tempo real para a thread do Beat
+    (`t_avanca`) tentar (e bloquear tentando) travar a MESMA linha de
+    `Candidatura` que `t_aceita` já travou. Com a trava certa, `t_avanca` só
+    consegue ler o estado depois que `t_aceita` comita, e encontra
+    `candidatura.status == ACEITA` — o guarda de status de `avancar_cascata`
+    (apps/projetos/services.py) a faz não fazer nada.
+    """
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    professor1 = _cria_professor(20)
+    professor2 = _cria_professor(21)
+    aluno = _cria_perfil_aluno(20)
+
+    candidatura = services.registrar_candidatura(aluno, [(professor1, None), (professor2, None)])
+    mail.outbox.clear()
+
+    opcao1 = candidatura.opcoes.get(ordem=1)
+    # Empurra o prazo para o passado: sem isso, o guarda de prazo de
+    # `avancar_cascata` (Importante 1 da rodada de correção 2 da T8) faz a
+    # thread do Beat não fazer nada, e a corrida nunca chega a acontecer.
+    opcao1.prazo = timezone.now() - timedelta(seconds=1)
+    opcao1.save(update_fields=["prazo"])
+
+    resultados = {}
+    save_original = Projeto.save
+
+    def save_com_atraso(self, *args, **kwargs):
+        # Atrasa só a GRAVAÇÃO do Projeto novo (INSERT, `self.pk is None`)
+        # que `aceitar_opcao` decide criar — depois que a trava da
+        # Candidatura já foi conseguida (é ela, não este atraso, quem
+        # serializa as duas threads) e depois que `criar_projeto_sob_limite`
+        # já decidiu que cabe.
+        if self.pk is None:
+            time.sleep(1.0)
+        return save_original(self, *args, **kwargs)
+
+    t_aceita = threading.Thread(
+        target=_aceita_opcao_em_thread,
+        args=(opcao1.pk, professor1.usuario.pk, resultados, "aceita"),
+    )
+    t_avanca = threading.Thread(
+        target=_avanca_cascata_em_thread,
+        args=(candidatura.pk, resultados, "avanca"),
+    )
+
+    with mock.patch.object(Projeto, "save", save_com_atraso):
+        t_aceita.start()
+        time.sleep(0.2)  # garante que a thread do aceite trava a candidatura primeiro
+        t_avanca.start()
+        t_aceita.join()
+        t_avanca.join()
+
+    candidatura.refresh_from_db()
+    opcao1.refresh_from_db()
+    opcao2 = candidatura.opcoes.get(ordem=2)
+
+    assert resultados["aceita"] == "aceita", resultados
+    assert candidatura.status == Candidatura.ACEITA
+    assert opcao1.situacao == OpcaoCandidatura.ACEITA
+    # `aceitar_opcao` já cancela as opções sem desfecho (opcao2 estava
+    # AGUARDANDO) ao comitar — é ISSO que impede a cascata de fazer sentido
+    # depois. A cascata NÃO avançou por cima do aceite: `avancar_cascata`, ao
+    # conseguir a trava DEPOIS de `aceitar_opcao` já ter comitado, encontrou
+    # `candidatura.status == ACEITA` (não `EM_CURSO`) e não tocou opcao2 —
+    # ela chegou `CANCELADA` pelo aceite, nunca `ENVIADA` pela cascata.
+    assert opcao2.situacao == OpcaoCandidatura.CANCELADA
+    assert Projeto.objects.filter(aluno=aluno.usuario, orientador=professor1.usuario).exists()
+    # Nem o professor 2 (a cascata não avançou) nem ninguém mais recebeu
+    # e-mail nesta corrida — só o e-mail da manifestação original (T8),
+    # limpo do outbox antes das threads começarem.
+    assert mail.outbox == []

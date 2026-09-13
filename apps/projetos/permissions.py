@@ -52,3 +52,23 @@ def pode_editar_tema(usuario, tema):
     """Mesma regra de posse de `pode_desativar_tema`: só o professor que
     cadastrou `tema` pode editá-lo."""
     return _e_o_dono(usuario, tema.professor)
+
+
+def pode_responder_opcao(usuario, opcao):
+    """`usuario` pode aceitar/recusar `opcao` — só o professor DONO dela
+    (T9), mesma checagem de POSSE de `_e_o_dono`: pergunta "é ESTE
+    professor?", não "é um professor?" (isso é `pode_criar_tema`, reusada
+    como portão de papel pela view `projetos:orientacoes`).
+
+    Conflito de ESTADO (a opção já foi respondida, expirou, ou a candidatura
+    já não está mais `EM_CURSO`) NÃO é checado aqui — é erro de NEGÓCIO,
+    tratado por `services.aceitar_opcao`/`recusar_opcao` com
+    `ValidationError`, nunca com `PermissionDenied`. Esta função só responde
+    "esta opção é endereçada a este professor?".
+    """
+    return bool(
+        usuario
+        and usuario.is_authenticated
+        and hasattr(usuario, "perfil_professor")
+        and usuario.perfil_professor == opcao.professor
+    )

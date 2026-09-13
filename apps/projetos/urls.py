@@ -9,4 +9,7 @@ urlpatterns = [
     path("temas/meus/", views.meus_temas, name="meus_temas"),
     path("temas/<int:tema_id>/editar/", views.editar_tema, name="editar_tema"),
     path("temas/<int:tema_id>/desativar/", views.desativar_tema, name="desativar_tema"),
+    path("orientacoes/", views.orientacoes, name="orientacoes"),
+    path("orientacoes/<int:opcao_id>/aceitar/", views.aceitar_opcao_view, name="aceitar_opcao"),
+    path("orientacoes/<int:opcao_id>/recusar/", views.recusar_opcao_view, name="recusar_opcao"),
 ]

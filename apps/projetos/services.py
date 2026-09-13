@@ -659,7 +659,19 @@ def cancelar_candidatura(candidatura, por):
     ou `ENVIADA`) como `CANCELADA`; opções já respondidas (`ACEITA`,
     `RECUSADA`, `EXPIRADA`) mantêm seu desfecho — cancelar não reescreve
     histórico.
+
+    TRAVA DA CANDIDATURA (acréscimo do controlador da T9): até a T9, esta
+    função rodava sem `select_for_update` — não alcançável enquanto nada
+    mais disputasse a linha da candidatura, mas passa a ser no instante em
+    que `aceitar_opcao`/`recusar_opcao` (acima) e `avancar_cascata` existem
+    e competem pela MESMA linha. Mesma trava, mesma ordem (Candidatura
+    primeiro — não há segunda linha em disputa aqui) e mesma checagem de
+    status logo a seguir, sobre o estado RECARREGADO, não sobre o objeto
+    `candidatura` que o chamador passou — ver `avancar_cascata`, acima,
+    para a mesma garantia (recarregada sob a trava, nunca lida a partir de
+    um valor em memória desatualizado).
     """
+    candidatura = Candidatura.objects.select_for_update().get(pk=candidatura.pk)
     permissions.garante(
         por == candidatura.aluno.usuario,
         "Você só pode cancelar sua própria candidatura.",
@@ -672,3 +684,154 @@ def cancelar_candidatura(candidatura, por):
     candidatura.opcoes.filter(
         situacao__in=[OpcaoCandidatura.AGUARDANDO, OpcaoCandidatura.ENVIADA]
     ).update(situacao=OpcaoCandidatura.CANCELADA)
+
+
+def _erro_de_conflito_de_estado():
+    return ValidationError(
+        "Esta manifestação não está mais disponível para resposta — outra ação já a "
+        "resolveu (aceite, recusa ou expiração), ou o aluno cancelou a candidatura."
+    )
+
+
+@transaction.atomic
+def aceitar_opcao(opcao, por):
+    """Aceita `opcao` em nome de `por` (professor dono dela — T9, spec
+    §5.2 e §5.3): cria o `Projeto` e cancela as demais opções, ainda sem
+    desfecho, da mesma `Candidatura`.
+
+    ORDEM DE AQUISIÇÃO DE LOCKS — contrato entre esta função e T5
+    (`criar_projeto_sob_limite`, acima, linha 147). Esta função trava a
+    `Candidatura` PRIMEIRO — mesma trava e mesma checagem de status que
+    `avancar_cascata` usa (acima, linha 612) — e só DEPOIS chama
+    `criar_projeto_sob_limite`, que trava `PerfilProfessor`. A ordem
+    Candidatura → PerfilProfessor precisa ser a MESMA em toda chamada que
+    trave as duas linhas: um caminho que a inverta (professor primeiro,
+    candidatura depois) cria risco de deadlock com qualquer código futuro
+    que trave as duas na ordem contrária — duas transações esperando, cada
+    uma, a linha que a outra já segura.
+
+    GARANTIA de revalidação de vaga: esta função NÃO reimplementa a
+    contagem de vagas — ela chama `criar_projeto_sob_limite` DENTRO da
+    própria transação (o `@transaction.atomic` aninhado abre um SAVEPOINT,
+    não uma transação nova), que revalida `vagas_ocupadas`/
+    `limite_do_professor` sob `select_for_update` da linha do professor. O
+    e-mail que o professor recebeu pode ter dias (spec §5.3): se a vaga
+    sumiu nesse meio-tempo, a `ValidationError` dela propaga para fora
+    desta função, e o `@transaction.atomic` desfaz por inteiro o que esta
+    função já tiver preparado — nada é gravado (opção continua `ENVIADA`,
+    candidatura continua `EM_CURSO`).
+
+    A opção é RELIDA sob a trava da candidatura (`candidatura.opcoes.get`),
+    não usada a partir do argumento `opcao` recebido: o argumento pode estar
+    desatualizado se outra transação (outro `aceitar_opcao`/`recusar_opcao`/
+    `avancar_cascata` sobre a MESMA candidatura) tiver comitado entre o
+    instante em que o chamador buscou `opcao` e o instante em que esta
+    função conseguiu a trava — mesmo raciocínio do RETORNO de
+    `avancar_cascata` (acima, linha 506 e seguintes).
+
+    Checagem de POSSE (`permissions.pode_responder_opcao`) é redundante
+    quando esta função é chamada pela view `projetos:orientacoes`, que já
+    escopa o lookup da opção ao professor autenticado (mesmo padrão de
+    `views.py::editar_tema`) — mas protege qualquer outro chamador que não
+    escope o lookup do mesmo jeito (mesmo raciocínio de
+    `criar_tema`/`editar_tema`, acima).
+
+    Conflito de ESTADO (a opção já não está `ENVIADA`, ou a candidatura já
+    não está `EM_CURSO` — outra ação já resolveu, o prazo expirou, ou o
+    aluno cancelou) é `ValidationError`, não `PermissionDenied`: quem chama
+    TEM posse da opção, só chegou tarde. Não há caso especial para "aluno
+    cancelou" — a checagem genérica de `candidatura.status` já cobre isso,
+    porque cancelar marca a candidatura `CANCELADA` (`cancelar_candidatura`,
+    acima).
+    """
+    candidatura = Candidatura.objects.select_for_update().get(pk=opcao.candidatura_id)
+    opcao = candidatura.opcoes.select_related("professor", "tema").get(pk=opcao.pk)
+    permissions.garante(
+        permissions.pode_responder_opcao(por, opcao),
+        "Você só pode responder manifestações endereçadas a você.",
+    )
+    if candidatura.status != Candidatura.EM_CURSO or opcao.situacao != OpcaoCandidatura.ENVIADA:
+        raise _erro_de_conflito_de_estado()
+
+    projeto = criar_projeto_sob_limite(
+        candidatura.aluno, opcao.professor, opcao.tema, Projeto.TCC_I
+    )
+
+    opcao.situacao = OpcaoCandidatura.ACEITA
+    opcao.respondida_em = timezone.now()
+    opcao.save(update_fields=["situacao", "respondida_em"])
+
+    candidatura.status = Candidatura.ACEITA
+    candidatura.save(update_fields=["status"])
+    # As demais opções (a que já foi respondida por esta chamada não entra
+    # no filtro — situação ACEITA — e a `exclude` é redundante com isso, mas
+    # deixa explícito que esta opção nunca deveria ser tocada aqui de
+    # qualquer forma) — spec §5.2: "opções restantes → CANCELADA".
+    candidatura.opcoes.filter(
+        situacao__in=[OpcaoCandidatura.AGUARDANDO, OpcaoCandidatura.ENVIADA]
+    ).exclude(pk=opcao.pk).update(situacao=OpcaoCandidatura.CANCELADA)
+
+    return projeto
+
+
+@transaction.atomic
+def recusar_opcao(opcao, por, justificativa):
+    """Recusa `opcao` em nome de `por` (professor dono dela — T9), com
+    `justificativa` obrigatória (spec §6: "sem ela, a recusa é silêncio com
+    outro nome"), e avança a cascata para a próxima opção do aluno
+    (`avancar_cascata`, acima).
+
+    `justificativa` é validada ANTES de travar qualquer coisa: é checagem de
+    entrada, não de concorrência, e falhar rápido evita tomar a trava da
+    candidatura por uma chamada que já se sabe inválida.
+
+    MESMA ORDEM DE TRAVAS que `aceitar_opcao`, acima: trava a `Candidatura`
+    primeiro, com a mesma checagem de posse e status.
+
+    Leia a docstring de `avancar_cascata` (acima) inteira antes de mexer
+    aqui — ela documenta três pontos que este chamador precisa respeitar,
+    e os três importam para esta função especificamente:
+
+    1. Ela ESPERA que a opção corrente já esteja marcada `RECUSADA`, com a
+       justificativa, ANTES de ser chamada — não sobrescreve isso, só avança
+       a partir do que encontrar. Por isso `opcao.situacao`/`justificativa`/
+       `respondida_em` são gravados ANTES da chamada a `avancar_cascata`
+       abaixo, nunca depois.
+    2. O guarda de prazo dela (linha ~623: "se a opção que `opcao_atual`
+       aponta ainda está `ENVIADA` e o prazo real não passou, não faz
+       nada") não afeta este caminho: quando `avancar_cascata` é chamada
+       abaixo, a opção já foi gravada como `RECUSADA` pelo ponto 1 — o
+       guarda só olha opção ainda `ENVIADA`.
+    3. Ela RETORNA a candidatura recarregada, e o argumento que esta função
+       tinha em mãos (a variável `candidatura`, travada acima) fica
+       obsoleto depois da chamada. Por isso esta função devolve o RETORNO
+       de `avancar_cascata`, não a `candidatura` local.
+
+    `enviar_recusa` (T8, `apps/projetos/tasks.py`) é enfileirada por
+    `transaction.on_commit`, no mesmo padrão de `_enviar_opcao` acima — o
+    e-mail só sai se esta transação de fato comitar. A T8 criou a tarefa e o
+    template (`templates/email/candidatura_recusada.txt`) com teste direto,
+    mas nenhum serviço a chamava até esta função existir.
+    """
+    if not justificativa or not justificativa.strip():
+        raise ValidationError("Informe uma justificativa para recusar.")
+
+    candidatura = Candidatura.objects.select_for_update().get(pk=opcao.candidatura_id)
+    opcao = candidatura.opcoes.get(pk=opcao.pk)
+    permissions.garante(
+        permissions.pode_responder_opcao(por, opcao),
+        "Você só pode responder manifestações endereçadas a você.",
+    )
+    if candidatura.status != Candidatura.EM_CURSO or opcao.situacao != OpcaoCandidatura.ENVIADA:
+        raise _erro_de_conflito_de_estado()
+
+    opcao.situacao = OpcaoCandidatura.RECUSADA
+    opcao.justificativa = justificativa
+    opcao.respondida_em = timezone.now()
+    opcao.save(update_fields=["situacao", "justificativa", "respondida_em"])
+
+    from apps.projetos.tasks import enviar_recusa
+
+    transaction.on_commit(lambda: enviar_recusa.delay(opcao.id))
+
+    return avancar_cascata(candidatura)

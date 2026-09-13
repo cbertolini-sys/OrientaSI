@@ -5,8 +5,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.projetos import permissions, services
-from apps.projetos.forms import FormularioFiltroMural, FormularioTema
-from apps.projetos.models import Tema
+from apps.projetos.forms import FormularioFiltroMural, FormularioRecusaOpcao, FormularioTema
+from apps.projetos.models import OpcaoCandidatura, Tema
 
 
 @login_required
@@ -173,3 +173,111 @@ def editar_tema(request, tema_id):
         )
 
     return render(request, "projetos/editar_tema.html", {"formulario": formulario, "tema": tema})
+
+
+@login_required
+def orientacoes(request):
+    """Fila do professor: manifestações de interesse pendentes de resposta
+    (T9, spec §6 — "/orientacoes/ | professor | fila de manifestações").
+
+    Portão de PAPEL antes de tocar `perfil_professor` — mesma cautela de
+    `meus_temas`, acima, para não repetir o 500 de professor sem perfil
+    (Fase 1, `apps/contas/views.py::perfil`). Reusa `pode_criar_tema` como
+    portão de papel: apesar do nome, ela responde exatamente "`usuario` é um
+    professor com perfil?" (ver a docstring dela em `permissions.py`), a
+    mesma pergunta que esta tela precisa fazer antes de listar a fila —
+    `pode_responder_opcao` é checagem de POSSE de uma opção específica, não
+    serve como portão de entrada da tela.
+
+    Um `FormularioRecusaOpcao` por opção pendente, cada um com `auto_id`
+    próprio (`FormularioRecusaOpcao`, em `forms.py`): sem isso, o `id` do
+    campo "justificativa" se repetiria a cada `<li>` da lista, e o
+    `<label for=...>` do parcial `contas/_campo.html` apontaria para mais de
+    um controle.
+    """
+    permissions.garante(
+        permissions.pode_criar_tema(request.user),
+        "Somente professores acessam a fila de orientações.",
+    )
+    professor = request.user.perfil_professor
+    opcoes_pendentes = (
+        OpcaoCandidatura.objects.filter(professor=professor, situacao=OpcaoCandidatura.ENVIADA)
+        .select_related("candidatura__aluno__usuario", "tema")
+        .order_by("prazo")
+    )
+    itens = [
+        {
+            "opcao": opcao,
+            "formulario_recusa": FormularioRecusaOpcao(auto_id=f"id_recusa_{opcao.pk}_%s"),
+        }
+        for opcao in opcoes_pendentes
+    ]
+    return render(request, "projetos/orientacoes.html", {"itens": itens})
+
+
+@login_required
+@require_POST
+def aceitar_opcao_view(request, opcao_id):
+    """Aceita uma manifestação da fila do professor autenticado (T9).
+
+    Portão de papel primeiro, depois lookup JÁ ESCOPADO ao professor
+    autenticado (`get_object_or_404(OpcaoCandidatura, pk=..., professor=...)`)
+    — mesmo padrão de `desativar_tema`/`editar_tema`, acima: manifestação
+    alheia e manifestação inexistente respondem os DOIS com 404, sem abrir
+    um oráculo de existência sobre a fila de outros professores.
+    `services.aceitar_opcao` mantém sua própria checagem de posse
+    (`permissions.pode_responder_opcao`) — redundante aqui, mas protege
+    qualquer outro chamador que não escope o lookup do mesmo jeito.
+    """
+    permissions.garante(
+        permissions.pode_criar_tema(request.user),
+        "Somente professores acessam a fila de orientações.",
+    )
+    opcao = get_object_or_404(
+        OpcaoCandidatura, pk=opcao_id, professor=request.user.perfil_professor
+    )
+    try:
+        services.aceitar_opcao(opcao, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Manifestação aceita — o projeto de orientação foi criado.")
+    return redirect("projetos:orientacoes")
+
+
+@login_required
+@require_POST
+def recusar_opcao_view(request, opcao_id):
+    """Recusa uma manifestação da fila do professor autenticado, com
+    justificativa obrigatória (T9). Mesmo padrão de posse via lookup
+    escopado de `aceitar_opcao_view`, acima.
+
+    Um formulário inválido (justificativa em branco) não impede que a lista
+    inteira seja perdida: a resposta é sempre um redirect para
+    `projetos:orientacoes` (padrão redirect-after-POST já usado por
+    `desativar_tema`), com o erro relatado via `messages` — não há estado de
+    formulário parcial para preservar entre POST e a nova renderização,
+    porque a página lista várias manifestações, não uma edição de registro
+    único.
+    """
+    permissions.garante(
+        permissions.pode_criar_tema(request.user),
+        "Somente professores acessam a fila de orientações.",
+    )
+    opcao = get_object_or_404(
+        OpcaoCandidatura, pk=opcao_id, professor=request.user.perfil_professor
+    )
+    formulario = FormularioRecusaOpcao(request.POST)
+    if not formulario.is_valid():
+        messages.error(request, "Informe uma justificativa para recusar.")
+        return redirect("projetos:orientacoes")
+
+    try:
+        services.recusar_opcao(
+            opcao, por=request.user, justificativa=formulario.cleaned_data["justificativa"]
+        )
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Manifestação recusada. O aluno foi avisado.")
+    return redirect("projetos:orientacoes")
