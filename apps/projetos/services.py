@@ -162,12 +162,12 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     `aceitar_opcao_view` (`apps/projetos/views.py`), que só captura
     `ValidationError` — 500 para um professor que não fez nada de errado.
     O `with transaction.atomic()` aninhado (mesmo SAVEPOINT que
-    `registrar_candidatura:505` usa para o `UniqueConstraint` de
+    `registrar_candidatura`, linha 586, usa para o `UniqueConstraint` de
     `Candidatura`) isola esse `INSERT`, e o `except IntegrityError` abaixo
-    traduz para a MESMA `ValidationError` amigável que `_possui_projeto_ativo`
-    levantaria se tivesse enxergado o `Projeto` a tempo — mesmo padrão,
-    mesma mensagem, duas causas (checagem amigável desatualizada, ou nunca
-    chamada por quem contorna `registrar_candidatura`).
+    traduz para uma `ValidationError` amigável, no mesmo PADRÃO daquela — a
+    mensagem aqui é outra de propósito (nomeia a etapa e fala com o
+    professor, não com o aluno), porque quem lê esta é quem tentou aceitar,
+    não quem tentou se candidatar.
     """
     professor = PerfilProfessor.objects.select_for_update().get(pk=professor.pk)
     ano, periodo = semestre_vigente()
@@ -185,7 +185,7 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     try:
         # SAVEPOINT (esta função já está dentro do `@transaction.atomic`
         # da própria `criar_projeto_sob_limite`) — mesmo raciocínio de
-        # `registrar_candidatura:505`: sem ele, o `IntegrityError` "envenena"
+        # `registrar_candidatura`, linha 586: sem ele, o `IntegrityError` "envenena"
         # a transação externa inteira, e qualquer escrita futura na mesma
         # transação (não há nenhuma aqui hoje, mas `aceitar_opcao` continua
         # rodando depois deste retorno) encontraria "current transaction is
@@ -833,9 +833,9 @@ def aceitar_opcao(opcao, por):
     desfecho, da mesma `Candidatura`.
 
     ORDEM DE AQUISIÇÃO DE LOCKS — contrato entre esta função e T5
-    (`criar_projeto_sob_limite`, acima, linha 147). Esta função trava a
+    (`criar_projeto_sob_limite`, acima, linha 172). Esta função trava a
     `Candidatura` PRIMEIRO — mesma trava e mesma checagem de status que
-    `avancar_cascata` usa (acima, linha 612) — e só DEPOIS chama
+    `avancar_cascata` usa (acima, linha 745) — e só DEPOIS chama
     `criar_projeto_sob_limite`, que trava `PerfilProfessor`. A ordem
     Candidatura → PerfilProfessor precisa ser a MESMA em toda chamada que
     trave as duas linhas: um caminho que a inverta (professor primeiro,
@@ -860,7 +860,7 @@ def aceitar_opcao(opcao, por):
     `avancar_cascata` sobre a MESMA candidatura) tiver comitado entre o
     instante em que o chamador buscou `opcao` e o instante em que esta
     função conseguiu a trava — mesmo raciocínio do RETORNO de
-    `avancar_cascata` (acima, linha 506 e seguintes).
+    `avancar_cascata` (acima, linha 639 e seguintes).
 
     Checagem de POSSE (`permissions.pode_responder_opcao`) é redundante
     quando esta função é chamada pela view `projetos:orientacoes`, que já

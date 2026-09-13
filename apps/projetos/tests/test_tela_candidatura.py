@@ -252,6 +252,14 @@ def test_candidatura_com_projeto_ativo_mostra_orientacao_vigente(client, aluno, 
 def test_candidatura_com_projeto_ativo_mostra_tema_quando_houver(
     client, aluno, tres_professores, tres_temas
 ):
+    """Achado da re-revisão da rodada de correção 1 (m3): a asserção original
+    (`projeto.tema.titulo in html`) não discriminava — sob a mutação que
+    remove o terceiro estado inteiro da view, a tela cai no formulário de
+    montar, cujo `<select>` de temas já lista o título de todos os temas do
+    mural, incluindo este. Medido: `1 passed` mesmo com o terceiro estado
+    removido. A asserção precisa ser sobre o TEXTO do terceiro estado, não
+    sobre o título isolado, que aparece em ambos os ramos por motivos
+    diferentes."""
     projeto = services.criar_projeto_sob_limite(
         aluno, tres_professores[0], tres_temas[0], Projeto.TCC_I
     )
@@ -259,7 +267,7 @@ def test_candidatura_com_projeto_ativo_mostra_tema_quando_houver(
 
     html = client.get(reverse("projetos:candidatura")).content.decode()
 
-    assert projeto.tema.titulo in html
+    assert f'no tema "{projeto.tema.titulo}"' in html
 
 
 @pytest.mark.django_db

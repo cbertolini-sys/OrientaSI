@@ -217,12 +217,17 @@ def test_registrar_com_projeto_ativo_e_recusado(tres_professores, aluno):
     Mesmo padrão de `test_registrar_com_aluno_ja_em_curso_e_recusado`, acima
     (M5 da rodada de correção 1 da T8): `mock.patch.object(..., wraps=...)`
     prova o MECANISMO (a checagem amigável `_possui_projeto_ativo` é de fato
-    chamada), não só que "algo levanta `ValidationError`" — o
-    `UniqueConstraint` de `Projeto` também produziria uma `ValidationError`
-    (via a tradução em `criar_projeto_sob_limite`,
-    `test_vagas.py::test_criar_projeto_sob_limite_converte_erro_de_integridade_em_validationerror`)
-    se esta checagem em Python fosse removida, e uma asserção baseada só no
-    tipo da exceção não distinguiria as duas."""
+    chamada), não só que "algo levanta `ValidationError`" — sem o `wraps`,
+    esta função poderia, em tese, ser removida silenciosamente sem que este
+    teste percebesse, DESDE que outra escrita nesta mesma chamada acabasse
+    levantando `ValidationError` por outro motivo. Não é o caso aqui:
+    `registrar_candidatura` não cria nenhum `Projeto` — quem cria, e quem tem
+    a rede de segurança real do `UniqueConstraint`, é `criar_projeto_sob_limite`
+    (T5), chamada só mais tarde, por `aceitar_opcao` (ver
+    `test_vagas.py::test_criar_projeto_sob_limite_converte_erro_de_integridade_em_validationerror`
+    para a prova ISOLADA dessa rede). Medido: removendo só `_possui_projeto_ativo`,
+    este teste reprova com `Failed: DID NOT RAISE ValidationError` — a mutação
+    NÃO é absorvida por nenhum caminho vizinho dentro desta função."""
     services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
 
     with mock.patch.object(
@@ -234,6 +239,26 @@ def test_registrar_com_projeto_ativo_e_recusado(tres_professores, aluno):
     assert checagem_amigavel.called
     assert aluno.usuario.nome_completo in excinfo.value.messages[0]
     assert not Candidatura.objects.filter(aluno=aluno).exists()
+
+
+@pytest.mark.django_db
+def test_registrar_com_projeto_reprovado_nao_e_bloqueado(tres_professores, aluno):
+    """m4 da re-revisão da rodada de correção 1 da T11: o `.exclude(status__in=
+    [CONCLUIDO, REPROVADO])` de `_possui_projeto_ativo` não tinha teste
+    algum — removê-lo deixava a suíte inteira de `apps/projetos` passando.
+    O comentário de `Projeto.Meta` (`projeto_ativo_unico_por_aluno_e_etapa`)
+    é explícito sobre por que `REPROVADO` fica de fora da condição: "um TCC
+    já encerrado não impede o aluno de iniciar outro na mesma etapa (ex.:
+    reprovado e reiniciando)". Sem este teste, um refactor que apagasse o
+    `exclude` proibiria para sempre a candidatura de um aluno reprovado —
+    o caso exato que o `UniqueConstraint` do banco existe para permitir."""
+    projeto = services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+    projeto.status = Projeto.REPROVADO
+    projeto.save(update_fields=["status"])
+
+    candidatura = services.registrar_candidatura(aluno, [(tres_professores[1], None)])
+
+    assert candidatura.status == Candidatura.EM_CURSO
 
 
 @pytest.mark.django_db

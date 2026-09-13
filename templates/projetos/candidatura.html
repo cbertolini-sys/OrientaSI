@@ -20,12 +20,7 @@
         Você já tem uma orientação em andamento
       </h2>
       <p class="mt-2">
-        Seu orientador é {{ projeto_atual.orientador.nome_completo }}
-        {% if projeto_atual.tema %}
-          , no tema "{{ projeto_atual.tema.titulo }}".
-        {% else %}
-          .
-        {% endif %}
+        Seu orientador é {{ projeto_atual.orientador.nome_completo }}{% if projeto_atual.tema %}, no tema "{{ projeto_atual.tema.titulo }}"{% endif %}.
       </p>
     {% elif candidatura_atual %}
       <p class="mt-2">

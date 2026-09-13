@@ -284,7 +284,7 @@ def test_recusar_opcao_marca_recusada_com_justificativa(
     assert opcao1.respondida_em is not None
 
     # `avancar_cascata` devolve a candidatura JÁ avançada (Importante 2 da
-    # rodada de correção 2 da T8, apps/projetos/services.py:506-517): é o
+    # rodada de correção 2 da T8, apps/projetos/services.py:639-647): é o
     # RETORNO de `recusar_opcao` que precisa refletir isso, não o objeto que
     # a fixture `candidatura_em_curso` tinha em mãos antes da chamada.
     assert candidatura_atualizada.opcao_atual == 2
