@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -115,6 +116,18 @@ CELERY_RESULT_BACKEND = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_TIME_LIMIT = 300
 CELERY_TASK_ACKS_LATE = True
+# Agendamento ESTÁTICO (T10), sem `django-celery-beat`: a dependência só se
+# paga quando alguém precisa mudar a periodicidade pela interface, e ninguém
+# precisa — mudar a cada quantas horas a cascata de candidaturas vencidas é
+# revisada é uma decisão de código, não de operação. `celery_beat`
+# (docker-compose.yml) é o processo que lê este dicionário e publica a
+# tarefa na fila no horário certo; o `celery_worker` é quem de fato executa.
+CELERY_BEAT_SCHEDULE = {
+    "avancar-candidaturas-vencidas": {
+        "task": "apps.projetos.tasks.avancar_candidaturas_vencidas",
+        "schedule": crontab(minute=0),  # de hora em hora
+    }
+}
 
 EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "")

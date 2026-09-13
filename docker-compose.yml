@@ -72,6 +72,26 @@ services:
       minio:
         condition: service_healthy
 
+  celery_beat:
+    # Agendador do Celery (T10): lê `CELERY_BEAT_SCHEDULE`
+    # (config/settings.py) e publica `avancar_candidaturas_vencidas` na fila
+    # no horário certo — quem de fato EXECUTA a tarefa é o `celery_worker`,
+    # acima. Sem `minio` no `depends_on`: ao contrário do worker, o
+    # agendador nunca toca em mídia, só publica mensagens no Redis.
+    build:
+      context: .
+      target: dev
+    command: celery -A config beat --loglevel=info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   minio:
     image: minio/minio
     command: server /data --console-address ":9001"

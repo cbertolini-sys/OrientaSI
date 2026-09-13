@@ -9,3 +9,7 @@ media/
 staticfiles/
 .pytest_cache/
 .ruff_cache/
+# Banco de agendamento do celery_beat (T10): o PersistentScheduler grava
+# aqui o "último disparo" de cada entrada de CELERY_BEAT_SCHEDULE, no bind
+# mount da raiz do projeto — estado de execução local, não código.
+celerybeat-schedule

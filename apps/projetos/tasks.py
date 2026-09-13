@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,83 @@ def enviar_recusa(self, opcao_id):
         )
     except Exception as erro:  # noqa: BLE001 — repetimos qualquer falha de entrega
         raise self.retry(exc=erro, countdown=60 * 2**self.request.retries) from erro
+
+
+@shared_task
+def avancar_candidaturas_vencidas():
+    """Tarefa periódica (Celery Beat, `CELERY_BEAT_SCHEDULE` em
+    `config/settings.py`, de hora em hora) que avança a cascata de toda
+    candidatura cuja opção corrente venceu o prazo de resposta (spec §3.2 e
+    §5.2), sem esperar o professor responder.
+
+    `@shared_task` simples, sem `bind`/`max_retries`, ao contrário das três
+    tarefas acima: esta tarefa não envia e-mail diretamente — quem envia é
+    `avancar_cascata`, através de `_enviar_opcao` → `enviar_manifestacao`,
+    já com seu próprio retry. Se uma chamada de `avancar_cascata` aqui
+    dentro falhar (exceção não tratada), a exceção sobe e o Celery marca
+    esta execução como falha, mas a PRÓXIMA execução horária do Beat
+    encontra a mesma opção ainda `ENVIADA` e vencida (nada aqui muda seu
+    estado antes de `avancar_cascata` rodar) e tenta de novo — não há
+    e-mail desta tarefa para duplicar sob retry, então retry automático não
+    compraria nada que o próprio agendamento horário não já dê de graça.
+
+    A CONSULTA — o que decide QUAIS candidatas oferecer a `avancar_cascata`,
+    nunca SE ela deve avançar (isso é só dela, ver a docstring de
+    `avancar_cascata` em `apps/projetos/services.py`):
+
+    - `situacao=ENVIADA`: só uma opção pendurada esperando resposta pode ter
+      vencido sem resposta. Uma opção já `RECUSADA`/`ACEITA`/`EXPIRADA`/
+      `CANCELADA` não é tocada aqui de novo, mesmo que o `prazo` dela
+      continue no passado para sempre (ele não é limpo nem atualizado
+      quando alguém responde antes da hora) — sem este filtro, toda opção
+      já resolvida entraria na lista de candidatas em TODO tick futuro do
+      Beat, e `avancar_cascata` seria chamada de novo para a mesma
+      candidatura sem que nada de novo tivesse acontecido. Provado por
+      mutação em `apps/projetos/tests/test_prazo.py::
+      test_opcao_ja_resolvida_com_prazo_no_passado_nao_e_reprocessada`.
+    - `prazo__lt=agora`: só uma opção cujo prazo JÁ passou de verdade — não
+      basta estar `ENVIADA`. MEDIDO: removida esta condição, o estado final
+      de `test_opcao_no_prazo_nao_avanca` continua correto mesmo assim —
+      `avancar_cascata` tem seu PRÓPRIO guarda de prazo, que revalida a
+      opção corrente direto do banco e absorve a consulta frouxa. A prova
+      por mutação que discrimina é sobre a CHAMADA, não o estado final:
+      com o filtro, `avancar_cascata` não deveria ser chamada NENHUMA vez
+      quando nada venceu; removido, ela É chamada (inofensivamente, graças
+      ao guarda dela) — ver o espião em
+      `apps/projetos/tests/test_prazo.py::test_opcao_no_prazo_nao_avanca`
+      e a transcrição no relatório da T10.
+
+    NÃO filtra por `candidatura__status=EM_CURSO`: isso duplicaria, em SQL,
+    a checagem que `avancar_cascata` já faz em Python como a primeira coisa
+    que faz, sob a trava dela — repetir a regra aqui criaria duas fontes da
+    mesma verdade (mesma lição de `temas_do_mural`, T7, que reimplementava
+    em SQL uma regra que já existia em Python). `avancar_cascata` é a única
+    autoridade sobre quando avançar; esta consulta só decide quais
+    candidatas oferecer a ela.
+
+    NÃO pré-carrega nem cacheia o estado de cada opção antes de chamar
+    `avancar_cascata`: o laço abaixo só passa `opcao.candidatura` adiante —
+    nunca decide, a partir do que esta consulta leu, se algo deve mudar.
+    Isso é o que torna esta tarefa idempotente mesmo sob dois ticks do Beat
+    sobrepostos (a execução anterior ainda rodando quando a próxima
+    dispara): a segunda execução pode incluir a MESMA opção na sua própria
+    lista, lida antes da primeira ter comitado — mas `avancar_cascata`,
+    chamada por ambas, revalida tudo sob `select_for_update` no momento em
+    que roda, não a partir de nenhum estado que esta tarefa tenha lido
+    antes. Provado com threads e conexões reais em
+    `apps/projetos/tests/test_prazo.py::
+    test_dois_ticks_do_beat_sobrepostos_nao_duplicam_avanco`.
+    """
+    from apps.projetos.models import OpcaoCandidatura
+    from apps.projetos.services import avancar_cascata
+
+    opcoes_vencidas = OpcaoCandidatura.objects.filter(
+        situacao=OpcaoCandidatura.ENVIADA,
+        prazo__lt=timezone.now(),
+    ).select_related("candidatura")
+
+    for opcao in opcoes_vencidas:
+        avancar_cascata(opcao.candidatura)
 
 
 @shared_task(bind=True, max_retries=3)
