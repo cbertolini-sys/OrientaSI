@@ -1,8 +1,8 @@
 Olá, {{ aluno.nome_completo }},
 
-{{ total_opcoes|pluralize:"A,As" }} {{ total_opcoes }} opç{{ total_opcoes|pluralize:"ão,ões" }} da sua candidatura de orientação se {{ total_opcoes|pluralize:"esgotou,esgotaram" }}, sem nenhum aceite: {{ total_opcoes|pluralize:"ela foi recusada ou expirou,todas foram recusadas ou expiraram" }} sem resposta.
+{% if total_opcoes == 1 %}A única opção{% else %}As {{ total_opcoes }} opções{% endif %} da sua candidatura de orientação se {{ total_opcoes|pluralize:"esgotou,esgotaram" }}, sem nenhum aceite: {{ total_opcoes|pluralize:"ela foi recusada ou expirou,todas foram recusadas ou expiraram" }} sem resposta.
 
-A coordenação já foi avisada e vai providenciar sua alocação manualmente. Você não precisa
+{% if coordenacao_notificada %}A coordenação já foi avisada e vai providenciar sua alocação manualmente.{% else %}Não foi possível notificar automaticamente a coordenação agora — procure a coordenação diretamente, se possível.{% endif %} Você não precisa
 registrar uma nova candidatura — acompanhe pelo OrientaSI:
 
 {{ link }}

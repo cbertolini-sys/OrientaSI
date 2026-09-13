@@ -423,7 +423,7 @@ def registrar_candidatura(aluno, opcoes):
             )
         # Ambiguidade 2 (ver docstring acima): aviso, não garantia. `Projeto.TCC_I`
         # é fixo, não um parâmetro: aceitar sempre cria o Projeto com
-        # etapa=TCC_I (spec §3.7, linha 147; critério 8 do §10, linha 489), e
+        # etapa=TCC_I (spec §3.7, linha 147; critério 8 do §10, linha 508), e
         # `Candidatura` não tem campo `etapa` — não há outra etapa para esta
         # checagem considerar (Importante 4 da rodada de correção 1; mesma
         # citação já usada por `temas_do_mural`, acima).
@@ -496,11 +496,24 @@ def avancar_cascata(candidatura):
 
     - Pelo prazo estourado (tarefa periódica, T10): a opção corrente ainda
       está `ENVIADA` quando esta função é chamada, e é esta função quem a
-      marca `EXPIRADA`.
+      marca `EXPIRADA` — mas só se o prazo dela JÁ passou de verdade (ver
+      Importante 1 da rodada de correção 2, abaixo).
     - Por `recusar_opcao` (T9): quem chama já marcou a opção corrente como
       `RECUSADA`, com a justificativa, ANTES de chamar `avancar_cascata` —
       esta função não sobrescreve isso. Ela só toca a situação da opção
       corrente quando a encontra ainda `ENVIADA`.
+
+    RETORNO — leia antes de usar o argumento depois de chamar (Importante 2
+    da rodada de correção 2). Esta função recarrega a candidatura sob
+    `select_for_update` e trabalha sobre essa cópia, não sobre o objeto que
+    o chamador passou: todo `save()` acontece na cópia recarregada, e o
+    objeto original, em memória, FICA PARADO no estado de antes da chamada
+    — `status` e `opcao_atual` desatualizados. Esta função DEVOLVE a cópia
+    recarregada (já com todas as mudanças aplicadas); quem chama e precisa
+    do estado pós-avanço (T9: "marca RECUSADA → `avancar_cascata` → renderiza
+    a candidatura") deve usar o RETORNO, nunca o argumento. Medido: o objeto
+    do chamador continua reportando `EM_CURSO` depois de a candidatura virar
+    `ESGOTADA` no banco, se ninguém usar o retorno nem `refresh_from_db()`.
 
     TRAVAMENTO (Crítico da rodada de correção 1). Antes desta correção, a
     função só olhava `ordem`, nunca `candidatura.status` — chamada sobre uma
@@ -517,11 +530,19 @@ def avancar_cascata(candidatura):
     e ninguém a travava. Ao contrário do `INSERT` de `Projeto` novo que
     `criar_projeto_sob_limite` (T5) protege — onde travar um conjunto vazio
     não adianta nada, porque a linha nova ainda não existe para ser travada
-    —, aqui a disputa é sobre uma linha que JÁ EXISTE e sofre `UPDATE`: o
-    mesmo formato do teto de coordenadores do Bloco A
-    (`apps/contas/services.py::promover_a_coordenador`). A receita muda
-    junto: `select_for_update` na PRÓPRIA linha basta, sem precisar travar
-    nenhuma tabela relacionada.
+    —, aqui a disputa é sobre uma linha que JÁ EXISTE e sofre `UPDATE`.
+
+    A receita que funciona aqui NÃO é "a linha já existe, então travá-la
+    basta" — dito assim, soaria como precedente de
+    `apps/contas/services.py::promover_a_coordenador`, e seria o OPOSTO do
+    que aquela função ensina: ela documenta, longamente, que travar só o
+    SUBCONJUNTO que a própria escrita altera NÃO previne a corrida — por
+    isso trava `papel=PROFESSOR` inteiro, não só a linha promovida. O que
+    faz `select_for_update` na própria linha bastar AQUI é outra condição,
+    específica deste caso: TODOS os concorrentes disputam a MESMA linha (o
+    `pk` da candidatura, fixo, conhecido antes de qualquer leitura), e o
+    predicado do lock não muda entre eles. Não há "subconjunto que pode
+    crescer" para escapar por fora, como havia no teto de coordenadores.
 
     GARANTIA que esta trava entrega, e só esta: recarregada sob
     `select_for_update`, a candidatura só é lida DEPOIS de qualquer chamada
@@ -532,32 +553,61 @@ def avancar_cascata(candidatura):
     nenhuma tocada por esta função, não importa o que o objeto `candidatura`
     passado pelo chamador dizia antes da trava.
 
-    NÃO GARANTE: que duas chamadas para o MESMO evento lógico (dois workers
-    do Beat processando o mesmo prazo estourado, por exemplo) resultem num
-    único avanço. A segunda chamada, ao ser liberada, enxerga o estado JÁ
-    avançado pela primeira e opera sobre ELE — a opção que a primeira acabou
-    de enviar — como se o prazo dela também tivesse estourado, avançando um
-    passo a mais do que um único evento deveria causar. Isto fecha o defeito
-    medido na revisão (duas chamadas reenviando e-mail para o MESMO
-    professor e reescrevendo o prazo da MESMA opção: com a trava, a segunda
-    chamada sempre opera sobre uma opção DIFERENTE da primeira, então nenhum
-    professor recebe duplicata nem tem seu prazo esticado) — mas não torna a
-    função imune a ser chamada duas vezes para o mesmo evento; evitar a
-    chamada redundante é responsabilidade de quem chama (T9 chama uma vez
-    por resposta; a tarefa periódica da T10 precisa evitar reprocessar o
-    mesmo prazo já tratado, por exemplo excluindo da própria consulta as
-    opções cuja situação já mudou).
+    NÃO GARANTE, sozinha: que duas chamadas para o MESMO evento lógico (dois
+    workers do Beat processando o mesmo prazo estourado, por exemplo)
+    resultem num único avanço — a segunda, liberada, enxergaria o estado JÁ
+    avançado pela primeira. É por isso que existe o guarda de prazo logo
+    abaixo (Importante 1): a trava sozinha impede a CORRIDA (duas escritas
+    disputando a mesma linha ao mesmo tempo), mas não distingue "prazo
+    realmente estourado" de "cascata que acabou de avançar por outro
+    motivo" — quem distingue isso é o guarda.
 
-    Isolamento: esta garantia depende de READ COMMITTED (o padrão do
-    PostgreSQL e o que este projeto usa), mesma premissa documentada em
-    `criar_projeto_sob_limite`.
+    Isolamento: a garantia da trava depende de READ COMMITTED (o padrão do
+    PostgreSQL e o que este projeto usa) — mesma premissa de
+    `criar_projeto_sob_limite`, mas a garantia AQUI é mais forte que a de
+    lá, não a mesma: em `criar_projeto_sob_limite`, sob REPEATABLE READ, o
+    teto FURA em silêncio, porque T1 trava a linha do professor sem
+    MODIFICÁ-LA (só lê e insere `Projeto`, outra tabela) — medido na T5.
+    Aqui, medido nesta rodada: sob REPEATABLE READ, a segunda transação que
+    tenta `save()` na MESMA linha de `candidatura` já modificada pela
+    primeira recebe `could not serialize access due to concurrent update`
+    do próprio PostgreSQL, e o invariante se mantém — porque aqui, ao
+    contrário de lá, a transação que trava TAMBÉM escreve na linha travada.
+    A garantia sob RC continua sendo a documentada acima; a observação sob
+    RR é só isso — uma observação, não uma segunda garantia testada e
+    mantida por este projeto.
 
-    Provado com threads e conexões reais em test_concorrencia.py: uma
-    chamada sobre candidatura `ACEITA` ou `CANCELADA` nunca reenvia e-mail
-    nem ressuscita opção `CANCELADA`; duas chamadas concorrentes na mesma
-    candidatura `EM_CURSO` nunca mandam dois e-mails para o mesmo professor
-    nem reescrevem o prazo da mesma opção. Removendo o `select_for_update`
-    (ou a checagem de `status` abaixo) os mesmos testes reprovam.
+    Provado em `apps/projetos/tests/test_candidatura.py` (não em
+    `test_concorrencia.py`, que não menciona esta função): uma chamada
+    sequencial sobre candidatura `ACEITA` ou `CANCELADA` nunca reenvia
+    e-mail nem ressuscita opção `CANCELADA`
+    (`test_avancar_cascata_nao_ressuscita_opcao_cancelada_de_candidatura_aceita`,
+    `test_avancar_cascata_nao_reenvia_apos_aluno_cancelar` — sequenciais,
+    sem threads); duas chamadas CONCORRENTES, com threads e conexões reais,
+    na mesma candidatura `EM_CURSO`, nunca mandam dois e-mails para o mesmo
+    professor nem reescrevem o prazo da mesma opção
+    (`test_avancar_cascata_concorrente_nao_duplica_email_nem_reescreve_prazo`).
+    As três mutações medidas nesta rodada reprovam subconjuntos DIFERENTES,
+    não os mesmos três testes: sem a checagem de `status` (mantendo a
+    trava), os dois primeiros reprovam; sem `select_for_update` (mantendo a
+    checagem de status), só o terceiro reprova; sem as duas, os três
+    reprovam.
+
+    IMPORTANTE 1 (rodada de correção 2) — o guarda de prazo, e por que ele
+    existe. A trava, sozinha, fechou o dano ANTIGO (e-mail duplicado, prazo
+    reescrito) mas abriu um dano NOVO, pior: medido, uma segunda chamada
+    logo em seguida da primeira (mesmo eixo do defeito antigo, sem que
+    nenhum evento real tenha acontecido) fazia a opção 2 nascer `ENVIADA` E
+    já virar `EXPIRADA` no MESMO avanço — o professor da opção 2 chega a ser
+    notificado ("você tem 7 dias") e a opção morre no mesmo instante, sem os
+    7 dias terem passado. Isso CONSOME uma das três chances do aluno sem
+    nenhum motivo real — pior que duplicar e-mail, que era só barulho; isto
+    é perda de estado. O guarda fecha exatamente o caminho que importa: só a
+    tarefa periódica (T10) pode chamar esta função sem que algo tenha
+    acontecido de fato com a opção corrente (ela dispara pelo relógio, não
+    por uma resposta) — então, se a opção que `opcao_atual` aponta ainda
+    está `ENVIADA` mas o `prazo` dela ainda não passou, não há evento
+    nenhum que justifique avançar, e a função não faz nada.
     """
     candidatura = Candidatura.objects.select_for_update().get(pk=candidatura.pk)
     if candidatura.status != Candidatura.EM_CURSO:
@@ -566,10 +616,18 @@ def avancar_cascata(candidatura):
         # erro: para quem chama (T9 depois de aceitar/recusar, T10 depois do
         # aluno ter cancelado enquanto o prazo corria), "não há mais cascata
         # para avançar" não é uma falha, é o estado esperado.
-        return
+        return candidatura
 
     atual = candidatura.opcoes.filter(ordem=candidatura.opcao_atual).first()
     if atual is not None and atual.situacao == OpcaoCandidatura.ENVIADA:
+        if atual.prazo is not None and atual.prazo > timezone.now():
+            # Guarda do Importante 1 (rodada de correção 2): a opção ainda
+            # está ENVIADA, mas o prazo real dela não passou — não houve
+            # recusa (isso teria trocado a situação para RECUSADA antes de
+            # chamar) nem expiração de verdade. Nada aconteceu, então nada
+            # muda. Fecha o Beat chamando duas vezes (ou cedo demais por
+            # qualquer bug de agendamento) sem custar nada à T9.
+            return candidatura
         # `respondida_em` NÃO é preenchido aqui (M10 da rodada de correção
         # 1): o campo, por spec §4.3, é nulo "até acontecer" — e expirar por
         # prazo não é uma resposta de ninguém. Só `situacao` muda.
@@ -584,11 +642,12 @@ def avancar_cascata(candidatura):
         from apps.projetos.tasks import enviar_esgotamento
 
         transaction.on_commit(lambda: enviar_esgotamento.delay(candidatura.id))
-        return
+        return candidatura
 
     candidatura.opcao_atual = proxima.ordem
     candidatura.save(update_fields=["opcao_atual"])
     _enviar_opcao(proxima)
+    return candidatura
 
 
 @transaction.atomic

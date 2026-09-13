@@ -99,26 +99,46 @@ def enviar_esgotamento(self, candidatura_id):
     2 opções chegava a dizer "as três opções ... se esgotaram", falso em
     dois dos três casos.
 
-    RESÍDUO CONHECIDO (M9 da rodada de correção 1, não resolvido): os dois
-    `send_mail` abaixo têm cada um seu próprio `try/except`, para que uma
-    falha no segundo não seja atribuída ao primeiro. Isso NÃO elimina toda
-    duplicata possível: se o envio ao aluno tiver sucesso e o envio à
-    coordenação falhar, `self.retry` reexecuta a tarefa INTEIRA do zero (é
-    assim que o Celery reprocessa uma tarefa) — e o aluno recebe o e-mail de
-    novo, apesar de o primeiro envio já ter chegado. Eliminar isso de vez
-    exigiria um jeito de a tarefa saber, ao ser reexecutada, que a metade
-    "aluno" já foi entregue (um campo de controle em `Candidatura`, por
-    exemplo) — maior do que o achado (Menor) pedia; registrado aqui em vez
-    de resolvido em silêncio.
+    RESÍDUO CONHECIDO (M9 da rodada de correção 1, comentário corrigido na
+    rodada de correção 2 — Mn6): os dois `send_mail` abaixo têm cada um seu
+    próprio `try/except`, para que uma falha no segundo não seja atribuída
+    ao primeiro. Isso NÃO elimina toda duplicata possível: se o envio ao
+    aluno tiver sucesso e o envio à coordenação falhar, `self.retry`
+    reexecuta a tarefa INTEIRA do zero (é assim que o Celery reprocessa uma
+    tarefa) — e o aluno recebe o e-mail de novo, apesar de o primeiro envio
+    já ter chegado. A saída barata de verdade — não implementada aqui, fora
+    de escopo desta rodada — é separar os dois envios em DUAS TAREFAS
+    CELERY INDEPENDENTES (`enviar_esgotamento_aluno`/
+    `enviar_esgotamento_coordenacao`), cada uma com seu próprio retry: uma
+    falhar não reexecuta a outra. Um campo de controle em `Candidatura`
+    resolveria o mesmo problema, mas é mais caro e mais estado para manter
+    do que só separar a tarefa em duas.
     """
     from apps.contas.services import coordenadores
     from apps.projetos.models import Candidatura
 
     candidatura = Candidatura.objects.select_related("aluno__usuario").get(pk=candidatura_id)
+
+    # M7 da rodada de correção 1: `coordenadores()` (apps/contas/services.py)
+    # conta TAMBÉM coordenadores desativados de propósito — é a origem única
+    # do teto de 4 do CLAUDE.md, e alterá-la aqui vazaria essa decisão para
+    # fora do lugar que a define. Um coordenador inativo não pode agir sobre
+    # o e-mail, então o filtro por `is_active` é feito AQUI, no ponto de
+    # envio, não na função compartilhada.
+    #
+    # Calculado ANTES do e-mail do aluno, de propósito (Mn5 da rodada de
+    # correção 2): o texto do aluno afirma "a coordenação já foi avisada"
+    # só quando isso for verdade — sem isto, um sistema sem nenhum
+    # coordenador ativo mandava essa frase ao aluno de qualquer jeito,
+    # prometendo uma ação que não ia acontecer.
+    destinatarios_coordenacao = list(
+        coordenadores().filter(is_active=True).values_list("email", flat=True)
+    )
     contexto = {
         "aluno": candidatura.aluno.usuario,
         "link": _link_login(),
         "total_opcoes": candidatura.opcoes.count(),
+        "coordenacao_notificada": bool(destinatarios_coordenacao),
     }
 
     try:
@@ -132,15 +152,6 @@ def enviar_esgotamento(self, candidatura_id):
     except Exception as erro:  # noqa: BLE001 — repetimos qualquer falha de entrega
         raise self.retry(exc=erro, countdown=60 * 2**self.request.retries) from erro
 
-    # M7 da rodada de correção 1: `coordenadores()` (apps/contas/services.py)
-    # conta TAMBÉM coordenadores desativados de propósito — é a origem única
-    # do teto de 4 do CLAUDE.md, e alterá-la aqui vazaria essa decisão para
-    # fora do lugar que a define. Um coordenador inativo não pode agir sobre
-    # o e-mail, então o filtro por `is_active` é feito AQUI, no ponto de
-    # envio, não na função compartilhada.
-    destinatarios_coordenacao = list(
-        coordenadores().filter(is_active=True).values_list("email", flat=True)
-    )
     if not destinatarios_coordenacao:
         # M8: sem isso, um sistema sem nenhum coordenador ativo falha em
         # silêncio — a candidatura fica ESGOTADA, o aluno é avisado, e
