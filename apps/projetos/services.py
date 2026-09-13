@@ -1,12 +1,16 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import BooleanField, Count, ExpressionWrapper, F, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from apps.comum.semestre import semestre_vigente
 from apps.contas.models import PerfilProfessor
 from apps.projetos import permissions
-from apps.projetos.models import LimiteOrientacao, Projeto, Tema
+from apps.projetos.models import Candidatura, LimiteOrientacao, OpcaoCandidatura, Projeto, Tema
 
 # Teto padrão de vagas por professor, por etapa, no semestre vigente
 # (CLAUDE.md, "Regras de Negócio Inegociáveis" item 1). A coordenação pode
@@ -331,3 +335,177 @@ def temas_do_mural(area=None):
     if area is not None:
         qs = qs.filter(area=area)
     return qs
+
+
+def _possui_candidatura_em_curso(aluno):
+    """A checagem AMIGÁVEL de "este aluno já tem um pedido em andamento" —
+    extraída como função à parte só para que o teste de corrida
+    (test_candidatura.py::test_registrar_converte_erro_de_integridade_do_banco_em_validationerror)
+    consiga substituí-la por `monkeypatch` e simular a janela entre esta
+    leitura e o INSERT abaixo. Fora do teste, ela sempre reflete o banco no
+    momento em que é chamada.
+    """
+    return Candidatura.objects.filter(aluno=aluno, status=Candidatura.EM_CURSO).exists()
+
+
+@transaction.atomic
+def registrar_candidatura(aluno, opcoes):
+    """Registra o pedido de orientação de `aluno`, com até três opções
+    ordenadas (spec §5.2), e dispara a cascata na primeira delas — só ela
+    recebe e-mail agora; a segunda e a terceira só são acionadas se a
+    anterior for recusada ou expirar (`avancar_cascata`).
+
+    `opcoes` é uma lista ordenada de `(professor, tema_ou_None)` — a ordem
+    da lista É a ordem da cascata (posição 0 vira `ordem=1`).
+
+    GARANTIA que a checagem de vaga aqui entrega, e só esta (ambiguidade 2 do
+    controlador da Tarefa 8): é uma ECONOMIA DE TEMPO das duas pessoas, não
+    exclusão mútua. Ela lê `vagas_ocupadas`/`limite_do_professor` FORA de
+    qualquer `select_for_update` — de propósito, porque travar a linha do
+    professor aqui exigiria manter o lock até a candidatura inteira ser
+    gravada, por um pedido que pode nem ser aceito nunca. Entre o instante em
+    que esta função lê a contagem e o instante em que um professor
+    eventualmente ACEITA esta opção (T9), outras candidaturas podem ocupar as
+    vagas que pareciam livres agora. A garantia real — o teto de vagas nunca
+    é ultrapassado — é só de `criar_projeto_sob_limite` (T5), que revalida
+    tudo sob `select_for_update` dentro da própria transação do aceite.
+    Remover esta checagem NÃO abre brecha para o limite ser furado (T5 ainda
+    trava); ela só deixa de economizar o tempo do professor e do aluno num
+    alvo que já era impossível — ver Passo 6 do brief (prova por mutação).
+
+    GARANTIA de "um aluno, uma candidatura em curso" (ambiguidade 3 do
+    controlador): a checagem amigável (`_possui_candidatura_em_curso`) é só
+    isso — amigável. Duas submissões simultâneas do mesmo aluno podem passar
+    as duas por ela antes de qualquer uma commitar. Quem garante de fato é o
+    `UniqueConstraint` parcial de `Candidatura.Meta` (só uma linha EM_CURSO
+    por aluno) — o `try/except IntegrityError` abaixo existe para essa
+    garantia de banco não vazar como um 500 cru: ela vira a MESMA
+    `ValidationError` amigável que a checagem em Python levantaria se
+    tivesse enxergado a outra candidatura a tempo.
+    """
+    if not opcoes:
+        raise ValidationError("Escolha ao menos um professor para se candidatar.")
+    if len(opcoes) > 3:
+        raise ValidationError("A candidatura admite no máximo três opções.")
+
+    if _possui_candidatura_em_curso(aluno):
+        raise ValidationError(
+            "Você já tem uma candidatura em curso. Cancele-a antes de registrar outra."
+        )
+
+    ano, periodo = semestre_vigente()
+    for professor, tema in opcoes:
+        if tema is not None and tema.professor_id != professor.pk:
+            # A trigger `valida_tema_do_professor_da_opcao` (migração 0002)
+            # recusaria este INSERT de qualquer forma — esta checagem NÃO a
+            # duplica como regra independente, é a mesma condição, escrita
+            # aqui só para dar uma mensagem legível em vez do IntegrityError
+            # cru que a trigger levantaria.
+            raise ValidationError(
+                f'O tema "{tema.titulo}" não pertence a {professor.usuario.nome_completo}.'
+            )
+        # Ambiguidade 2 (ver docstring acima): aviso, não garantia.
+        ocupadas = vagas_ocupadas(professor, Projeto.TCC_I, ano, periodo)
+        limite = limite_do_professor(professor, Projeto.TCC_I, ano, periodo)
+        if ocupadas >= limite:
+            raise ValidationError(
+                f"{professor.usuario.nome_completo} já está com {ocupadas} de {limite} vagas "
+                "ocupadas em TCC I neste semestre. Escolha outro orientador."
+            )
+
+    try:
+        with transaction.atomic():  # savepoint: isola o IntegrityError da constraint
+            candidatura = Candidatura.objects.create(aluno=aluno, ano=ano, periodo=periodo)
+    except IntegrityError:
+        # A corrida da ambiguidade 3: a checagem amigável acima não viu a
+        # outra candidatura em curso a tempo, e o UniqueConstraint do banco
+        # recusou o INSERT. Mesma mensagem que a checagem amigável daria.
+        raise ValidationError(
+            "Você já tem uma candidatura em curso. Cancele-a antes de registrar outra."
+        ) from None
+
+    for ordem, (professor, tema) in enumerate(opcoes, start=1):
+        OpcaoCandidatura.objects.create(
+            candidatura=candidatura, ordem=ordem, professor=professor, tema=tema
+        )
+
+    _enviar_opcao(candidatura.opcoes.get(ordem=1))
+    return candidatura
+
+
+def _enviar_opcao(opcao):
+    """Marca `opcao` como ENVIADA, com prazo de `PRAZO_RESPOSTA_DIAS` a
+    partir de agora, e agenda o e-mail ao professor — o passo comum a
+    `registrar_candidatura` (primeira opção) e `avancar_cascata` (as
+    seguintes).
+    """
+    agora = timezone.now()
+    opcao.situacao = OpcaoCandidatura.ENVIADA
+    opcao.enviada_em = agora
+    opcao.prazo = agora + timedelta(days=settings.PRAZO_RESPOSTA_DIAS)
+    opcao.save(update_fields=["situacao", "enviada_em", "prazo"])
+
+    from apps.projetos.tasks import enviar_manifestacao
+
+    transaction.on_commit(lambda: enviar_manifestacao.delay(opcao.id))
+
+
+@transaction.atomic
+def avancar_cascata(candidatura):
+    """Avança a cascata de `candidatura` para a próxima opção, ou esgota a
+    candidatura se não houver mais nenhuma (spec §5.2).
+
+    Chamada em dois contextos, e só um deles precisa que esta função MUDE a
+    situação da opção corrente:
+
+    - Pelo prazo estourado (tarefa periódica, T10): a opção corrente ainda
+      está `ENVIADA` quando esta função é chamada, e é esta função quem a
+      marca `EXPIRADA`.
+    - Por `recusar_opcao` (T9): quem chama já marcou a opção corrente como
+      `RECUSADA`, com a justificativa, ANTES de chamar `avancar_cascata` —
+      esta função não sobrescreve isso. Ela só toca a situação da opção
+      corrente quando a encontra ainda `ENVIADA`.
+    """
+    atual = candidatura.opcoes.filter(ordem=candidatura.opcao_atual).first()
+    if atual is not None and atual.situacao == OpcaoCandidatura.ENVIADA:
+        atual.situacao = OpcaoCandidatura.EXPIRADA
+        atual.respondida_em = timezone.now()
+        atual.save(update_fields=["situacao", "respondida_em"])
+
+    proxima = candidatura.opcoes.filter(ordem=candidatura.opcao_atual + 1).first()
+    if proxima is None:
+        candidatura.status = Candidatura.ESGOTADA
+        candidatura.save(update_fields=["status"])
+
+        from apps.projetos.tasks import enviar_esgotamento
+
+        transaction.on_commit(lambda: enviar_esgotamento.delay(candidatura.id))
+        return
+
+    candidatura.opcao_atual = proxima.ordem
+    candidatura.save(update_fields=["opcao_atual"])
+    _enviar_opcao(proxima)
+
+
+@transaction.atomic
+def cancelar_candidatura(candidatura, por):
+    """Cancela `candidatura` a pedido de `por` — hoje, só o próprio aluno
+    (spec §6, tela `/candidatura/`: "montar, acompanhar e cancelar").
+
+    Marca a candidatura e as opções que ainda não têm desfecho (`AGUARDANDO`
+    ou `ENVIADA`) como `CANCELADA`; opções já respondidas (`ACEITA`,
+    `RECUSADA`, `EXPIRADA`) mantêm seu desfecho — cancelar não reescreve
+    histórico.
+    """
+    permissions.garante(
+        por == candidatura.aluno.usuario,
+        "Você só pode cancelar sua própria candidatura.",
+    )
+    if candidatura.status != Candidatura.EM_CURSO:
+        raise ValidationError("Esta candidatura já foi encerrada e não pode mais ser cancelada.")
+
+    candidatura.status = Candidatura.CANCELADA
+    candidatura.save(update_fields=["status"])
+    candidatura.opcoes.filter(
+        situacao__in=[OpcaoCandidatura.AGUARDANDO, OpcaoCandidatura.ENVIADA]
+    ).update(situacao=OpcaoCandidatura.CANCELADA)

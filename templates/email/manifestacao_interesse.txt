@@ -1,0 +1,13 @@
+Olá, {{ opcao.professor.usuario.nome_completo }},
+
+{{ aluno.nome_completo }} manifestou interesse em ser orientado(a) por você{% if opcao.tema %} no tema "{{ opcao.tema.titulo }}"{% else %} (sem um tema seu já publicado escolhido){% endif %}.
+
+Você tem {{ prazo_dias }} dias para aceitar ou recusar essa manifestação. Se o prazo passar sem
+resposta, ela é considerada expirada e a candidatura segue automaticamente para a próxima opção
+do(a) aluno(a).
+
+Acesse o OrientaSI para responder:
+
+{{ link }}
+
+OrientaSI — Sistema de Gestão de TCC

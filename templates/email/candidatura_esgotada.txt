@@ -1,0 +1,10 @@
+Olá,
+
+As três opções de orientação da candidatura de {{ aluno.nome_completo }} se esgotaram, sem
+nenhum aceite: as três foram recusadas ou expiraram sem resposta.
+
+Este(a) aluno(a) precisa de alocação manual pela coordenação. Acesse o OrientaSI para agir:
+
+{{ link }}
+
+OrientaSI — Sistema de Gestão de TCC

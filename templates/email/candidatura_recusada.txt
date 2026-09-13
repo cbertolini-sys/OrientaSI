@@ -1,0 +1,12 @@
+Olá, {{ opcao.candidatura.aluno.usuario.nome_completo }},
+
+{{ opcao.professor.usuario.nome_completo }} recusou sua manifestação de interesse em orientação,
+com a seguinte justificativa:
+
+"{{ opcao.justificativa }}"
+
+Se havia outra opção na sua candidatura, ela já foi acionada. Acesse o OrientaSI para acompanhar:
+
+{{ link }}
+
+OrientaSI — Sistema de Gestão de TCC
