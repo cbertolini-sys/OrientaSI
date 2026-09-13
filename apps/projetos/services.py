@@ -143,6 +143,31 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     duas threads criam projeto (nenhuma é recusada) e o professor termina
     com 4 projetos sob um teto de 3 — ver a saída literal das duas execuções
     em tarefa-5-report.md.
+
+    TRADUÇÃO DO `IntegrityError` de `Projeto` (rodada de correção 1 da T11).
+    A trava acima protege a VAGA DO PROFESSOR — o recurso que esta função
+    existe para disputar —, mas não protege o aluno de acabar com DOIS
+    `Projeto` ativos na mesma etapa: isso é outro invariante, do
+    `UniqueConstraint` "projeto_ativo_unico_por_aluno_e_etapa"
+    (`aluno`+`etapa`, excluindo `CONCLUIDO`/`REPROVADO` —
+    `apps/projetos/models.py::Projeto.Meta`), e nada nesta função lê esse
+    estado antes de inserir. Achado real da revisão da T11: um aluno já
+    `EM_ANDAMENTO` com um professor consegue registrar uma SEGUNDA
+    candidatura (`registrar_candidatura`, abaixo, ganhou uma checagem
+    amigável para o caso comum — ver `_possui_projeto_ativo` — mas não é
+    exclusão mútua, pela mesma razão de que a checagem de vaga logo acima não
+    é: lida fora de qualquer trava, pode ficar desatualizada); quando um
+    segundo professor aceita essa segunda candidatura, o `INSERT` daqui bate
+    no `UniqueConstraint` e o `IntegrityError` batia cru em
+    `aceitar_opcao_view` (`apps/projetos/views.py`), que só captura
+    `ValidationError` — 500 para um professor que não fez nada de errado.
+    O `with transaction.atomic()` aninhado (mesmo SAVEPOINT que
+    `registrar_candidatura:505` usa para o `UniqueConstraint` de
+    `Candidatura`) isola esse `INSERT`, e o `except IntegrityError` abaixo
+    traduz para a MESMA `ValidationError` amigável que `_possui_projeto_ativo`
+    levantaria se tivesse enxergado o `Projeto` a tempo — mesmo padrão,
+    mesma mensagem, duas causas (checagem amigável desatualizada, ou nunca
+    chamada por quem contorna `registrar_candidatura`).
     """
     professor = PerfilProfessor.objects.select_for_update().get(pk=professor.pk)
     ano, periodo = semestre_vigente()
@@ -157,15 +182,30 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
             f"ocupadas em {etapa_legivel} neste semestre. Peça à coordenação para elevar "
             "o limite, ou escolha outro orientador."
         )
-    return Projeto.objects.create(
-        aluno=aluno.usuario,
-        orientador=professor.usuario,
-        tema=tema,
-        etapa=etapa,
-        status=Projeto.EM_ANDAMENTO,
-        ano=ano,
-        periodo=periodo,
-    )
+    try:
+        # SAVEPOINT (esta função já está dentro do `@transaction.atomic`
+        # da própria `criar_projeto_sob_limite`) — mesmo raciocínio de
+        # `registrar_candidatura:505`: sem ele, o `IntegrityError` "envenena"
+        # a transação externa inteira, e qualquer escrita futura na mesma
+        # transação (não há nenhuma aqui hoje, mas `aceitar_opcao` continua
+        # rodando depois deste retorno) encontraria "current transaction is
+        # aborted" em vez do erro original.
+        with transaction.atomic():
+            return Projeto.objects.create(
+                aluno=aluno.usuario,
+                orientador=professor.usuario,
+                tema=tema,
+                etapa=etapa,
+                status=Projeto.EM_ANDAMENTO,
+                ano=ano,
+                periodo=periodo,
+            )
+    except IntegrityError:
+        etapa_legivel = dict(Projeto.ETAPAS).get(etapa, etapa)
+        raise ValidationError(
+            f"{aluno.usuario.nome_completo} já tem uma orientação em andamento em "
+            f"{etapa_legivel} — não é possível abrir uma segunda."
+        ) from None
 
 
 @transaction.atomic
@@ -400,6 +440,26 @@ def _possui_candidatura_em_curso(aluno):
     return Candidatura.objects.filter(aluno=aluno, status=Candidatura.EM_CURSO).exists()
 
 
+def _possui_projeto_ativo(aluno):
+    """A checagem AMIGÁVEL de "este aluno já tem uma orientação em
+    andamento" (rodada de correção 1 da T11) — mesmo formato de
+    `_possui_candidatura_em_curso`, acima, e mesma limitação: só reflete o
+    banco no instante em que é chamada, sem trava nenhuma.
+
+    A condição espelha o `UniqueConstraint` "projeto_ativo_unico_por_aluno_e_etapa"
+    (`apps/projetos/models.py::Projeto.Meta`) — `aluno`+`etapa`, excluindo
+    `CONCLUIDO`/`REPROVADO`. `etapa=Projeto.TCC_I` é fixo, não um parâmetro:
+    mesma citação já usada alhures neste arquivo (`temas_do_mural`,
+    `registrar_candidatura` logo abaixo) — `Candidatura` não tem campo
+    `etapa`, e TCC_I é a única que este bloco cria.
+    """
+    return (
+        Projeto.objects.filter(aluno=aluno.usuario, etapa=Projeto.TCC_I)
+        .exclude(status__in=[Projeto.CONCLUIDO, Projeto.REPROVADO])
+        .exists()
+    )
+
+
 @transaction.atomic
 def registrar_candidatura(aluno, opcoes):
     """Registra o pedido de orientação de `aluno`, com até três opções
@@ -434,6 +494,21 @@ def registrar_candidatura(aluno, opcoes):
     garantia de banco não vazar como um 500 cru: ela vira a MESMA
     `ValidationError` amigável que a checagem em Python levantaria se
     tivesse enxergado a outra candidatura a tempo.
+
+    GARANTIA de "aluno já alocado não abre nova candidatura" (Importante da
+    rodada de correção 1 da T11 — achado real da revisão, não hipotético: um
+    aluno com `Projeto` `EM_ANDAMENTO` conseguia montar uma segunda
+    candidatura pela tela `/candidatura/`, e o segundo aceite virava um
+    `IntegrityError` cru — 500 — em `aceitar_opcao_view`). A checagem
+    amigável (`_possui_projeto_ativo`) tem a MESMA limitação estrutural da
+    checagem de vaga logo acima: lida fora de qualquer `select_for_update`,
+    pode ficar desatualizada entre esta leitura e um aceite concorrente em
+    outra candidatura do mesmo aluno. Quem garante de fato — o aluno nunca
+    termina com dois `Projeto` ativos na mesma etapa — é o `UniqueConstraint`
+    "projeto_ativo_unico_por_aluno_e_etapa" (`Projeto.Meta`), via a tradução
+    do `IntegrityError` em `criar_projeto_sob_limite` (T5, acima): o mesmo
+    padrão que este parágrafo já descreve para `Candidatura`, agora repetido
+    para `Projeto`.
     """
     if not opcoes:
         raise ValidationError("Escolha ao menos um professor para se candidatar.")
@@ -443,6 +518,12 @@ def registrar_candidatura(aluno, opcoes):
     if _possui_candidatura_em_curso(aluno):
         raise ValidationError(
             "Você já tem uma candidatura em curso. Cancele-a antes de registrar outra."
+        )
+
+    if _possui_projeto_ativo(aluno):
+        raise ValidationError(
+            f"{aluno.usuario.nome_completo} já tem uma orientação em andamento e não pode "
+            "abrir uma nova candidatura."
         )
 
     ano, periodo = semestre_vigente()

@@ -228,6 +228,85 @@ def test_candidatura_encerrada_nao_bloqueia_nova_montagem(client, aluno, tres_te
 
 
 # --------------------------------------------------------------------------
+# view projetos:candidatura — orientação vigente (rodada de correção 1)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_candidatura_com_projeto_ativo_mostra_orientacao_vigente(client, aluno, tres_professores):
+    """Importante da rodada de correção 1: aluno já `EM_ANDAMENTO` vê quem é
+    o orientador, não o formulário de montar — a raiz do defeito que a
+    revisão reproduziu ("Escolha até três temas..." para quem já tem
+    orientador)."""
+    projeto = services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+    client.force_login(aluno.usuario)
+
+    html = client.get(reverse("projetos:candidatura")).content.decode()
+
+    assert projeto.orientador.nome_completo in html
+    assert "Enviar candidatura" not in html
+    assert "Cancelar candidatura" not in html
+
+
+@pytest.mark.django_db
+def test_candidatura_com_projeto_ativo_mostra_tema_quando_houver(
+    client, aluno, tres_professores, tres_temas
+):
+    projeto = services.criar_projeto_sob_limite(
+        aluno, tres_professores[0], tres_temas[0], Projeto.TCC_I
+    )
+    client.force_login(aluno.usuario)
+
+    html = client.get(reverse("projetos:candidatura")).content.decode()
+
+    assert projeto.tema.titulo in html
+
+
+@pytest.mark.django_db
+def test_candidatura_com_projeto_concluido_nao_bloqueia_e_mostra_formulario(
+    client, aluno, tres_professores
+):
+    """`Projeto.CONCLUIDO`/`REPROVADO` são estados TERMINAIS, de fora da
+    condição do `UniqueConstraint` "projeto_ativo_unico_por_aluno_e_etapa" —
+    um TCC já encerrado não deveria travar a tela em modo "orientação
+    vigente" para sempre. Prova que o filtro `exclude(status__in=[...])`
+    discrimina de verdade."""
+    projeto = services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+    projeto.status = Projeto.CONCLUIDO
+    projeto.save(update_fields=["status"])
+    client.force_login(aluno.usuario)
+
+    html = client.get(reverse("projetos:candidatura")).content.decode()
+
+    assert "Enviar candidatura" in html
+
+
+@pytest.mark.django_db
+def test_candidatura_com_projeto_e_candidatura_em_curso_prioriza_o_projeto(
+    client, aluno, tres_professores
+):
+    """Estado exatamente reproduzido pela revisão: uma `Candidatura` A já
+    `ACEITA` (virou este `Projeto`) e uma `Candidatura` B SEPARADA, ainda
+    `EM_CURSO`, coexistindo. `registrar_candidatura` agora recusa criar uma
+    candidatura B NOVA quando já existe `Projeto` ativo — mas não apaga uma
+    que já existisse de antes desta correção; por isso B é criada aqui por
+    `Candidatura.objects.create` direto (simulando esse estado histórico),
+    não por `registrar_candidatura` (que recusaria). A view precisa
+    priorizar o `Projeto`: mostrar "acompanhar" aqui esconderia o fato mais
+    importante (o aluno já tem orientador)."""
+    projeto = services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+    Candidatura.objects.create(
+        aluno=aluno, status=Candidatura.EM_CURSO, ano=ANO_VIGENTE, periodo=PERIODO_VIGENTE
+    )
+    client.force_login(aluno.usuario)
+
+    html = client.get(reverse("projetos:candidatura")).content.decode()
+
+    assert projeto.orientador.nome_completo in html
+    assert "Cancelar candidatura" not in html
+
+
+# --------------------------------------------------------------------------
 # view projetos:candidatura — montar (POST)
 # --------------------------------------------------------------------------
 
@@ -510,6 +589,23 @@ def test_cancelar_candidatura_exige_post(client, candidatura_em_curso, aluno):
     assert resposta.status_code == 405
     candidatura_em_curso.refresh_from_db()
     assert candidatura_em_curso.status == Candidatura.EM_CURSO
+
+
+@pytest.mark.django_db
+def test_cancelar_candidatura_recusa_professor_com_403(
+    client, candidatura_em_curso, tres_professores
+):
+    """M1 da rodada de correção 1: o portão de papel desta view não tinha
+    teste — removendo `permissions.garante(...)` de
+    `cancelar_candidatura_view`, os 174 testes de `apps/projetos/` da T11
+    continuavam passando, e um professor postando na URL de cancelar
+    levantaria `RelatedObjectDoesNotExist: Usuario has no perfil_aluno`
+    (500), não 403."""
+    client.force_login(tres_professores[0].usuario)
+
+    resposta = client.post(reverse("projetos:cancelar_candidatura", args=[candidatura_em_curso.pk]))
+
+    assert resposta.status_code == 403
 
 
 @pytest.mark.django_db

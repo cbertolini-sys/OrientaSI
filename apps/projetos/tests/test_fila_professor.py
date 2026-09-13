@@ -649,3 +649,50 @@ def test_orientacoes_nao_mostra_orientando_de_outro_professor(client, tres_profe
     html = client.get(reverse("projetos:orientacoes")).content.decode()
 
     assert aluno.usuario.nome_completo not in html
+
+
+# --------------------------------------------------------------------------
+# Importante da rodada de correção 1 da T11 — reprodução literal do caminho
+# de ponta a ponta que a revisão percorreu (a raiz é da T8/T5, exposta pela
+# tela nova da T11; ver a docstring de `services.criar_projeto_sob_limite`).
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_aceitar_opcao_de_segundo_projeto_ativo_do_aluno_e_recusado_sem_500(
+    client, tres_professores, aluno
+):
+    """Aluno já `EM_ANDAMENTO` com `tres_professores[0]`, e uma SEGUNDA
+    `Candidatura`/`OpcaoCandidatura` `ENVIADA` para `tres_professores[1]` —
+    criada aqui por `Candidatura.objects.create`/`OpcaoCandidatura.objects.create`
+    diretos, simulando o estado que existia ANTES de `registrar_candidatura`
+    ganhar a checagem amigável (`services._possui_projeto_ativo`): a própria
+    checagem agora recusaria criar esta segunda candidatura pela tela
+    `/candidatura/`, mas não apaga uma que já existisse de antes da correção.
+
+    Antes desta rodada, `criar_projeto_sob_limite` deixava o `IntegrityError`
+    do `UniqueConstraint` "projeto_ativo_unico_por_aluno_e_etapa" atravessar
+    cru até aqui — `aceitar_opcao_view` só captura `ValidationError`, e o
+    professor via um 500. Agora a tradução em `criar_projeto_sob_limite`
+    entrega a MESMA `ValidationError` amigável que qualquer outro conflito de
+    vaga já produz, capturada exatamente como as demais."""
+    services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+    candidatura_b = Candidatura.objects.create(
+        aluno=aluno, ano=ANO_VIGENTE, periodo=PERIODO_VIGENTE
+    )
+    opcao_b = OpcaoCandidatura.objects.create(
+        candidatura=candidatura_b,
+        ordem=1,
+        professor=tres_professores[1],
+        situacao=OpcaoCandidatura.ENVIADA,
+        enviada_em=timezone.now(),
+        prazo=timezone.now() + timedelta(days=7),
+    )
+    client.force_login(tres_professores[1].usuario)
+
+    resposta = client.post(reverse("projetos:aceitar_opcao", args=[opcao_b.pk]))
+
+    assert resposta.status_code == 302  # nunca 500
+    opcao_b.refresh_from_db()
+    assert opcao_b.situacao == OpcaoCandidatura.ENVIADA  # não foi aceita por cima do conflito
+    assert Projeto.objects.filter(aluno=aluno.usuario, etapa=Projeto.TCC_I).count() == 1

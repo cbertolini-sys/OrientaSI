@@ -205,6 +205,38 @@ def test_registrar_com_aluno_ja_em_curso_e_recusado(registra, tres_professores, 
 
 
 @pytest.mark.django_db
+def test_registrar_com_projeto_ativo_e_recusado(tres_professores, aluno):
+    """Importante da rodada de correção 1 da T11 — achado real da revisão,
+    não hipotético: um aluno já `EM_ANDAMENTO` com `tres_professores[0]`
+    conseguia montar uma SEGUNDA candidatura pela tela `/candidatura/`
+    (`registrar_candidatura` só barrava `EM_CURSO`, nunca perguntava se já
+    existia `Projeto` ativo), e quando um segundo professor aceitava,
+    `criar_projeto_sob_limite` batia no `UniqueConstraint` de `Projeto` — um
+    `IntegrityError` cru virando 500 em `aceitar_opcao_view`.
+
+    Mesmo padrão de `test_registrar_com_aluno_ja_em_curso_e_recusado`, acima
+    (M5 da rodada de correção 1 da T8): `mock.patch.object(..., wraps=...)`
+    prova o MECANISMO (a checagem amigável `_possui_projeto_ativo` é de fato
+    chamada), não só que "algo levanta `ValidationError`" — o
+    `UniqueConstraint` de `Projeto` também produziria uma `ValidationError`
+    (via a tradução em `criar_projeto_sob_limite`,
+    `test_vagas.py::test_criar_projeto_sob_limite_converte_erro_de_integridade_em_validationerror`)
+    se esta checagem em Python fosse removida, e uma asserção baseada só no
+    tipo da exceção não distinguiria as duas."""
+    services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+
+    with mock.patch.object(
+        services, "_possui_projeto_ativo", wraps=services._possui_projeto_ativo
+    ) as checagem_amigavel:
+        with pytest.raises(ValidationError) as excinfo:
+            services.registrar_candidatura(aluno, [(tres_professores[1], None)])
+
+    assert checagem_amigavel.called
+    assert aluno.usuario.nome_completo in excinfo.value.messages[0]
+    assert not Candidatura.objects.filter(aluno=aluno).exists()
+
+
+@pytest.mark.django_db
 def test_registrar_converte_erro_de_integridade_do_banco_em_validationerror(
     monkeypatch, tres_professores, aluno
 ):

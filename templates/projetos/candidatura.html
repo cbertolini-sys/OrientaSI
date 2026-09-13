@@ -6,7 +6,28 @@
   <article class="mx-auto max-w-2xl rounded-box bg-base-100 p-6 shadow-sm">
     <h1 class="font-display text-2xl font-bold text-primary">Minha candidatura</h1>
 
-    {% if candidatura_atual %}
+    {% if projeto_atual %}
+      {% comment %}
+        Terceiro estado (rodada de correção 1 da T11): aluno já tem uma
+        orientação em andamento — mostra quem é o orientador em vez do
+        formulário de montar. Ver a docstring de `views.py::candidatura`
+        para por que este ramo é checado ANTES do de `candidatura_atual`,
+        logo abaixo: as duas condições não são mutuamente exclusivas por
+        construção, e o `Projeto` é o fato mais importante quando os dois
+        coexistem.
+      {% endcomment %}
+      <h2 class="mt-2 font-display text-xl font-bold text-primary">
+        Você já tem uma orientação em andamento
+      </h2>
+      <p class="mt-2">
+        Seu orientador é {{ projeto_atual.orientador.nome_completo }}
+        {% if projeto_atual.tema %}
+          , no tema "{{ projeto_atual.tema.titulo }}".
+        {% else %}
+          .
+        {% endif %}
+      </p>
+    {% elif candidatura_atual %}
       <p class="mt-2">
         Sua candidatura está na {{ candidatura_atual.opcao_atual }}ª opção de até três.
         Assim que um professor responder, esta página é atualizada.
@@ -33,10 +54,14 @@
                 </p>
                 {% comment %}
                   `justificativa` só é preenchida quando a situação é
-                  RECUSADA (apps/projetos/models.py, OpcaoCandidatura) — checar
-                  o próprio campo, em vez de comparar `opcao.situacao ==
-                  "RECUSADA"`, mantém o template alinhado com o contrato do
-                  modelo sem repetir a string literal do estado.
+                  RECUSADA — não é o modelo quem garante isso
+                  (`OpcaoCandidatura.justificativa` é só um `TextField`
+                  comum, `blank=True`), é `services.recusar_opcao`
+                  (apps/projetos/services.py:987), a ÚNICA escrita deste
+                  campo em todo o serviço. Checar o próprio campo, em vez de
+                  comparar `opcao.situacao == "RECUSADA"`, mantém o template
+                  alinhado com esse contrato sem repetir a string literal do
+                  estado.
                 {% endcomment %}
                 {% if opcao.justificativa %}
                   <p class="mt-2 text-sm">

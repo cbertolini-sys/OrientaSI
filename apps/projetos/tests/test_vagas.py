@@ -246,3 +246,42 @@ def test_criar_projeto_sob_limite_cria_quarto_projeto_sob_limite_elevado(
     with pytest.raises(ValidationError) as excinfo:
         services.criar_projeto_sob_limite(quinto_aluno, professor, tema, Projeto.TCC_I)
     assert "4 de 4" in excinfo.value.messages[0]
+
+
+@pytest.mark.django_db
+def test_criar_projeto_sob_limite_converte_erro_de_integridade_em_validationerror(professor, tema):
+    """Rodada de correção 1 da T11 (Importante da revisão, achado real): um
+    aluno já `EM_ANDAMENTO` com `professor` não pode ganhar um SEGUNDO
+    `Projeto` ativo na mesma etapa — nem mesmo com um SEGUNDO professor que
+    tem vaga de sobra. Sem esta tradução, o `INSERT` batia no
+    `UniqueConstraint` "projeto_ativo_unico_por_aluno_e_etapa"
+    (`apps/projetos/models.py::Projeto.Meta`) e o `IntegrityError` cru
+    atravessava até `aceitar_opcao_view` — 500 para um professor que não fez
+    nada de errado. `registrar_candidatura` já tem uma checagem amigável
+    para o caso comum (`services._possui_projeto_ativo`,
+    `test_candidatura.py::test_registrar_com_projeto_ativo_e_recusado`);
+    este teste prova a REDE DE SEGURANÇA, chamando `criar_projeto_sob_limite`
+    diretamente, sem passar pela checagem amigável — o mesmo padrão de
+    `test_registrar_converte_erro_de_integridade_do_banco_em_validationerror`
+    (`test_candidatura.py`), que prova a rede equivalente para `Candidatura`.
+    """
+    perfil_aluno = _cria_perfil_aluno(50)
+    services.criar_projeto_sob_limite(perfil_aluno, professor, tema, Projeto.TCC_I)
+
+    outro_professor = PerfilProfessor.objects.create(
+        usuario=Usuario.objects.create_user(
+            email="outro.orientador.vagas@ufsm.br",
+            password="x",
+            nome_completo="Outro Orientador Vagas",
+            cpf=_gera_cpf(2),
+        ),
+        siape="9990002",
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        services.criar_projeto_sob_limite(perfil_aluno, outro_professor, None, Projeto.TCC_I)
+
+    assert perfil_aluno.usuario.nome_completo in excinfo.value.messages[0]
+    # Continua existindo exatamente UM Projeto ativo do aluno nesta etapa —
+    # a tentativa recusada não deixou lixo parcial para trás.
+    assert Projeto.objects.filter(aluno=perfil_aluno.usuario, etapa=Projeto.TCC_I).count() == 1

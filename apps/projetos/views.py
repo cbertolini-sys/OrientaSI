@@ -12,7 +12,7 @@ from apps.projetos.forms import (
     FormularioRecusaOpcao,
     FormularioTema,
 )
-from apps.projetos.models import Candidatura, OpcaoCandidatura, Tema
+from apps.projetos.models import Candidatura, OpcaoCandidatura, Projeto, Tema
 
 
 @login_required
@@ -316,18 +316,40 @@ def candidatura(request):
     `meus_temas`/`orientacoes`, acima, para não repetir o 500 de usuário com
     papel mas sem perfil correspondente (Fase 1, `apps/contas/views.py::perfil`).
 
-    DUAS TELAS NA MESMA ROTA, escolhidas pela EXISTÊNCIA de uma `Candidatura`
-    `EM_CURSO` do aluno autenticado — nunca mais de uma ao mesmo tempo
-    (`Candidatura.Meta.constraints`, `apps/projetos/models.py`, "uma
-    candidatura em curso por aluno"): havendo uma, a tela mostra o
-    ACOMPANHAMENTO (as até três opções, qual delas a cascata está
-    processando agora — `opcao_atual` — e a justificativa de qualquer
-    recusa já recebida) e o formulário de CANCELAR; não havendo nenhuma
-    (aluno nunca se candidatou, ou a candidatura anterior já terminou —
-    `ACEITA`/`ESGOTADA`/`CANCELADA`), mostra o formulário de MONTAR uma
-    candidatura nova. Isto NÃO é lacuna: os três verbos do spec ("montar,
-    acompanhar e cancelar") descrevem exatamente essas duas telas — nenhum
-    deles pede um resumo histórico de candidaturas já encerradas.
+    TRÊS TELAS NA MESMA ROTA (a terceira acrescentada na rodada de correção 1
+    da T11 — achado real da revisão, não hipotético: ver a docstring de
+    `services.criar_projeto_sob_limite`, `apps/projetos/services.py`, para o
+    caminho completo do defeito que ela fecha). Nesta ordem de prioridade:
+
+    1. Aluno já tem `Projeto` ATIVO (`EM_ANDAMENTO`, ou qualquer status que
+       não seja `CONCLUIDO`/`REPROVADO`) em TCC_I: mostra a ORIENTAÇÃO
+       VIGENTE (orientador, tema se houver) — nunca o formulário de montar.
+       Checado ANTES da `Candidatura` `EM_CURSO` (item 2), de propósito: as
+       duas checagens não são mutuamente exclusivas por construção — o
+       defeito que esta rodada fecha é justamente um aluno que tinha as duas
+       ao mesmo tempo (uma candidatura antiga, aceita, que virou este
+       `Projeto`, e uma segunda candidatura, separada, ainda `EM_CURSO` sem
+       que nada a tivesse impedido de existir). `registrar_candidatura`
+       (T8) ganhou uma checagem amigável que fecha esse caminho para
+       candidaturas NOVAS, mas não apaga uma `Candidatura` `EM_CURSO` que já
+       existisse de antes da correção — priorizar o `Projeto` aqui garante
+       que a tela nunca minta sobre o fato mais importante (o aluno já tem
+       orientador), mesmo com dado desse jeito.
+    2. Sem `Projeto` ativo, mas com `Candidatura` `EM_CURSO` (nunca mais de
+       uma ao mesmo tempo — `Candidatura.Meta.constraints`,
+       `apps/projetos/models.py`): mostra o ACOMPANHAMENTO (as até três
+       opções, qual delas a cascata está processando agora — `opcao_atual`
+       — e a justificativa de qualquer recusa já recebida) e o formulário de
+       CANCELAR.
+    3. Nem um nem outro (aluno nunca se candidatou, ou a candidatura anterior
+       já terminou sem virar `Projeto` — `ESGOTADA`/`CANCELADA`): mostra o
+       formulário de MONTAR uma candidatura nova.
+
+    Os três verbos do spec ("montar, acompanhar e cancelar") descrevem os
+    itens 3 e 2 — o item 1 não é lacuna do spec, é o mesmo `Importante` que
+    esta rodada de correção fecha: mostrar "Escolha até três temas..." a
+    quem já tem orientador seria a própria tela reabrindo o caminho que a
+    revisão reproduziu.
 
     ESCOPO da escolha (ver a docstring de `FormularioCandidatura`,
     `apps/projetos/forms.py`): só `Tema`, nunca "professor sem tema
@@ -341,6 +363,16 @@ def candidatura(request):
         "Somente alunos montam candidatura de orientação.",
     )
     aluno = request.user.perfil_aluno
+
+    projeto_atual = (
+        Projeto.objects.filter(aluno=request.user, etapa=Projeto.TCC_I)
+        .exclude(status__in=[Projeto.CONCLUIDO, Projeto.REPROVADO])
+        .select_related("orientador", "tema")
+        .first()
+    )
+    if projeto_atual is not None:
+        return render(request, "projetos/candidatura.html", {"projeto_atual": projeto_atual})
+
     candidatura_atual = (
         aluno.candidaturas.filter(status=Candidatura.EM_CURSO)
         .prefetch_related(
