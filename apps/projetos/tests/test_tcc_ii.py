@@ -2,6 +2,7 @@
 `TermoPublicacao`) nesta primeira parte; serviços nas tarefas seguintes."""
 
 import pytest
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError
 
 from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
@@ -147,3 +148,54 @@ def test_criar_tcc_ii_automatico_nao_checa_limite_de_vagas(projeto_tcc_i):
         )
     tcc_ii = services.criar_tcc_ii_automatico(projeto_tcc_i)
     assert tcc_ii.pk is not None
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_manual_cria_sem_anterior():
+    orientador = _professor(20, "Orientador Manual")
+    aluno = _aluno(21, "Aluno Manual")
+    tcc_ii = services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, por=orientador.usuario)
+    assert tcc_ii.anterior is None
+    assert tcc_ii.etapa == Projeto.TCC_II
+    assert tcc_ii.orientador_id == orientador.usuario_id
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_manual_recusa_quem_nao_e_o_professor():
+    orientador = _professor(22, "Orientador Manual Dois")
+    outro = _professor(23, "Outro Professor Manual")
+    aluno = _aluno(24, "Aluno Manual Dois")
+    with pytest.raises(PermissionDenied):
+        services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, por=outro.usuario)
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_manual_recusa_professor_no_limite():
+    from apps.comum.semestre import semestre_vigente
+
+    orientador = _professor(25, "Orientador Manual Limite")
+    ano, periodo = semestre_vigente()
+    for indice in (26, 27, 28):
+        Projeto.objects.create(
+            aluno=_aluno(indice, f"Aluno Limite Manual {indice}"),
+            orientador=orientador.usuario,
+            etapa=Projeto.TCC_II,
+            status=Projeto.EM_ANDAMENTO,
+            ano=ano,
+            periodo=periodo,
+        )
+    aluno_novo = _aluno(29, "Aluno Manual Recusado")
+    with pytest.raises(ValidationError):
+        services.criar_tcc_ii_manual(aluno_novo.perfil_aluno, orientador, por=orientador.usuario)
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_manual_view_redireciona(client):
+    orientador = _professor(30, "Orientador Manual View")
+    aluno = _aluno(31, "Aluno Manual View")
+    client.force_login(orientador.usuario)
+    resposta = client.post("/temas/tcc-ii/criar/", {"aluno": aluno.perfil_aluno.pk})
+    assert resposta.status_code == 302
+    assert Projeto.objects.filter(
+        aluno=aluno, etapa=Projeto.TCC_II, orientador=orientador.usuario
+    ).exists()

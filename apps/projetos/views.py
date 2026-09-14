@@ -9,6 +9,7 @@ from apps.projetos import permissions, services
 from apps.projetos.forms import (
     FormularioCandidatura,
     FormularioConcederLimite,
+    FormularioCriarTccII,
     FormularioFiltroMural,
     FormularioRecusaOpcao,
     FormularioSubmissao,
@@ -674,3 +675,32 @@ def reenviar_ata_view(request, ata_id):
     reenviar_a_sugrad(ata, por=request.user)
     messages.success(request, "Ata reenviada à SUGRAD.")
     return redirect("projetos:orientacoes")
+
+
+@login_required
+def criar_tcc_ii_manual_view(request):
+    """Professor cria um TCC II manualmente (Bloco F, spec §7). Portão de
+    PAPEL primeiro (`pode_criar_tema`, mesmo reaproveitamento de
+    `orientacoes`/`meus_temas` — ela só pergunta "é professor?"), antes de
+    tocar `perfil_professor`."""
+    permissions.garante(
+        permissions.pode_criar_tema(request.user), "Somente professores criam TCC II."
+    )
+    professor = request.user.perfil_professor
+
+    if request.method == "POST":
+        formulario = FormularioCriarTccII(request.POST)
+        if formulario.is_valid():
+            try:
+                services.criar_tcc_ii_manual(
+                    formulario.cleaned_data["aluno"], professor, por=request.user
+                )
+            except ValidationError as erro:
+                formulario.add_error(None, erro.messages[0])
+            else:
+                messages.success(request, "TCC II criado.")
+                return redirect("projetos:orientacoes")
+    else:
+        formulario = FormularioCriarTccII()
+
+    return render(request, "projetos/criar_tcc_ii.html", {"formulario": formulario})

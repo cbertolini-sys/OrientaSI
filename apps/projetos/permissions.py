@@ -135,3 +135,18 @@ def pode_aprovar_projeto(usuario, projeto):
     """`usuario` é exatamente o orientador de `projeto` (Bloco E, spec §3.1)
     — posse, não papel."""
     return bool(usuario and usuario.is_authenticated and usuario == projeto.orientador)
+
+
+def pode_criar_tcc_ii_manual(usuario, professor):
+    """`usuario` é exatamente `professor` (Bloco F, spec §6) — combina o
+    portão de papel (`hasattr perfil_professor`, mesmo de `pode_criar_tema`)
+    com a posse numa função só: ao contrário de `pode_criar_tema`/
+    `pode_criar_tema_para` (duas funções, porque duas telas fazem perguntas
+    diferentes), aqui só existe um ponto de entrada — a view sempre passa
+    `request.user.perfil_professor` como `professor`."""
+    return bool(
+        usuario
+        and usuario.is_authenticated
+        and hasattr(usuario, "perfil_professor")
+        and usuario.perfil_professor == professor
+    )

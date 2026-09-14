@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Criar TCC II{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Criar TCC II</h1>
+    <p class="mt-2 text-sm text-base-content/80">
+      Para alunos com TCC I concluído fora deste sistema (equivalência).
+    </p>
+
+    <form method="post" class="mt-6 space-y-4">
+      {% csrf_token %}
+      {% if formulario.non_field_errors %}
+        <div role="alert" class="alert alert-error">
+          {% for erro in formulario.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+        </div>
+      {% endif %}
+      {% for campo in formulario %}
+        {% include "contas/_campo.html" with campo=campo %}
+      {% endfor %}
+      <button type="submit" class="btn btn-primary">Criar</button>
+    </form>
+  </article>
+{% endblock %}

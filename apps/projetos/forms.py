@@ -7,7 +7,7 @@ from apps.comum.validators import (
     valida_tamanho_arquivo,
 )
 from apps.contas.forms import MisturaAcessibilidadeFormulario
-from apps.contas.models import Area, PerfilProfessor
+from apps.contas.models import Area, PerfilAluno, PerfilProfessor
 from apps.projetos.models import Projeto, Tema
 
 
@@ -265,4 +265,18 @@ class FormularioSubmissao(MisturaAcessibilidadeFormulario, forms.Form):
     editavel = forms.FileField(
         label="Editável (.docx)",
         validators=[valida_extensao_editavel, valida_tamanho_arquivo],
+    )
+
+
+class FormularioCriarTccII(MisturaAcessibilidadeFormulario, forms.Form):
+    """Criação manual do TCC II, pra comprovar equivalência externa (Bloco
+    F, spec §7). `aluno` lista TODO `PerfilAluno` — sem pré-filtrar quem já
+    tem TCC II ativo: `criar_projeto_sob_limite` já recusa com mensagem
+    clara via `UniqueConstraint` (`IntegrityError` traduzido, Bloco B),
+    então filtrar aqui seria duplicar essa proteção sem necessidade."""
+
+    aluno = forms.ModelChoiceField(
+        label="Aluno",
+        queryset=PerfilAluno.objects.select_related("usuario").order_by("usuario__nome_completo"),
+        widget=forms.Select(attrs={"class": "select w-full"}),
     )

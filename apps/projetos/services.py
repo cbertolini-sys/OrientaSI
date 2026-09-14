@@ -1362,3 +1362,15 @@ def criar_tcc_ii_automatico(projeto_tcc_i):
         ano=ano,
         periodo=periodo,
     )
+
+
+def criar_tcc_ii_manual(aluno, professor, por):
+    """Cria um TCC II do zero, sem TCC I anterior no sistema — comprova
+    equivalência externa (Bloco F, spec §3.2). Casca fina sobre
+    `criar_projeto_sob_limite` (Bloco B, linha 68): reaproveita a checagem
+    de vaga testada contra corrida em vez de duplicá-la. `tema=None`: TCC II
+    não tem conceito de mural."""
+    if not permissions.pode_criar_tcc_ii_manual(por, professor):
+        raise PermissionDenied("Somente o próprio professor cria um TCC II em seu nome.")
+
+    return criar_projeto_sob_limite(aluno, professor, tema=None, etapa=Projeto.TCC_II)
