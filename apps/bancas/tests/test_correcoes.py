@@ -2,7 +2,9 @@
 na Tarefa 4)."""
 
 import pytest
+from django.core.exceptions import PermissionDenied
 
+from apps.bancas import services
 from apps.bancas.models import ItemCorrecao
 from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
@@ -47,3 +49,79 @@ def projeto_tcc_ii(db):
 def test_item_correcao_nasce_nao_concluido(projeto_tcc_ii):
     item = ItemCorrecao.objects.create(projeto=projeto_tcc_ii, descricao="Ajustar a conclusão.")
     assert item.concluido is False
+
+
+@pytest.mark.django_db
+def test_criar_item_correcao(projeto_tcc_ii):
+    item = services.criar_item_correcao(
+        projeto_tcc_ii, descricao="Revisar a bibliografia.", por=projeto_tcc_ii.orientador
+    )
+    assert item.projeto_id == projeto_tcc_ii.id
+    assert item.concluido is False
+
+
+@pytest.mark.django_db
+def test_criar_item_correcao_recusa_quem_nao_e_o_orientador(projeto_tcc_ii):
+    outro = Usuario.objects.create_user(
+        email="outro.correcao@ufsm.br", password="x", nome_completo="Outro Correção", cpf=_cpf(3)
+    )
+    with pytest.raises(PermissionDenied):
+        services.criar_item_correcao(projeto_tcc_ii, descricao="x", por=outro)
+
+
+@pytest.mark.django_db
+def test_concluir_item_correcao(projeto_tcc_ii):
+    item = services.criar_item_correcao(
+        projeto_tcc_ii, descricao="Ajustar formatação.", por=projeto_tcc_ii.orientador
+    )
+    services.concluir_item_correcao(item, por=projeto_tcc_ii.orientador)
+    item.refresh_from_db()
+    assert item.concluido is True
+
+
+@pytest.mark.django_db
+def test_concluir_item_correcao_recusa_quem_nao_e_o_orientador(projeto_tcc_ii):
+    item = services.criar_item_correcao(
+        projeto_tcc_ii, descricao="x", por=projeto_tcc_ii.orientador
+    )
+    outro = Usuario.objects.create_user(
+        email="outro.concluir@ufsm.br", password="x", nome_completo="Outro Concluir", cpf=_cpf(4)
+    )
+    with pytest.raises(PermissionDenied):
+        services.concluir_item_correcao(item, por=outro)
+
+
+@pytest.mark.django_db
+def test_correcoes_view_lista_itens(client, projeto_tcc_ii):
+    services.criar_item_correcao(
+        projeto_tcc_ii, descricao="Item de teste da tela.", por=projeto_tcc_ii.orientador
+    )
+    client.force_login(projeto_tcc_ii.orientador)
+    resposta = client.get(f"/bancas/{projeto_tcc_ii.pk}/correcoes/")
+    assert "Item de teste da tela." in resposta.content.decode()
+
+
+@pytest.mark.django_db
+def test_correcoes_view_recusa_projeto_alheio_com_404(client, projeto_tcc_ii):
+    outro = Usuario.objects.create_user(
+        email="outro.correcoesview@ufsm.br",
+        password="x",
+        nome_completo="Outro Correções View",
+        cpf=_cpf(5),
+    )
+    PerfilProfessor.objects.create(usuario=outro, siape="CORRVIEW1")
+    client.force_login(outro)
+    resposta = client.get(f"/bancas/{projeto_tcc_ii.pk}/correcoes/")
+    assert resposta.status_code == 404
+
+
+@pytest.mark.django_db
+def test_concluir_item_view_redireciona(client, projeto_tcc_ii):
+    item = services.criar_item_correcao(
+        projeto_tcc_ii, descricao="Item pra concluir via view.", por=projeto_tcc_ii.orientador
+    )
+    client.force_login(projeto_tcc_ii.orientador)
+    resposta = client.post(f"/bancas/correcoes/{item.pk}/concluir/")
+    assert resposta.status_code == 302
+    item.refresh_from_db()
+    assert item.concluido is True

@@ -124,3 +124,12 @@ class FormularioResultadoBanca(MisturaAcessibilidadeFormulario, forms.Form):
         required=False,
         widget=forms.Textarea(attrs={"class": "textarea w-full"}),
     )
+
+
+class FormularioItemCorrecao(MisturaAcessibilidadeFormulario, forms.Form):
+    """Criação de um item de correção pelo orientador (Bloco F, spec §7)."""
+
+    descricao = forms.CharField(
+        label="Descrição da correção",
+        widget=forms.Textarea(attrs={"class": "textarea w-full"}),
+    )

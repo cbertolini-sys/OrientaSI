@@ -20,3 +20,9 @@ def pode_cancelar_banca(usuario, banca):
 def pode_registrar_resultado_banca(usuario, banca):
     """Mesma regra de posse de `pode_editar_banca`."""
     return bool(usuario and usuario.is_authenticated and usuario == banca.projeto.orientador)
+
+
+def pode_gerenciar_correcao(usuario, projeto):
+    """`usuario` é exatamente o orientador de `projeto` (Bloco F, spec §6)
+    — posse, não papel."""
+    return bool(usuario and usuario.is_authenticated and usuario == projeto.orientador)

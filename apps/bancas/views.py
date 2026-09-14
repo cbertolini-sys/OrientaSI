@@ -5,8 +5,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from apps.bancas import services
-from apps.bancas.forms import FormularioBanca, FormularioResultadoBanca
-from apps.bancas.models import Banca
+from apps.bancas.forms import FormularioBanca, FormularioItemCorrecao, FormularioResultadoBanca
+from apps.bancas.models import Banca, ItemCorrecao
 from apps.projetos.models import Projeto
 
 
@@ -115,3 +115,40 @@ def resultado(request, banca_id):
         formulario = FormularioResultadoBanca()
 
     return render(request, "bancas/resultado.html", {"formulario": formulario, "banca": banca})
+
+
+@login_required
+def correcoes(request, projeto_id):
+    """Lista os itens de correção do TCC II e permite criar novos (Bloco F,
+    spec §7). O botão "Aprovar" desta tela posta pra
+    `projetos:aprovar_projeto` (Bloco E) — a mesma rota do TCC_I; o gate da
+    Tarefa 6 é quem decide se o pedido é aceito ou recusado."""
+    projeto = get_object_or_404(Projeto, pk=projeto_id, orientador=request.user)
+
+    if request.method == "POST":
+        formulario = FormularioItemCorrecao(request.POST)
+        if formulario.is_valid():
+            services.criar_item_correcao(
+                projeto, descricao=formulario.cleaned_data["descricao"], por=request.user
+            )
+            messages.success(request, "Item de correção criado.")
+            return redirect("bancas:correcoes", projeto_id=projeto.pk)
+    else:
+        formulario = FormularioItemCorrecao()
+
+    itens = projeto.itens_correcao.all()
+    return render(
+        request,
+        "bancas/correcoes.html",
+        {"projeto": projeto, "itens": itens, "formulario": formulario},
+    )
+
+
+@login_required
+@require_POST
+def concluir_item_view(request, item_id):
+    """Marca um item de correção como concluído (Bloco F, spec §7)."""
+    item = get_object_or_404(ItemCorrecao, pk=item_id, projeto__orientador=request.user)
+    services.concluir_item_correcao(item, por=request.user)
+    messages.success(request, "Item marcado como concluído.")
+    return redirect("bancas:correcoes", projeto_id=item.projeto_id)

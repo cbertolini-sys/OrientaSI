@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Correções{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-2xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Correções — {{ projeto.aluno.nome_completo }}</h1>
+
+    {% if itens %}
+      <ul class="mt-4 space-y-3">
+        {% for item in itens %}
+          <li class="rounded-box border border-base-300 p-4">
+            <p class="text-sm {% if item.concluido %}line-through text-base-content/60{% endif %}">
+              {{ item.descricao }}
+            </p>
+            {% if not item.concluido %}
+              <form method="post" action="{% url 'bancas:concluir_item' item.pk %}" class="mt-2">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline btn-sm">Marcar como concluído</button>
+              </form>
+            {% else %}
+              <span class="badge badge-success">Concluído</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-4 text-base-content/80">Nenhum item de correção cadastrado ainda.</p>
+    {% endif %}
+
+    <form method="post" class="mt-6 space-y-4">
+      {% csrf_token %}
+      {% for campo in formulario %}
+        {% include "contas/_campo.html" with campo=campo %}
+      {% endfor %}
+      <button type="submit" class="btn btn-outline">Adicionar item</button>
+    </form>
+
+    <form method="post" action="{% url 'projetos:aprovar_projeto' projeto.pk %}" class="mt-6">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary">Aprovar projeto</button>
+    </form>
+  </article>
+{% endblock %}
