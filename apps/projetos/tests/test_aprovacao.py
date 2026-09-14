@@ -138,3 +138,61 @@ def test_orientandos_atuais_exclui_concluido(orientador):
     )
     resultado = {p.aluno_id for p in services.orientandos_atuais(orientador)}
     assert aluno_concluido.id not in resultado
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_view_redireciona(client, projeto_com_ressalvas, orientador):
+    client.force_login(orientador.usuario)
+    resposta = client.post(f"/orientacoes/{projeto_com_ressalvas.pk}/aprovar/")
+    assert resposta.status_code == 302
+    projeto_com_ressalvas.refresh_from_db()
+    assert projeto_com_ressalvas.status == Projeto.APROVADO
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_view_recusa_projeto_alheio_com_404(client, projeto_com_ressalvas):
+    outro = _professor(7, "Outro Professor Aprovar View")
+    client.force_login(outro.usuario)
+    resposta = client.post(f"/orientacoes/{projeto_com_ressalvas.pk}/aprovar/")
+    assert resposta.status_code == 404
+
+
+@pytest.mark.django_db
+def test_reenviar_ata_view_redireciona(client, orientador):
+    from apps.bancas.models import Banca
+    from apps.documentos import services as documentos_services
+
+    aluno = _aluno(8, "Aluno Reenviar View")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador.usuario,
+        etapa=Projeto.TCC_I,
+        status=Projeto.APROVADO,
+        ano=2026,
+        periodo=1,
+    )
+    Banca.objects.create(
+        projeto=projeto,
+        data_hora=timezone.now(),
+        local="Sala 1",
+        status=Banca.REALIZADA,
+        nota=7.0,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+    )
+    ata = documentos_services.gerar_ata(projeto)
+    sugrad = Usuario.objects.create_user(
+        email="sugrad.reenviarview@ufsm.br",
+        password="x",
+        nome_completo="SUGRAD",
+        papel=Usuario.SUGRAD,
+        cpf=None,
+    )
+    documentos_services.devolver_ata(ata, por=sugrad, comentario="Falta algo.")
+
+    client.force_login(orientador.usuario)
+    resposta = client.post(f"/orientacoes/{ata.pk}/reenviar-sugrad/")
+    assert resposta.status_code == 302
+    ata.revisao.refresh_from_db()
+    from apps.documentos.models import RevisaoSUGRAD
+
+    assert ata.revisao.status == RevisaoSUGRAD.PENDENTE

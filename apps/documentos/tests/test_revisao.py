@@ -104,3 +104,27 @@ def test_aprovar_ata_recusa_revisar_duas_vezes(ata_pendente, sugrad):
     services.aprovar_ata(ata_pendente, por=sugrad)
     with pytest.raises(ValidationError):
         services.aprovar_ata(ata_pendente, por=sugrad)
+
+
+@pytest.mark.django_db
+def test_reenviar_a_sugrad_volta_para_pendente(ata_pendente, sugrad):
+    services.devolver_ata(ata_pendente, por=sugrad, comentario="Corrija a data.")
+    services.reenviar_a_sugrad(ata_pendente, por=ata_pendente.projeto.orientador)
+    ata_pendente.revisao.refresh_from_db()
+    assert ata_pendente.revisao.status == RevisaoSUGRAD.PENDENTE
+
+
+@pytest.mark.django_db
+def test_reenviar_a_sugrad_recusa_quem_nao_e_o_orientador(ata_pendente, sugrad):
+    services.devolver_ata(ata_pendente, por=sugrad, comentario="Corrija a data.")
+    outro = Usuario.objects.create_user(
+        email="outro.reenviar@ufsm.br", password="x", nome_completo="Outro Reenviar", cpf=_cpf(3)
+    )
+    with pytest.raises(PermissionDenied):
+        services.reenviar_a_sugrad(ata_pendente, por=outro)
+
+
+@pytest.mark.django_db
+def test_reenviar_a_sugrad_recusa_fora_de_devolvida(ata_pendente):
+    with pytest.raises(ValidationError):
+        services.reenviar_a_sugrad(ata_pendente, por=ata_pendente.projeto.orientador)

@@ -74,3 +74,17 @@ def devolver_ata(ata, por, comentario):
     revisao.comentario = comentario
     revisao.decidida_em = timezone.now()
     revisao.save(update_fields=["status", "comentario", "decidida_em"])
+
+
+def reenviar_a_sugrad(ata, por):
+    """O orientador reenvia uma ata `DEVOLVIDA` — volta a `PENDENTE`
+    (Bloco E, spec §5.2). Não gera um PDF novo nem uma `Ata` nova (§2 do
+    spec: reabre a mesma revisão)."""
+    if not permissions.pode_reenviar_ata(por, ata):
+        raise PermissionDenied("Somente o orientador do projeto reenvia a ata.")
+    revisao = ata.revisao
+    if revisao.status != RevisaoSUGRAD.DEVOLVIDA:
+        raise ValidationError("Só é possível reenviar uma ata devolvida.")
+
+    revisao.status = RevisaoSUGRAD.PENDENTE
+    revisao.save(update_fields=["status"])

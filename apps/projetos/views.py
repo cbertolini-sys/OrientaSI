@@ -645,3 +645,30 @@ def cancelar_projeto_view(request, projeto_id):
     services.cancelar_projeto(projeto, por=request.user)
     messages.success(request, "Projeto cancelado.")
     return redirect("projetos:orientacoes")
+
+
+@login_required
+@require_POST
+def aprovar_projeto_view(request, projeto_id):
+    """Aprova um `Projeto` `Aprovado com Ressalvas` — gera a ata e notifica
+    a SUGRAD (Bloco E, spec §7). Lookup escopado ao orientador autenticado,
+    mesmo padrão de `desativar_tema`."""
+    projeto = get_object_or_404(Projeto, pk=projeto_id, orientador=request.user)
+    services.aprovar_projeto(projeto, por=request.user)
+    messages.success(request, "Projeto aprovado. A ata foi gerada e enviada à SUGRAD.")
+    return redirect("projetos:orientacoes")
+
+
+@login_required
+@require_POST
+def reenviar_ata_view(request, ata_id):
+    """Reenvia à SUGRAD uma ata devolvida (Bloco E, spec §7). Lookup
+    escopado via `projeto__orientador`, mesmo raciocínio de
+    `aprovar_projeto_view`."""
+    from apps.documentos.models import Ata
+    from apps.documentos.services import reenviar_a_sugrad
+
+    ata = get_object_or_404(Ata, pk=ata_id, projeto__orientador=request.user)
+    reenviar_a_sugrad(ata, por=request.user)
+    messages.success(request, "Ata reenviada à SUGRAD.")
+    return redirect("projetos:orientacoes")

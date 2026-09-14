@@ -40,4 +40,14 @@ urlpatterns = [
         views.cancelar_projeto_view,
         name="cancelar_projeto",
     ),
+    path(
+        "orientacoes/<int:projeto_id>/aprovar/",
+        views.aprovar_projeto_view,
+        name="aprovar_projeto",
+    ),
+    path(
+        "orientacoes/<int:ata_id>/reenviar-sugrad/",
+        views.reenviar_ata_view,
+        name="reenviar_ata",
+    ),
 ]
