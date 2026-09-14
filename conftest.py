@@ -829,6 +829,72 @@ def cria_coordenador_com_painel_orientacoes_para_rotas():
     return coordenador
 
 
+def cria_professor_com_banca_agendada_para_rotas():
+    """Fábrica de `/bancas/agendar/<id>/`, `/bancas/<id>/editar/` e
+    `/bancas/<id>/resultado/` (Bloco D): professor orientador com um
+    `Projeto` `EM_ANDAMENTO` com `Submissao`, e uma `Banca` `AGENDADA` já
+    criada sobre ele. Os dois `pk`s que as rotas precisam (`projeto.pk` para
+    agendar, `banca.pk` para editar/resultado) são anexados ao `Usuario`
+    devolvido — mesmo mecanismo de `usuario.tema_id_para_rota` em
+    `cria_professor_com_tema_para_rotas` (T6): a fixture `rota` só recebe o
+    que `fabrica_usuario()` retorna, então não há outro jeito de entregar um
+    segundo `pk` a ela."""
+    from apps.bancas.services import agendar_banca
+    from apps.comum.semestre import semestre_vigente
+    from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Projeto, Submissao
+
+    orientador = Usuario.objects.create_user(
+        email="professor-banca-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Professor Banca das Rotas",
+        cpf=_gera_cpf_das_rotas(30),
+    )
+    PerfilProfessor.objects.create(usuario=orientador, siape="1000020")
+
+    aluno = Usuario.objects.create_user(
+        email="aluno-banca-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Banca das Rotas",
+        cpf=_gera_cpf_das_rotas(31),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=aluno, matricula="2026399920")
+
+    ano, periodo = semestre_vigente()
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ano,
+        periodo=periodo,
+    )
+    Submissao.objects.create(
+        projeto=projeto, pdf="submissoes/rota-banca.pdf", editavel="submissoes/rota-banca.docx"
+    )
+
+    membro1 = Usuario.objects.create_user(
+        email="membro1-banca-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Membro Um Banca das Rotas",
+        cpf=_gera_cpf_das_rotas(32),
+    )
+    perfil_membro1 = PerfilProfessor.objects.create(usuario=membro1, siape="1000021")
+
+    banca = agendar_banca(
+        projeto,
+        data_hora=timezone.now() + timezone.timedelta(days=7),
+        local="Sala das Rotas",
+        membros=[{"professor": perfil_membro1}, {"nome_externo": "Externo das Rotas"}],
+        por=orientador,
+    )
+
+    orientador.projeto_id_para_rota = projeto.pk
+    orientador.banca_id_para_rota = banca.pk
+    return orientador
+
+
 # Lista única de rotas submetidas às cinco suítes transversais
 # (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
@@ -958,6 +1024,24 @@ ROTAS = [
         "form",
         fabrica_usuario=cria_aluno_com_projeto_para_rotas,
         h1="Meu TCC",
+    ),
+    Rota(
+        lambda usuario: f"/bancas/agendar/{usuario.projeto_id_para_rota}/",
+        "form",
+        fabrica_usuario=cria_professor_com_banca_agendada_para_rotas,
+        h1="Agendar banca",
+    ),
+    Rota(
+        lambda usuario: f"/bancas/{usuario.banca_id_para_rota}/editar/",
+        "form",
+        fabrica_usuario=cria_professor_com_banca_agendada_para_rotas,
+        h1="Editar banca",
+    ),
+    Rota(
+        lambda usuario: f"/bancas/{usuario.banca_id_para_rota}/resultado/",
+        "form",
+        fabrica_usuario=cria_professor_com_banca_agendada_para_rotas,
+        h1="Registrar resultado",
     ),
 ]
 
