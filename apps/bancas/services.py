@@ -1,7 +1,9 @@
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 
 from apps.bancas import permissions
 from apps.bancas.models import Banca, MembroBanca
+from apps.bancas.tasks import enviar_agendamento_banca
 from apps.projetos.models import Projeto
 
 
@@ -43,6 +45,8 @@ def agendar_banca(projeto, data_hora, local, membros, por):
     projeto.status = Projeto.AGUARDANDO_DEFESA
     projeto.save(update_fields=["status"])
 
+    transaction.on_commit(lambda: enviar_agendamento_banca.delay(banca.id))
+
     return banca
 
 
@@ -66,6 +70,8 @@ def editar_banca(banca, data_hora, local, membros, por):
     banca.membros.all().delete()
     for membro in membros:
         MembroBanca.objects.create(banca=banca, **membro)
+
+    transaction.on_commit(lambda: enviar_agendamento_banca.delay(banca.id))
 
     return banca
 

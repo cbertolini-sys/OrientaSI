@@ -1,0 +1,10 @@
+Olá, {{ aluno.nome_completo }}.
+
+Sua banca de defesa foi agendada:
+
+Data e hora: {{ banca.data_hora }}
+Local: {{ banca.local }}
+
+Entre no sistema para mais detalhes: {{ link }}
+
+OrientaSI — Sistema de Gestão de TCC

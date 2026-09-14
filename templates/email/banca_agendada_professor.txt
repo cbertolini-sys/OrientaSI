@@ -1,0 +1,10 @@
+Olá, {{ professor.nome_completo }}.
+
+Você foi indicado como membro da banca de defesa de {{ aluno.nome_completo }}:
+
+Data e hora: {{ banca.data_hora }}
+Local: {{ banca.local }}
+
+Entre no sistema para mais detalhes: {{ link }}
+
+OrientaSI — Sistema de Gestão de TCC
