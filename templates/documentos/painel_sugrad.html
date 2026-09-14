@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Painel SUGRAD{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-3xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Painel SUGRAD</h1>
+    <p class="mt-2 text-sm text-base-content/80">Atas aguardando revisão.</p>
+
+    {% if itens %}
+      <ul class="mt-4 space-y-6">
+        {% for item in itens %}
+          <li class="rounded-box border border-base-300 p-4">
+            <p class="font-medium">{{ item.ata.numero }} — {{ item.ata.projeto.aluno.nome_completo }}</p>
+            <p class="text-sm text-base-content/80">Orientador: {{ item.ata.projeto.orientador.nome_completo }}</p>
+            <p class="mt-2">
+              <a href="{{ item.ata.pdf.url }}" class="link">Baixar PDF da ata</a>
+            </p>
+
+            <div class="mt-4 flex flex-wrap items-start gap-6">
+              <form method="post" action="{% url 'documentos:aprovar_ata' item.ata.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary">
+                  Aprovar
+                  <span class="sr-only"> ata {{ item.ata.numero }}</span>
+                </button>
+              </form>
+
+              <form
+                method="post"
+                action="{% url 'documentos:devolver_ata' item.ata.pk %}"
+                class="w-full flex-1 space-y-2 sm:min-w-64"
+              >
+                {% csrf_token %}
+                {% with campo=item.formulario_devolver.comentario %}
+                  {% include "contas/_campo.html" with campo=campo %}
+                {% endwith %}
+                <button type="submit" class="btn btn-outline">
+                  Devolver
+                  <span class="sr-only"> ata {{ item.ata.numero }}</span>
+                </button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-4 text-base-content/80">Nenhuma ata aguardando revisão no momento.</p>
+    {% endif %}
+  </article>
+{% endblock %}
