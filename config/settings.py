@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "apps.projetos",
     "apps.bancas",
     "apps.documentos",
+    "apps.publico",
 ]
 
 MIDDLEWARE = [
