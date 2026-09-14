@@ -159,3 +159,24 @@ def test_anos_do_catalogo_lista_anos_distintos_mais_recente_primeiro():
     _projeto_catalogavel(14, ano=2026)
     _projeto_catalogavel(15, ano=2024)
     assert list(services.anos_do_catalogo()) == [2026, 2024]
+
+
+@pytest.mark.django_db
+def test_catalogo_view_mostra_titulo_e_link_de_download(client):
+    projeto = _projeto_catalogavel(12)
+    resposta = client.get("/catalogo/")
+    conteudo = resposta.content.decode()
+    assert projeto.tema.titulo in conteudo
+    assert projeto.aluno.nome_completo in conteudo
+
+
+@pytest.mark.django_db
+def test_catalogo_view_ignora_querystring_invalida_sem_500(client):
+    resposta = client.get("/catalogo/?area=xyz&ano=abc")
+    assert resposta.status_code == 200
+
+
+@pytest.mark.django_db
+def test_catalogo_view_sem_login_funciona(client):
+    resposta = client.get("/catalogo/")
+    assert resposta.status_code == 200

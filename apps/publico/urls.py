@@ -1,5 +1,9 @@
-from apps.publico import views  # noqa: F401 — mantém o import válido; Tasks 4/5 usam `views.*`
+from django.urls import path
+
+from apps.publico import views
 
 app_name = "publico"
 
-urlpatterns = []
+urlpatterns = [
+    path("catalogo/", views.catalogo, name="catalogo"),
+]

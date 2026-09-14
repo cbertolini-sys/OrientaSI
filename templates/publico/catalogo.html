@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Catálogo de TCCs{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-3xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Catálogo de TCCs</h1>
+
+    <form method="get" class="mt-4 flex flex-wrap items-end gap-4">
+      <div>
+        <label for="filtro-area" class="label"><span class="label-text">Área</span></label>
+        <select id="filtro-area" name="area" class="select w-full">
+          <option value="">Todas</option>
+          {% for area in areas %}
+            <option value="{{ area.pk }}" {% if area_selecionada == area.pk %}selected{% endif %}>
+              {{ area.nome }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="filtro-ano" class="label"><span class="label-text">Ano</span></label>
+        <select id="filtro-ano" name="ano" class="select w-full">
+          <option value="">Todos</option>
+          {% for ano_opcao in anos %}
+            <option value="{{ ano_opcao }}" {% if ano_selecionado == ano_opcao %}selected{% endif %}>
+              {{ ano_opcao }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Filtrar</button>
+    </form>
+
+    {% if projetos %}
+      <ul class="mt-6 space-y-4">
+        {% for projeto in projetos %}
+          <li class="rounded-box border border-base-300 p-4">
+            <p class="font-medium">{{ projeto.tema.titulo }}</p>
+            <p class="mt-1 text-sm text-base-content/80">
+              {{ projeto.tema.descricao|truncatewords:40 }}
+            </p>
+            <p class="mt-2 text-sm">
+              Autor: {{ projeto.aluno.nome_completo }} —
+              Orientador: {{ projeto.orientador.nome_completo }}
+            </p>
+            <p class="mt-2">
+              <a href="{{ projeto.submissao.pdf.url }}" class="link">Baixar PDF</a>
+            </p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-6">Nenhum TCC publicado ainda.</p>
+    {% endif %}
+  </article>
+{% endblock %}
