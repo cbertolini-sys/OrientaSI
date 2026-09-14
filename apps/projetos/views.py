@@ -679,8 +679,12 @@ def aprovar_projeto_view(request, projeto_id):
     a SUGRAD (Bloco E, spec §7). Lookup escopado ao orientador autenticado,
     mesmo padrão de `desativar_tema`."""
     projeto = get_object_or_404(Projeto, pk=projeto_id, orientador=request.user)
-    services.aprovar_projeto(projeto, por=request.user)
-    messages.success(request, "Projeto aprovado. A ata foi gerada e enviada à SUGRAD.")
+    try:
+        services.aprovar_projeto(projeto, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Projeto aprovado. A ata foi gerada e enviada à SUGRAD.")
     return redirect("projetos:orientacoes")
 
 

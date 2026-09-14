@@ -196,3 +196,13 @@ def test_reenviar_ata_view_redireciona(client, orientador):
     from apps.documentos.models import RevisaoSUGRAD
 
     assert ata.revisao.status == RevisaoSUGRAD.PENDENTE
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_tcc_i_continua_sem_gate(orientador, projeto_com_ressalvas):
+    """Confirma que o TCC_I NÃO é afetado pelo gate do Bloco F — mesmo
+    teste do Bloco E, reafirmado aqui de propósito (checagem vizinha pode
+    mascarar regressão)."""
+    services.aprovar_projeto(projeto_com_ressalvas, por=orientador.usuario)
+    projeto_com_ressalvas.refresh_from_db()
+    assert projeto_com_ressalvas.status == Projeto.APROVADO

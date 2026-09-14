@@ -4,7 +4,9 @@
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError
+from django.utils import timezone
 
+from apps.bancas import services as bancas_services
 from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
 from apps.projetos import services
@@ -232,3 +234,97 @@ def test_assinar_termo_publicacao_recusa_quem_nao_e_o_aluno():
     )
     with pytest.raises(PermissionDenied):
         services.assinar_termo_publicacao(projeto, por=outro)
+
+
+@pytest.fixture
+def projeto_tcc_ii_com_ressalvas(db):
+    """`aprovar_projeto` chama `gerar_ata` ao final (Bloco E), que exige uma
+    `Banca` `REALIZADA` do projeto — sem ela, `Banca.DoesNotExist` mascara
+    a checagem de gate que este arquivo quer provar (mesmo achado do Bloco
+    E em `test_aprovacao.py::projeto_com_ressalvas`)."""
+    from apps.bancas.models import Banca
+
+    orientador = _professor(60, "Orientador Gate")
+    aluno = _aluno(61, "Aluno Gate")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador.usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=1,
+    )
+    Banca.objects.create(
+        projeto=projeto,
+        data_hora=timezone.now(),
+        local="Sala 1",
+        status=Banca.REALIZADA,
+        nota=8.0,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+    )
+    return projeto
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_tcc_ii_recusa_com_item_pendente(projeto_tcc_ii_com_ressalvas):
+    bancas_services.criar_item_correcao(
+        projeto_tcc_ii_com_ressalvas,
+        descricao="Pendente.",
+        por=projeto_tcc_ii_com_ressalvas.orientador,
+    )
+    services.assinar_termo_publicacao(
+        projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.aluno
+    )
+    with pytest.raises(ValidationError):
+        services.aprovar_projeto(
+            projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.orientador
+        )
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_tcc_ii_recusa_sem_termo(projeto_tcc_ii_com_ressalvas):
+    item = bancas_services.criar_item_correcao(
+        projeto_tcc_ii_com_ressalvas,
+        descricao="Vai ser concluído.",
+        por=projeto_tcc_ii_com_ressalvas.orientador,
+    )
+    bancas_services.concluir_item_correcao(item, por=projeto_tcc_ii_com_ressalvas.orientador)
+    with pytest.raises(ValidationError):
+        services.aprovar_projeto(
+            projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.orientador
+        )
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_tcc_ii_aprova_com_tudo_pronto(projeto_tcc_ii_com_ressalvas):
+    item = bancas_services.criar_item_correcao(
+        projeto_tcc_ii_com_ressalvas,
+        descricao="Vai ser concluído.",
+        por=projeto_tcc_ii_com_ressalvas.orientador,
+    )
+    bancas_services.concluir_item_correcao(item, por=projeto_tcc_ii_com_ressalvas.orientador)
+    services.assinar_termo_publicacao(
+        projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.aluno
+    )
+    services.aprovar_projeto(
+        projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.orientador
+    )
+    projeto_tcc_ii_com_ressalvas.refresh_from_db()
+    assert projeto_tcc_ii_com_ressalvas.status == Projeto.APROVADO
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_view_com_item_pendente_nao_da_500(client, projeto_tcc_ii_com_ressalvas):
+    bancas_services.criar_item_correcao(
+        projeto_tcc_ii_com_ressalvas,
+        descricao="Pendente.",
+        por=projeto_tcc_ii_com_ressalvas.orientador,
+    )
+    services.assinar_termo_publicacao(
+        projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.aluno
+    )
+    client.force_login(projeto_tcc_ii_com_ressalvas.orientador)
+    resposta = client.post(f"/orientacoes/{projeto_tcc_ii_com_ressalvas.pk}/aprovar/")
+    assert resposta.status_code == 302
+    projeto_tcc_ii_com_ressalvas.refresh_from_db()
+    assert projeto_tcc_ii_com_ressalvas.status == Projeto.APROVADO_COM_RESSALVAS

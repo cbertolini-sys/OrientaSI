@@ -1327,14 +1327,21 @@ def cancelar_projeto(projeto, por):
 
 def aprovar_projeto(projeto, por):
     """Confirma que o aluno corrigiu o que a banca pediu — fecha
-    `Aprovado com Ressalvas` → `Aprovado` para o TCC I (Bloco E, spec §3.1).
-    Sem checklist: o `inicio.pdf` só descreve checklist de correções para o
-    TCC II (Bloco F, ainda não existe); esta transição é uma confirmação
-    simples do orientador."""
+    `Aprovado com Ressalvas` → `Aprovado` (Bloco E, spec §3.1). Para o
+    TCC_I é uma confirmação simples do orientador, sem checklist — o
+    `inicio.pdf` só descreve checklist de correções e termo de publicação
+    para o TCC II (Bloco F), que ganha o gate abaixo."""
     if not permissions.pode_aprovar_projeto(por, projeto):
         raise PermissionDenied("Somente o orientador do projeto pode aprová-lo.")
     if projeto.status != Projeto.APROVADO_COM_RESSALVAS:
         raise ValidationError("Só é possível aprovar um projeto aprovado com ressalvas.")
+    if projeto.etapa == Projeto.TCC_II:
+        if projeto.itens_correcao.filter(concluido=False).exists():
+            raise ValidationError(
+                "Ainda há itens de correção pendentes — conclua todos antes de aprovar."
+            )
+        if not hasattr(projeto, "termo_publicacao"):
+            raise ValidationError("O aluno ainda não assinou o termo de aceite de publicação.")
 
     projeto.status = Projeto.APROVADO
     projeto.save(update_fields=["status"])
