@@ -114,3 +114,30 @@ class MembroBanca(models.Model):
         if self.professor:
             return self.professor.usuario.nome_completo
         return f"{self.nome_externo} (externo)"
+
+
+class ItemCorrecao(models.Model):
+    """Um item do checklist de correções pós-banca do TCC II (Bloco F,
+    spec §4.2) — digitado pelo orientador com base no que a banca pediu
+    (`Banca.comentario`, Bloco D), não estruturado a partir da banca em si
+    (decisão do brainstorming: a banca só tem nota+comentário geral, sem
+    itens individuais).
+    """
+
+    projeto = models.ForeignKey(
+        Projeto,
+        on_delete=models.PROTECT,
+        related_name="itens_correcao",
+        verbose_name="projeto",
+    )
+    descricao = models.TextField("descrição")
+    concluido = models.BooleanField("concluído", default=False)
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "item de correção"
+        verbose_name_plural = "itens de correção"
+        ordering = ["criado_em"]
+
+    def __str__(self):
+        return f"{self.projeto} — {self.descricao[:50]}"

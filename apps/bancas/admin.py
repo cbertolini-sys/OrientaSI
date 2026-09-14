@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from apps.bancas.models import Banca, MembroBanca
+from apps.bancas.models import Banca, ItemCorrecao, MembroBanca
 
 
 class MembroBancaInline(admin.TabularInline):
@@ -15,3 +15,10 @@ class BancaAdmin(admin.ModelAdmin):
     search_fields = ["projeto__aluno__nome_completo", "local"]
     readonly_fields = ["criada_em"]
     inlines = [MembroBancaInline]
+
+
+@admin.register(ItemCorrecao)
+class ItemCorrecaoAdmin(admin.ModelAdmin):
+    list_display = ["projeto", "descricao", "concluido", "criado_em"]
+    list_filter = ["concluido"]
+    readonly_fields = ["criado_em"]

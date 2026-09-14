@@ -6,6 +6,7 @@ from apps.projetos.models import (
     OpcaoCandidatura,
     Projeto,
     Tema,
+    TermoPublicacao,
 )
 
 
@@ -66,3 +67,9 @@ class OpcaoCandidaturaAdmin(admin.ModelAdmin):
         "professor__usuario__nome_completo",
         "candidatura__aluno__usuario__nome_completo",
     ]
+
+
+@admin.register(TermoPublicacao)
+class TermoPublicacaoAdmin(admin.ModelAdmin):
+    list_display = ["projeto", "assinado_em"]
+    readonly_fields = ["assinado_em"]

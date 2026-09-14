@@ -102,6 +102,28 @@ class Projeto(models.Model):
     # mudam retroativamente.
     ano = models.PositiveIntegerField("ano")
     periodo = models.PositiveSmallIntegerField("período", choices=PERIODOS)
+    anterior = models.ForeignKey(
+        "self",
+        # SET_NULL: apagar o TCC I não pode impedir a consulta ao TCC II
+        # que restou — o vínculo é só um ponteiro histórico, não uma
+        # dependência de integridade acadêmica.
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="proximos",
+        verbose_name="projeto anterior",
+    )
+    coorientador = models.ForeignKey(
+        PerfilProfessor,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="projetos_como_coorientador",
+        verbose_name="coorientador",
+    )
+    coorientador_externo = models.CharField(
+        "coorientador (externo)", max_length=200, blank=True, default=""
+    )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 
     class Meta:
@@ -118,6 +140,14 @@ class Projeto(models.Model):
                 fields=["aluno", "etapa"],
                 condition=~Q(status__in=["CONCLUIDO", "REPROVADO", "CANCELADO"]),
                 name="projeto_ativo_unico_por_aluno_e_etapa",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(coorientador__isnull=True, coorientador_externo="")
+                    | (models.Q(coorientador__isnull=False) & models.Q(coorientador_externo=""))
+                    | (models.Q(coorientador__isnull=True) & ~models.Q(coorientador_externo=""))
+                ),
+                name="projeto_coorientador_nao_duplo",
             ),
         ]
 
@@ -381,3 +411,27 @@ class Submissao(models.Model):
 
     def __str__(self):
         return f"{self.projeto} — versão {self.versao}"
+
+
+class TermoPublicacao(models.Model):
+    """Aceite de publicação do TCC II no catálogo público — a EXISTÊNCIA da
+    linha já significa "assinado" (Bloco F, spec §3.4): sem campo booleano
+    redundante, sem estado intermediário. Ao contrário de `RevisaoSUGRAD`
+    (Bloco E), que pode ser revisitada, assinar o termo é uma ação única,
+    sem volta.
+    """
+
+    projeto = models.OneToOneField(
+        Projeto,
+        on_delete=models.PROTECT,
+        related_name="termo_publicacao",
+        verbose_name="projeto",
+    )
+    assinado_em = models.DateTimeField("assinado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "termo de publicação"
+        verbose_name_plural = "termos de publicação"
+
+    def __str__(self):
+        return f"Termo de {self.projeto} — assinado em {self.assinado_em:%d/%m/%Y}"
