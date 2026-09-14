@@ -92,19 +92,26 @@ Todos os comandos devem rodar via container Docker:
   pelo aluno em `/meu-tcc/`, com visibilidade do estado de envio para o
   orientador em `/orientacoes/` (`Submissao`, Bloco C, implementado). Reabertura
   e cancelamento definitivo de um projeto `Reprovado` (`reabrir_projeto`/
-  `cancelar_projeto`, Bloco D, implementado). O modelo `Projeto` nasce no Bloco
-  B; as transições `EM_ANDAMENTO` → `Aguardando Defesa` →
-  `Aprovado com Ressalvas`/`Reprovado` já estão implementadas (Bloco D); as
-  demais (aprovação de correções, TCC II) ficam para os Blocos E–F.
+  `cancelar_projeto`, Bloco D, implementado). Confirmação de correções
+  (`aprovar_projeto`, `Aprovado com Ressalvas → Aprovado`, Bloco E,
+  implementado — sem checklist para o TCC I, ver "Ciclo de Vida" abaixo). O
+  modelo `Projeto` nasce no Bloco B; as transições `EM_ANDAMENTO` →
+  `Aguardando Defesa` → `Aprovado com Ressalvas` → `Aprovado` → `Concluído`
+  (ou `Reprovado`/`Cancelado`) já estão todas implementadas para o TCC I; o
+  que falta (checklist de correções e termo de publicação do TCC II) fica
+  para o Bloco F.
 * `apps/bancas`: agendamento de banca (`agendar_banca`/`editar_banca`/
   `cancelar_banca`), registro do resultado da apresentação
   (`registrar_resultado`) e notificação por e-mail do agendamento (Bloco D,
   implementado). `Banca`/`MembroBanca` — nota e resultado são únicos por
   banca, não um por membro (decisão registrada, ver regra 3 abaixo e o spec
-  do bloco). Sem `Avaliacao` por membro, sem checklist de correções (Bloco
-  F) e sem ata (Bloco E) — ainda não existem.
-* `apps/documentos`: criada, registrada, vazia — reservada para o Bloco E (atas
-  e SUGRAD).
+  do bloco). Sem `Avaliacao` por membro, sem checklist de correções (Bloco F).
+* `apps/documentos`: geração automática da `Ata` (PDF via WeasyPrint,
+  numeração sequencial `NNN/AAAA`) ao aprovar um projeto de TCC I, e o
+  painel da SUGRAD (`/painel/sugrad/`) para aprovar (`→ Concluído`) ou
+  devolver com comentário (`RevisaoSUGRAD`, Bloco E, implementado).
+  `RevisaoSUGRAD` é uma linha só por `Ata`, sem histórico de rodadas — o
+  orientador reenvia a mesma ata depois de uma devolução.
 
 Todo identificador de código (apps, modelos, campos, funções, variáveis) é em
 português. Interface, mensagens de erro, comentários e commits também.
@@ -196,14 +203,20 @@ Bloco D para o raciocínio completo.
 
 O modelo `Projeto` existe desde o Bloco B (`apps/projetos/models.py`). O Bloco
 C acrescentou o envio do trabalho escrito (`Submissao`). O Bloco D implementou
-o restante do ciclo até `Reprovado`: `agendar_banca` fecha `EM_ANDAMENTO` →
-`Aguardando Defesa` (exige uma `Submissao` já enviada); `registrar_resultado`
-fecha `Aguardando Defesa` → `Aprovado com Ressalvas`/`Reprovado`; a partir de
-`Reprovado`, `reabrir_projeto`/`cancelar_projeto` levam a `Em Andamento` (o
-aluno tenta de novo) ou a `Cancelado` (fim de linha). `Aprovado` e `Concluído`
-— aprovação do checklist de correções, termo de publicação, ata e aprovação
-da SUGRAD — ficam para os Blocos E e F, que ainda vão implementá-los sobre o
-mesmo modelo.
+o ciclo até `Aprovado com Ressalvas`/`Reprovado`: `agendar_banca` fecha
+`EM_ANDAMENTO` → `Aguardando Defesa` (exige uma `Submissao` já enviada);
+`registrar_resultado` fecha `Aguardando Defesa` →
+`Aprovado com Ressalvas`/`Reprovado`; a partir de `Reprovado`,
+`reabrir_projeto`/`cancelar_projeto` levam a `Em Andamento` (o aluno tenta de
+novo) ou a `Cancelado` (fim de linha). O Bloco E fechou o restante do TCC I:
+`aprovar_projeto` fecha `Aprovado com Ressalvas` → `Aprovado` — **sem
+checklist**, decisão do brainstorming do Bloco E: o `inicio.pdf` só descreve
+checklist de correções e termo de publicação para o **TCC II** (mapa de
+domínio da Fase 1, §12: `ItemCorrecao` tagueado `[F]`), então essa transição,
+para o TCC I, é só uma confirmação do orientador — `gerar_ata` roda no mesmo
+passo, e `aprovar_ata` (SUGRAD) fecha `Aprovado` → `Concluído`. Quando o
+Bloco F existir, ele decide como o TCC II enriquece (ou substitui) essa
+mesma transição sem quebrar o caminho do TCC I.
 
 1. **`Em Andamento`:** Aluno aceito e elaborando o trabalho.
 2. **`Aguardando Defesa`:** Aluno envia PDF/Editável e orientador agenda a banca
@@ -211,11 +224,12 @@ mesmo modelo.
 3. **`Aprovado com Ressalvas`:** Defesa realizada com nota e comentários (uma
    nota geral da banca, não uma por membro — ver regra 3), abrindo prazo de
    correções.
-4. **`Aprovado`:** Orientador aprova o **checklist de correções** E o aluno
-   assina o **termo de aceite de publicação** (TCC II). **Ainda não
-   implementado (Bloco F).**
-5. **`Concluído`:** SUGRAD aprova a Ata no Painel SUGRAD. **Ainda não
-   implementado (Bloco E).**
+4. **`Aprovado`:** Orientador confirma a correção (`aprovar_projeto`, Bloco
+   E) — sem checklist para o TCC I (ver acima). O sistema gera a `Ata` e
+   notifica a SUGRAD no mesmo passo. Para o TCC II, o **checklist de
+   correções** e o **termo de aceite de publicação** ficam para o Bloco F.
+5. **`Concluído`:** SUGRAD aprova a Ata no Painel SUGRAD (`aprovar_ata`,
+   `/painel/sugrad/`, Bloco E, implementado).
 6. **`Reprovado`:** Defesa realizada sem aprovação — o orientador reabre
    (volta a `Em Andamento`) ou cancela definitivamente (`Cancelado`).
 7. **`Cancelado`:** Estado terminal — nenhuma ação definida a partir daqui
@@ -250,9 +264,15 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   (`apps/bancas`); agendar/editar/cancelar banca; registrar resultado (uma
   nota geral, não por membro — ver regra 3); a partir de `Reprovado`,
   reabrir o projeto ou cancelá-lo definitivamente (`Cancelado`, status novo).
-  Sem `Avaliacao` por membro, sem checklist de correções (Bloco F) e sem ata
-  (Bloco E).
-* **E** — atas e SUGRAD
+  Sem `Avaliacao` por membro, sem checklist de correções (Bloco F).
+* **E — atas e SUGRAD (concluído)**: `aprovar_projeto` fecha
+  `Aprovado com Ressalvas → Aprovado` para o TCC I, sem checklist (decisão
+  do brainstorming: checklist/termo de publicação são só do TCC II,
+  Bloco F). `gerar_ata` (`apps/documentos`, PDF via WeasyPrint, numeração
+  `NNN/AAAA`) roda no mesmo passo; `aprovar_ata`/`devolver_ata`
+  (`/painel/sugrad/`, permissão por PAPEL — único caso do sistema além de
+  `is_coordenador`) fecham `Aprovado → Concluído` ou devolvem com
+  comentário (`RevisaoSUGRAD`, uma linha só por `Ata`, sem histórico).
 * **F** — TCC II
 * **G** — catálogo e calendário públicos
 * **H** — API DRF (`djangorestframework` + `drf-spectacular` entram aqui)
