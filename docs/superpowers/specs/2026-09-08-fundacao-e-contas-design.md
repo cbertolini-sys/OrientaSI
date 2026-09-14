@@ -667,7 +667,7 @@ projetos/    Semestre         2026/1 — âncora do limite de vagas             
              TermoPublicacao  projeto, assinado_em                           [F]
 
 bancas/      Banca            projeto, data_hora, local, status              [D]
-             MembroBanca      banca, interno→Usuario | externo, token        [D]
+             MembroBanca      banca, interno→Usuario | externo→nome (texto)  [D]
              Avaliacao        membro, nota, comentários                      [D]
              ItemCorrecao     projeto, descrição, concluído (checklist)      [F]
 
@@ -679,7 +679,17 @@ Blocos: **A** fundação e contas (esta fase) · **B** temas e alocação · **C
 **D** bancas e avaliação · **E** atas e SUGRAD · **F** TCC II · **G** catálogo e
 calendário públicos · **H** API DRF.
 
-Duas decisões antecipadas deste mapa:
+Três decisões antecipadas deste mapa:
+
+**Membro externo de banca não tem conta, login nem modelo próprio — decisão
+revertida.** Uma versão anterior deste mapa (e da regra 3 do `CLAUDE.md`) previa
+`ProfessorExterno` com CPF e autenticação por token via e-mail, para que o próprio
+avaliador externo preenchesse sua avaliação. Revertido: o membro externo é só um
+**nome** (campo de texto em `MembroBanca`, sem FK, sem CPF, sem token). Quem lança a
+nota e os comentários dele é quem já tem acesso ao sistema — o orientador ou a
+coordenação em nome dele. Isso elimina o subsistema de autenticação externa inteiro
+do Bloco D: sem token temporário, sem tela de login simplificada, sem o risco de
+segurança de expor um formulário de avaliação a um link de e-mail.
 
 **O catálogo público não vira modelo.** A tabela-resumo do `inicio.pdf` prevê um
 `PublicCatalog`, mas ele duplicaria dados que já existem em `Projeto`. Catálogo é uma

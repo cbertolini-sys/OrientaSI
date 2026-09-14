@@ -137,10 +137,14 @@ português. Interface, mensagens de erro, comentários e commits também.
      acesso de admin sem antes nomear outro.
    * `semear_sistema` só cria o **primeiro** coordenador; a partir daí, promover
      e revogar é responsabilidade exclusiva do painel da coordenação.
-3. **Professores Externos:** Autenticação simplificada via link enviado por
-   e-mail (token temporário), informando apenas Nome e CPF para preenchimento da
-   avaliação da banca. **Esta é uma decisão de arquitetura registrada para o
-   Bloco D — o modelo `ProfessorExterno` e esse fluxo não existem na Fase 1.**
+3. **Membros Externos de Banca:** Sem autenticação e sem acesso ao sistema —
+   **decisão revertida** em relação a uma versão anterior deste documento, que
+   previa login por token e um modelo `ProfessorExterno` próprio. O orientador
+   informa só o **nome** do avaliador externo ao montar a banca (campo de texto
+   em `MembroBanca`, sem FK, sem CPF, sem `ProfessorExterno`). A avaliação
+   (nota, comentários) do membro externo é lançada por quem tem acesso ao
+   sistema — o orientador ou a coordenação em nome dele —, nunca pelo próprio
+   externo. **Registrada para o Bloco D — nada disto existe ainda.**
 4. **Camada de Serviço (`services.py`):** Lógicas complexas (transição de status,
    envio de convites, criação de atas, validação de vagas) ficam
    obrigatoriamente na camada de serviço de cada app. `models.py` contém apenas
