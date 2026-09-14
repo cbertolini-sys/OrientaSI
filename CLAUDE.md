@@ -90,11 +90,19 @@ Todos os comandos devem rodar via container Docker:
   professor e painel da coordenação para ajustar orientação e conceder limite
   (Bloco B, implementado). Envio/reenvio do trabalho escrito (PDF + editável)
   pelo aluno em `/meu-tcc/`, com visibilidade do estado de envio para o
-  orientador em `/orientacoes/` (`Submissao`, Bloco C, implementado). O modelo
-  `Projeto` nasce no Bloco B, mas só chega ao status `EM_ANDAMENTO`; as demais
-  transições (defesa, aprovação, correções) ficam para os Blocos D em diante.
-* `apps/bancas`: criada, registrada, vazia — reservada para o Bloco D (bancas e
-  avaliação).
+  orientador em `/orientacoes/` (`Submissao`, Bloco C, implementado). Reabertura
+  e cancelamento definitivo de um projeto `Reprovado` (`reabrir_projeto`/
+  `cancelar_projeto`, Bloco D, implementado). O modelo `Projeto` nasce no Bloco
+  B; as transições `EM_ANDAMENTO` → `Aguardando Defesa` →
+  `Aprovado com Ressalvas`/`Reprovado` já estão implementadas (Bloco D); as
+  demais (aprovação de correções, TCC II) ficam para os Blocos E–F.
+* `apps/bancas`: agendamento de banca (`agendar_banca`/`editar_banca`/
+  `cancelar_banca`), registro do resultado da apresentação
+  (`registrar_resultado`) e notificação por e-mail do agendamento (Bloco D,
+  implementado). `Banca`/`MembroBanca` — nota e resultado são únicos por
+  banca, não um por membro (decisão registrada, ver regra 3 abaixo e o spec
+  do bloco). Sem `Avaliacao` por membro, sem checklist de correções (Bloco
+  F) e sem ata (Bloco E) — ainda não existem.
 * `apps/documentos`: criada, registrada, vazia — reservada para o Bloco E (atas
   e SUGRAD).
 
@@ -139,14 +147,20 @@ português. Interface, mensagens de erro, comentários e commits também.
      acesso de admin sem antes nomear outro.
    * `semear_sistema` só cria o **primeiro** coordenador; a partir daí, promover
      e revogar é responsabilidade exclusiva do painel da coordenação.
-3. **Membros Externos de Banca:** Sem autenticação e sem acesso ao sistema —
-   **decisão revertida** em relação a uma versão anterior deste documento, que
-   previa login por token e um modelo `ProfessorExterno` próprio. O orientador
-   informa só o **nome** do avaliador externo ao montar a banca (campo de texto
-   em `MembroBanca`, sem FK, sem CPF, sem `ProfessorExterno`). A avaliação
-   (nota, comentários) do membro externo é lançada por quem tem acesso ao
-   sistema — o orientador ou a coordenação em nome dele —, nunca pelo próprio
-   externo. **Registrada para o Bloco D — nada disto existe ainda.**
+3. **Membros Externos de Banca (implementado no Bloco D):** Sem autenticação e
+   sem acesso ao sistema — **decisão revertida** em relação a uma versão
+   anterior deste documento, que previa login por token e um modelo
+   `ProfessorExterno` próprio. O orientador informa só o **nome** do avaliador
+   externo ao montar a banca (campo de texto em `MembroBanca`, sem FK, sem
+   CPF, sem `ProfessorExterno`) — o orientador participa da banca
+   implicitamente, sem uma linha própria em `MembroBanca`. **Divergência do
+   `inicio.pdf` original, decidida no brainstorming do Bloco D:** não existe
+   uma nota por membro (`Avaliacao`, prevista no mapa de domínio original).
+   Existe uma única nota, um único resultado e um único comentário por
+   `Banca`, decididos coletivamente na apresentação e digitados pelo
+   orientador (`services.registrar_resultado`, `apps/bancas/services.py`) —
+   nem o membro externo nem o interno acessam alguma tela do sistema para
+   registrar sua própria avaliação.
 4. **Camada de Serviço (`services.py`):** Lógicas complexas (transição de status,
    envio de convites, criação de atas, validação de vagas) ficam
    obrigatoriamente na camada de serviço de cada app. `models.py` contém apenas
@@ -174,25 +188,38 @@ português. Interface, mensagens de erro, comentários e commits também.
 ## 🔄 Ciclo de Vida e Status do TCC
 
 Status permitidos: `Em Andamento` ➔ `Aguardando Defesa` ➔ `Aprovado com Ressalvas`
-➔ `Aprovado` ➔ `Concluído` (ou `Reprovado`).
+➔ `Aprovado` ➔ `Concluído` (ou `Reprovado`). **Acréscimo do Bloco D, fora do
+vocabulário original do `inicio.pdf`:** `Cancelado` — encerramento definitivo
+de um projeto `Reprovado`, distinto de `Reprovado` (que registra que a banca
+não aprovou, não que o projeto foi encerrado). Ver regra 3.6 do spec do
+Bloco D para o raciocínio completo.
 
-O modelo `Projeto` existe desde o Bloco B (`apps/projetos/models.py`), com o
-vocabulário completo do ciclo já nos `choices` de `status` — mas só
-`EM_ANDAMENTO` é alcançável até aqui: o aceite de uma opção de candidatura cria
-o `Projeto` e para nesse status. O Bloco C acrescenta o envio do trabalho
-escrito (`Submissao`) sem fechar a transição para `Aguardando Defesa` — ela
-também depende do agendamento de uma `Banca`, que só existe a partir do
-Bloco D. As demais transições (`Aguardando Defesa` em diante) são
-especificadas para os Blocos D–F, que ainda vão implementá-las sobre o mesmo
-modelo.
+O modelo `Projeto` existe desde o Bloco B (`apps/projetos/models.py`). O Bloco
+C acrescentou o envio do trabalho escrito (`Submissao`). O Bloco D implementou
+o restante do ciclo até `Reprovado`: `agendar_banca` fecha `EM_ANDAMENTO` →
+`Aguardando Defesa` (exige uma `Submissao` já enviada); `registrar_resultado`
+fecha `Aguardando Defesa` → `Aprovado com Ressalvas`/`Reprovado`; a partir de
+`Reprovado`, `reabrir_projeto`/`cancelar_projeto` levam a `Em Andamento` (o
+aluno tenta de novo) ou a `Cancelado` (fim de linha). `Aprovado` e `Concluído`
+— aprovação do checklist de correções, termo de publicação, ata e aprovação
+da SUGRAD — ficam para os Blocos E e F, que ainda vão implementá-los sobre o
+mesmo modelo.
 
 1. **`Em Andamento`:** Aluno aceito e elaborando o trabalho.
-2. **`Aguardando Defesa`:** Aluno envia PDF/Editável e orientador agenda a banca.
-3. **`Aprovado com Ressalvas`:** Defesa realizada com nota e comentários, abrindo
-   prazo de correções.
+2. **`Aguardando Defesa`:** Aluno envia PDF/Editável e orientador agenda a banca
+   (`apps/bancas`, Bloco D).
+3. **`Aprovado com Ressalvas`:** Defesa realizada com nota e comentários (uma
+   nota geral da banca, não uma por membro — ver regra 3), abrindo prazo de
+   correções.
 4. **`Aprovado`:** Orientador aprova o **checklist de correções** E o aluno
-   assina o **termo de aceite de publicação** (TCC II).
-5. **`Concluído`:** SUGRAD aprova a Ata no Painel SUGRAD.
+   assina o **termo de aceite de publicação** (TCC II). **Ainda não
+   implementado (Bloco F).**
+5. **`Concluído`:** SUGRAD aprova a Ata no Painel SUGRAD. **Ainda não
+   implementado (Bloco E).**
+6. **`Reprovado`:** Defesa realizada sem aprovação — o orientador reabre
+   (volta a `Em Andamento`) ou cancela definitivamente (`Cancelado`).
+7. **`Cancelado`:** Estado terminal — nenhuma ação definida a partir daqui
+   (lacuna registrada, spec do Bloco D §2).
 
 ---
 
@@ -219,8 +246,12 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   para o orientador em `/orientacoes/`. Não fecha a transição de
   `Projeto.status` para `Aguardando Defesa` — essa transição também depende
   do agendamento de uma `Banca` (Bloco D).
-* **D** — bancas e avaliação (membro externo é só um nome, sem conta nem
-  autenticação — ver regra 3 acima)
+* **D — bancas e avaliação (concluído)**: `Banca`/`MembroBanca`
+  (`apps/bancas`); agendar/editar/cancelar banca; registrar resultado (uma
+  nota geral, não por membro — ver regra 3); a partir de `Reprovado`,
+  reabrir o projeto ou cancelá-lo definitivamente (`Cancelado`, status novo).
+  Sem `Avaliacao` por membro, sem checklist de correções (Bloco F) e sem ata
+  (Bloco E).
 * **E** — atas e SUGRAD
 * **F** — TCC II
 * **G** — catálogo e calendário públicos
