@@ -98,6 +98,12 @@
                 {{ projeto.get_etapa_display }}
                 {% if projeto.tema %} — {{ projeto.tema.titulo }}{% endif %}
               </p>
+              {% if projeto.coorientador or projeto.coorientador_externo %}
+                <p class="text-sm text-base-content/80">
+                  Coorientador:
+                  {% if projeto.coorientador %}{{ projeto.coorientador.usuario.nome_completo }}{% else %}{{ projeto.coorientador_externo }} (externo){% endif %}
+                </p>
+              {% endif %}
               {% comment %}
                 Ramos, nesta ordem — a ORDEM importa porque `banca_ativa` é
                 truthy para REALIZADA de mais de um status (Bloco D+E):
@@ -139,6 +145,12 @@
                     <button type="submit" class="btn btn-outline btn-sm">Cancelar</button>
                   </form>
                   <a href="{% url 'bancas:resultado' projeto.banca_ativa.pk %}" class="btn btn-primary btn-sm">Registrar resultado</a>
+                </div>
+              {% elif projeto.status == "APROVADO_COM_RESSALVAS" and projeto.etapa == "TCC_II" %}
+                <div class="mt-2">
+                  <a href="{% url 'bancas:correcoes' projeto.pk %}" class="btn btn-outline btn-sm">
+                    Gerenciar correções
+                  </a>
                 </div>
               {% elif projeto.status == "APROVADO_COM_RESSALVAS" %}
                 <div class="mt-2">
