@@ -708,18 +708,22 @@ def criar_tcc_ii_manual_view(request):
     """Professor cria um TCC II manualmente (Bloco F, spec §7). Portão de
     PAPEL primeiro (`pode_criar_tema`, mesmo reaproveitamento de
     `orientacoes`/`meus_temas` — ela só pergunta "é professor?"), antes de
-    tocar `perfil_professor`."""
+    tocar `perfil_professor`. `tema` (Bloco G) vem do formulário, já
+    restrito aos temas do próprio `professor` (`FormularioCriarTccII`)."""
     permissions.garante(
         permissions.pode_criar_tema(request.user), "Somente professores criam TCC II."
     )
     professor = request.user.perfil_professor
 
     if request.method == "POST":
-        formulario = FormularioCriarTccII(request.POST)
+        formulario = FormularioCriarTccII(request.POST, professor=professor)
         if formulario.is_valid():
             try:
                 services.criar_tcc_ii_manual(
-                    formulario.cleaned_data["aluno"], professor, por=request.user
+                    formulario.cleaned_data["aluno"],
+                    professor,
+                    formulario.cleaned_data["tema"],
+                    por=request.user,
                 )
             except ValidationError as erro:
                 formulario.add_error(None, erro.messages[0])
@@ -727,6 +731,6 @@ def criar_tcc_ii_manual_view(request):
                 messages.success(request, "TCC II criado.")
                 return redirect("projetos:orientacoes")
     else:
-        formulario = FormularioCriarTccII()
+        formulario = FormularioCriarTccII(professor=professor)
 
     return render(request, "projetos/criar_tcc_ii.html", {"formulario": formulario})

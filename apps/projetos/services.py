@@ -1357,11 +1357,15 @@ def criar_tcc_ii_automatico(projeto_tcc_i):
     o TCC I vira `CONCLUIDO`. Copia aluno, orientador e coorientador; NÃO
     checa limite de vagas (é continuação de um aluno que o professor já
     orienta, não um compromisso novo — ao contrário de
-    `criar_tcc_ii_manual`, que reaproveita `criar_projeto_sob_limite`)."""
+    `criar_tcc_ii_manual`, que reaproveita `criar_projeto_sob_limite`).
+    Copia também `tema` — se o TCC I nasceu de uma candidatura aberta (sem
+    tema pré-publicado), o TCC II herda `tema=None` do mesmo jeito; sem
+    tema, o catálogo (Bloco G) não publica este TCC II."""
     ano, periodo = semestre_vigente()
     tcc_ii = Projeto.objects.create(
         aluno=projeto_tcc_i.aluno,
         orientador=projeto_tcc_i.orientador,
+        tema=projeto_tcc_i.tema,
         coorientador=projeto_tcc_i.coorientador,
         coorientador_externo=projeto_tcc_i.coorientador_externo,
         etapa=Projeto.TCC_II,
@@ -1378,16 +1382,21 @@ def criar_tcc_ii_automatico(projeto_tcc_i):
     return tcc_ii
 
 
-def criar_tcc_ii_manual(aluno, professor, por):
+def criar_tcc_ii_manual(aluno, professor, tema, por):
     """Cria um TCC II do zero, sem TCC I anterior no sistema — comprova
     equivalência externa (Bloco F, spec §3.2). Casca fina sobre
     `criar_projeto_sob_limite` (Bloco B, linha 68): reaproveita a checagem
-    de vaga testada contra corrida em vez de duplicá-la. `tema=None`: TCC II
-    não tem conceito de mural."""
+    de vaga testada contra corrida em vez de duplicá-la. `tema` é
+    obrigatório e precisa ser um dos próprios temas de `professor` (Bloco
+    G, spec §2) — fonte de Título/Resumo no catálogo público; a checagem de
+    posse é feita aqui, não só no formulário, porque o formulário não é o
+    único chamador possível desta função."""
     if not permissions.pode_criar_tcc_ii_manual(por, professor):
         raise PermissionDenied("Somente o próprio professor cria um TCC II em seu nome.")
+    if tema.professor_id != professor.id:
+        raise PermissionDenied("O tema precisa ser um dos seus próprios temas.")
 
-    tcc_ii = criar_projeto_sob_limite(aluno, professor, tema=None, etapa=Projeto.TCC_II)
+    tcc_ii = criar_projeto_sob_limite(aluno, professor, tema=tema, etapa=Projeto.TCC_II)
 
     from apps.projetos.tasks import enviar_tcc_ii_criado
 

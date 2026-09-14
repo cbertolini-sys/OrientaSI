@@ -273,10 +273,26 @@ class FormularioCriarTccII(MisturaAcessibilidadeFormulario, forms.Form):
     F, spec §7). `aluno` lista TODO `PerfilAluno` — sem pré-filtrar quem já
     tem TCC II ativo: `criar_projeto_sob_limite` já recusa com mensagem
     clara via `UniqueConstraint` (`IntegrityError` traduzido, Bloco B),
-    então filtrar aqui seria duplicar essa proteção sem necessidade."""
+    então filtrar aqui seria duplicar essa proteção sem necessidade. `tema`
+    nasce com queryset vazio, mesmo padrão de `FormularioTema.area`: a view
+    passa `professor=` no construtor, e só então o campo lista os temas
+    DESSE professor (Bloco G, spec §2) — sem essa restrição por instância,
+    o professor poderia escolher o tema de outro (a checagem de posse em
+    `services.criar_tcc_ii_manual` recusaria, mas o formulário já evita
+    oferecer a opção errada)."""
 
     aluno = forms.ModelChoiceField(
         label="Aluno",
         queryset=PerfilAluno.objects.select_related("usuario").order_by("usuario__nome_completo"),
         widget=forms.Select(attrs={"class": "select w-full"}),
     )
+    tema = forms.ModelChoiceField(
+        label="Tema",
+        queryset=Tema.objects.none(),
+        widget=forms.Select(attrs={"class": "select w-full"}),
+    )
+
+    def __init__(self, *args, professor=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if professor is not None:
+            self.fields["tema"].queryset = Tema.objects.filter(professor=professor)

@@ -7,10 +7,10 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.bancas import services as bancas_services
-from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
 from apps.projetos import services
-from apps.projetos.models import Projeto, TermoPublicacao
+from apps.projetos.models import Projeto, Tema, TermoPublicacao
 
 
 def _cpf(indice):
@@ -42,6 +42,13 @@ def _aluno(indice, nome):
     )
     PerfilAluno.objects.create(usuario=usuario, matricula=f"2026TCCII{indice:02d}")
     return usuario
+
+
+def _tema(indice, professor, titulo="Tema TCC II de Teste"):
+    area = Area.objects.create(nome=f"Área TCC II {indice}")
+    return Tema.objects.create(
+        professor=professor, area=area, titulo=titulo, descricao="Descrição de teste."
+    )
 
 
 @pytest.fixture
@@ -130,6 +137,15 @@ def test_criar_tcc_ii_automatico_copia_coorientador(projeto_tcc_i):
 
 
 @pytest.mark.django_db
+def test_criar_tcc_ii_automatico_copia_tema(projeto_tcc_i):
+    tema = _tema(8, projeto_tcc_i.orientador.perfil_professor)
+    projeto_tcc_i.tema = tema
+    projeto_tcc_i.save()
+    tcc_ii = services.criar_tcc_ii_automatico(projeto_tcc_i)
+    assert tcc_ii.tema_id == tema.id
+
+
+@pytest.mark.django_db
 def test_criar_tcc_ii_automatico_nao_checa_limite_de_vagas(projeto_tcc_i):
     """Mutação obrigatória (spec §3.1): este teste prova a AUSÊNCIA da
     checagem de vaga. Cria 3 outros TCC_II EM_ANDAMENTO para o mesmo
@@ -156,10 +172,14 @@ def test_criar_tcc_ii_automatico_nao_checa_limite_de_vagas(projeto_tcc_i):
 def test_criar_tcc_ii_manual_cria_sem_anterior():
     orientador = _professor(20, "Orientador Manual")
     aluno = _aluno(21, "Aluno Manual")
-    tcc_ii = services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, por=orientador.usuario)
+    tema = _tema(20, orientador)
+    tcc_ii = services.criar_tcc_ii_manual(
+        aluno.perfil_aluno, orientador, tema, por=orientador.usuario
+    )
     assert tcc_ii.anterior is None
     assert tcc_ii.etapa == Projeto.TCC_II
     assert tcc_ii.orientador_id == orientador.usuario_id
+    assert tcc_ii.tema_id == tema.id
 
 
 @pytest.mark.django_db
@@ -167,8 +187,21 @@ def test_criar_tcc_ii_manual_recusa_quem_nao_e_o_professor():
     orientador = _professor(22, "Orientador Manual Dois")
     outro = _professor(23, "Outro Professor Manual")
     aluno = _aluno(24, "Aluno Manual Dois")
+    tema = _tema(22, orientador)
     with pytest.raises(PermissionDenied):
-        services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, por=outro.usuario)
+        services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, tema, por=outro.usuario)
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_manual_recusa_tema_de_outro_professor():
+    orientador = _professor(60, "Orientador Manual Tema Alheio")
+    outro_professor = _professor(61, "Outro Professor Tema Alheio")
+    aluno = _aluno(62, "Aluno Manual Tema Alheio")
+    tema_alheio = _tema(60, outro_professor)
+    with pytest.raises(PermissionDenied):
+        services.criar_tcc_ii_manual(
+            aluno.perfil_aluno, orientador, tema_alheio, por=orientador.usuario
+        )
 
 
 @pytest.mark.django_db
@@ -176,6 +209,7 @@ def test_criar_tcc_ii_manual_recusa_professor_no_limite():
     from apps.comum.semestre import semestre_vigente
 
     orientador = _professor(25, "Orientador Manual Limite")
+    tema = _tema(25, orientador)
     ano, periodo = semestre_vigente()
     for indice in (26, 27, 28):
         Projeto.objects.create(
@@ -188,18 +222,23 @@ def test_criar_tcc_ii_manual_recusa_professor_no_limite():
         )
     aluno_novo = _aluno(29, "Aluno Manual Recusado")
     with pytest.raises(ValidationError):
-        services.criar_tcc_ii_manual(aluno_novo.perfil_aluno, orientador, por=orientador.usuario)
+        services.criar_tcc_ii_manual(
+            aluno_novo.perfil_aluno, orientador, tema, por=orientador.usuario
+        )
 
 
 @pytest.mark.django_db
 def test_criar_tcc_ii_manual_view_redireciona(client):
     orientador = _professor(30, "Orientador Manual View")
     aluno = _aluno(31, "Aluno Manual View")
+    tema = _tema(30, orientador)
     client.force_login(orientador.usuario)
-    resposta = client.post("/temas/tcc-ii/criar/", {"aluno": aluno.perfil_aluno.pk})
+    resposta = client.post(
+        "/temas/tcc-ii/criar/", {"aluno": aluno.perfil_aluno.pk, "tema": tema.pk}
+    )
     assert resposta.status_code == 302
     assert Projeto.objects.filter(
-        aluno=aluno, etapa=Projeto.TCC_II, orientador=orientador.usuario
+        aluno=aluno, etapa=Projeto.TCC_II, orientador=orientador.usuario, tema=tema
     ).exists()
 
 
@@ -349,8 +388,9 @@ def test_criar_tcc_ii_manual_notifica_aluno(settings, django_capture_on_commit_c
 
     orientador = _professor(70, "Orientador Notif Manual")
     aluno = _aluno(71, "Aluno Notif Manual")
+    tema = _tema(70, orientador)
     settings.CELERY_TASK_ALWAYS_EAGER = True
     with django_capture_on_commit_callbacks(execute=True):
-        services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, por=orientador.usuario)
+        services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, tema, por=orientador.usuario)
     assert len(mail.outbox) == 1
     assert mail.outbox[0].to == [aluno.email]
