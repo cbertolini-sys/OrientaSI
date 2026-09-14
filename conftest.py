@@ -895,6 +895,89 @@ def cria_professor_com_banca_agendada_para_rotas():
     return orientador
 
 
+def cria_sugrad_com_ata_pendente_para_rotas():
+    """Fábrica de `/painel/sugrad/` (Bloco E): conta SUGRAD com uma `Ata`
+    `PENDENTE` já gerada, para a lista do painel não ficar vazia na
+    medição."""
+    from apps.bancas.services import agendar_banca, registrar_resultado
+    from apps.comum.semestre import semestre_vigente
+    from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Projeto, Submissao
+    from apps.projetos.services import aprovar_projeto
+
+    sugrad = Usuario.objects.create_user(
+        email="sugrad-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="SUGRAD das Rotas",
+        papel=Usuario.SUGRAD,
+        cpf=None,
+    )
+
+    orientador = Usuario.objects.create_user(
+        email="orientador-ata-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Orientador Ata das Rotas",
+        cpf=_gera_cpf_das_rotas(33),
+    )
+    PerfilProfessor.objects.create(usuario=orientador, siape="1000022")
+
+    aluno = Usuario.objects.create_user(
+        email="aluno-ata-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Ata das Rotas",
+        cpf=_gera_cpf_das_rotas(34),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=aluno, matricula="2026399921")
+
+    ano, periodo = semestre_vigente()
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ano,
+        periodo=periodo,
+    )
+    Submissao.objects.create(
+        projeto=projeto, pdf="submissoes/rota-ata.pdf", editavel="submissoes/rota-ata.docx"
+    )
+
+    membro1 = Usuario.objects.create_user(
+        email="membro1-ata-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Membro Um Ata das Rotas",
+        cpf=_gera_cpf_das_rotas(35),
+    )
+    perfil_membro1 = PerfilProfessor.objects.create(usuario=membro1, siape="1000023")
+    membro2 = Usuario.objects.create_user(
+        email="membro2-ata-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Membro Dois Ata das Rotas",
+        cpf=_gera_cpf_das_rotas(36),
+    )
+    perfil_membro2 = PerfilProfessor.objects.create(usuario=membro2, siape="1000024")
+
+    banca = agendar_banca(
+        projeto,
+        data_hora=timezone.now(),
+        local="Sala das Rotas",
+        membros=[{"professor": perfil_membro1}, {"professor": perfil_membro2}],
+        por=orientador,
+    )
+    registrar_resultado(
+        banca,
+        nota=8.5,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+        comentario="Boa apresentação.",
+        por=orientador,
+    )
+
+    aprovar_projeto(projeto, por=orientador)
+
+    return sugrad
+
+
 # Lista única de rotas submetidas às cinco suítes transversais
 # (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
@@ -1042,6 +1125,12 @@ ROTAS = [
         "form",
         fabrica_usuario=cria_professor_com_banca_agendada_para_rotas,
         h1="Registrar resultado",
+    ),
+    Rota(
+        "/painel/sugrad/",
+        "form",
+        fabrica_usuario=cria_sugrad_com_ata_pendente_para_rotas,
+        h1="Painel SUGRAD",
     ),
 ]
 
