@@ -70,6 +70,33 @@ def projeto_em_andamento(db):
     )
 
 
+@pytest.fixture
+def projeto_tcc_ii_com_ressalvas(db):
+    aluno_usuario = Usuario.objects.create_user(
+        email="aluno.submissao.tccii@ufsm.br",
+        password="x",
+        nome_completo="Aluno Submissão TCC II",
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(950000006),
+    )
+    PerfilAluno.objects.create(usuario=aluno_usuario, matricula="2026SUB0006")
+    professor_usuario = Usuario.objects.create_user(
+        email="professor.submissao.tccii@ufsm.br",
+        password="x",
+        nome_completo="Professor Submissão TCC II",
+        cpf=_cpf_valido(950000007),
+    )
+    PerfilProfessor.objects.create(usuario=professor_usuario, siape="9500007")
+    return Projeto.objects.create(
+        aluno=aluno_usuario,
+        orientador=professor_usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=2,
+    )
+
+
 @pytest.mark.django_db
 def test_submissao_uma_por_projeto(projeto_em_andamento):
     Submissao.objects.create(
@@ -197,6 +224,34 @@ def test_enviar_submissao_recusa_fora_de_em_andamento(projeto_em_andamento):
         services.enviar_submissao(
             projeto_em_andamento,
             por=projeto_em_andamento.aluno,
+            pdf=_arquivo("v1.pdf"),
+            editavel=_arquivo("v1.docx"),
+        )
+
+
+@pytest.mark.django_db
+def test_enviar_submissao_aceita_reenvio_em_aprovado_com_ressalvas_para_tcc_ii(
+    projeto_tcc_ii_com_ressalvas,
+):
+    submissao = services.enviar_submissao(
+        projeto_tcc_ii_com_ressalvas,
+        por=projeto_tcc_ii_com_ressalvas.aluno,
+        pdf=_arquivo("corrigido.pdf"),
+        editavel=_arquivo("corrigido.docx"),
+    )
+    assert submissao.versao == 1
+
+
+@pytest.mark.django_db
+def test_enviar_submissao_recusa_tcc_ii_fora_dos_status_permitidos(projeto_tcc_ii_com_ressalvas):
+    """Mutação obrigatória: prova que a exceção é específica de
+    `APROVADO_COM_RESSALVAS`, não "qualquer status" para TCC_II."""
+    projeto_tcc_ii_com_ressalvas.status = Projeto.AGUARDANDO_DEFESA
+    projeto_tcc_ii_com_ressalvas.save(update_fields=["status"])
+    with pytest.raises(ValidationError):
+        services.enviar_submissao(
+            projeto_tcc_ii_com_ressalvas,
+            por=projeto_tcc_ii_com_ressalvas.aluno,
             pdf=_arquivo("v1.pdf"),
             editavel=_arquivo("v1.docx"),
         )

@@ -501,14 +501,18 @@ def meu_tcc(request):
     if request.method == "POST":
         formulario = FormularioSubmissao(request.POST, request.FILES)
         if formulario.is_valid():
-            services.enviar_submissao(
-                projeto,
-                por=request.user,
-                pdf=formulario.cleaned_data["pdf"],
-                editavel=formulario.cleaned_data["editavel"],
-            )
-            messages.success(request, "Submissão enviada com sucesso.")
-            return redirect("projetos:meu_tcc")
+            try:
+                services.enviar_submissao(
+                    projeto,
+                    por=request.user,
+                    pdf=formulario.cleaned_data["pdf"],
+                    editavel=formulario.cleaned_data["editavel"],
+                )
+            except ValidationError as erro:
+                formulario.add_error(None, erro.messages[0])
+            else:
+                messages.success(request, "Submissão enviada com sucesso.")
+                return redirect("projetos:meu_tcc")
     else:
         formulario = FormularioSubmissao()
 

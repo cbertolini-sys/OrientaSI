@@ -486,12 +486,20 @@ def enviar_submissao(projeto, por, pdf, editavel):
     (o pior caso é a versão que perder a corrida ficar como se nunca tivesse
     sido enviada — sem corrupção de dado, só uma versão a menos do que o
     aluno esperava).
+
+    Bloco G reabre esta função: o TCC II também aceita reenvio em `Aprovado
+    com Ressalvas` — é como o aluno deposita a versão corrigida depois da
+    banca (spec §3), pré-requisito para o "PDF Final" do catálogo público
+    refletir a correção, não o rascunho pré-banca.
     """
     permissions.garante(
         permissions.pode_enviar_submissao(por, projeto),
         "Você só pode enviar a submissão do seu próprio projeto.",
     )
-    if projeto.status != Projeto.EM_ANDAMENTO:
+    status_permitidos = [Projeto.EM_ANDAMENTO]
+    if projeto.etapa == Projeto.TCC_II:
+        status_permitidos.append(Projeto.APROVADO_COM_RESSALVAS)
+    if projeto.status not in status_permitidos:
         raise ValidationError(
             "Este projeto não está mais em andamento — não é possível enviar ou "
             "reenviar a submissão."

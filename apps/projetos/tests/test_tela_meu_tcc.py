@@ -189,3 +189,73 @@ def test_meu_tcc_assinar_termo_cria_a_linha(client):
     resposta = client.post(reverse("projetos:meu_tcc"), {"acao": "assinar_termo"})
     assert resposta.status_code == 302
     assert TermoPublicacao.objects.filter(projeto=projeto_tcc_ii).exists()
+
+
+@pytest.mark.django_db
+def test_meu_tcc_permite_reenvio_em_aprovado_com_ressalvas_para_tcc_ii(client):
+    aluno_usuario = Usuario.objects.create_user(
+        email="aluno.meutccii.reenvio@ufsm.br",
+        password="x",
+        nome_completo="Aluno Meu TCC II Reenvio",
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(950000030),
+    )
+    PerfilAluno.objects.create(usuario=aluno_usuario, matricula="2026MTC0030")
+    professor_usuario = Usuario.objects.create_user(
+        email="professor.meutccii.reenvio@ufsm.br",
+        password="x",
+        nome_completo="Professor Meu TCC II Reenvio",
+        cpf=_cpf_valido(950000031),
+    )
+    PerfilProfessor.objects.create(usuario=professor_usuario, siape="9500031")
+    Projeto.objects.create(
+        aluno=aluno_usuario,
+        orientador=professor_usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=2,
+    )
+
+    client.force_login(aluno_usuario)
+    resposta = client.post(
+        reverse("projetos:meu_tcc"),
+        {"pdf": _arquivo("corrigido.pdf"), "editavel": _arquivo("corrigido.docx")},
+    )
+    assert resposta.status_code == 302
+    assert Submissao.objects.filter(projeto__aluno=aluno_usuario).exists()
+
+
+@pytest.mark.django_db
+def test_meu_tcc_recusa_reenvio_tcc_ii_fora_dos_status_permitidos_sem_500(client):
+    aluno_usuario = Usuario.objects.create_user(
+        email="aluno.meutccii.recusa@ufsm.br",
+        password="x",
+        nome_completo="Aluno Meu TCC II Recusa",
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(950000032),
+    )
+    PerfilAluno.objects.create(usuario=aluno_usuario, matricula="2026MTC0032")
+    professor_usuario = Usuario.objects.create_user(
+        email="professor.meutccii.recusa@ufsm.br",
+        password="x",
+        nome_completo="Professor Meu TCC II Recusa",
+        cpf=_cpf_valido(950000033),
+    )
+    PerfilProfessor.objects.create(usuario=professor_usuario, siape="9500033")
+    Projeto.objects.create(
+        aluno=aluno_usuario,
+        orientador=professor_usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.AGUARDANDO_DEFESA,
+        ano=2026,
+        periodo=2,
+    )
+
+    client.force_login(aluno_usuario)
+    resposta = client.post(
+        reverse("projetos:meu_tcc"),
+        {"pdf": _arquivo("v1.pdf"), "editavel": _arquivo("v1.docx")},
+    )
+    assert resposta.status_code == 200
+    assert "não é possível enviar ou reenviar" in resposta.content.decode()
