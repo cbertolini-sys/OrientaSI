@@ -325,12 +325,15 @@ do texto) numa coluna própria, decifrando dentro da tarefa. O custo é uma chav
 cifra para gerenciar; o ganho é que nem o broker nem o log do worker chegam a ver
 o token.
 
-### 5.6 `ProfessorExterno` — adiado para o Bloco D
+### 5.6 Membro externo de banca — decidido, não haverá `ProfessorExterno`
 
-O `inicio.pdf` coloca `ExternalTeacherProfile` na app de contas, mas nada na Fase 1
-lê ou escreve nessa tabela. Uma tabela sem escritor é uma tabela cujo formato
-ninguém validou; quando as bancas forem implementadas, saberemos exatamente de que
-campos ela precisa. O nome fica reservado em `apps/contas`.
+**Superado.** Esta seção previa reservar o nome `ProfessorExterno` em `apps/contas`
+para um modelo com CPF e autenticação por token, a ser especificado no Bloco D. A
+decisão mudou (ver §12, "decisões antecipadas"): o membro externo da banca não tem
+conta, login nem modelo próprio — é só um **nome**, campo de texto em `MembroBanca`
+(`apps/bancas`, Bloco D). Não há nome nenhum para reservar em `apps/contas`. A
+resolução da contradição em §11 sobre este tema está desatualizada pelo mesmo
+motivo — ver a nota ali.
 
 ---
 
@@ -459,8 +462,9 @@ weasyprint>=62          Pillow>=10.4            python-dotenv
 gunicorn>=23            whitenoise>=6.7
 ```
 
-`djangorestframework` e `drf-spectacular` **não** entram agora, pela mesma razão que
-adiou o `ProfessorExterno` (§5.6): nada na Fase 1 os usa. Acrescentar uma dependência
+`djangorestframework` e `drf-spectacular` **não** entram agora, pelo mesmo princípio
+que manteve `apps/contas` sem um modelo para membro externo de banca (§5.6): nada na
+Fase 1 os usa. Acrescentar uma dependência
 no Bloco H é uma linha e uma reconstrução de imagem. O WeasyPrint é a exceção
 deliberada — ele não é dependência Python isolada, e sim um conjunto de bibliotecas
 de sistema no Dockerfile, cuja ausência só apareceria meses depois (§8.2).
@@ -642,13 +646,21 @@ passar verde medindo a tela de login) passa a valer para todas de uma vez.
 |---|---|---|---|
 | Camada visual | copiar CSS do projeto de referência | Tailwind + DaisyUI/Flowbite | Tailwind v4 + DaisyUI; só a paleta é herdada (§3.1) |
 | Idioma do código | apps e modelos em inglês | português é o idioma oficial | português (§3.3) |
-| Professor externo | "não precisaria ter acesso ao sistema" | autenticação por token temporário | token, decidido para o Bloco D |
+| Professor externo | "não precisaria ter acesso ao sistema" | autenticação por token temporário | **superada** — ver nota abaixo |
 | Status do TCC | cinco status, sem `Concluído` | seis status, com `Concluído` | seis, conforme o CLAUDE.md |
 
-Sobre o professor externo: como o `inicio.pdf` também exige que **cada** membro da
-banca preencha o formulário de avaliação, e o externo é membro de banca, a versão do
-CLAUDE.md é a única coerente — ele entra sem senha, apenas por token. O fluxo será
-especificado no Bloco D.
+**Sobre o professor externo, a resolução acima está desatualizada — registrado aqui
+para quem ler esta tabela isoladamente.** Na época, o argumento era que o
+`inicio.pdf` também exige que **cada** membro da banca preencha o formulário de
+avaliação, e que isso tornava a versão do `CLAUDE.md` (token, sem senha) a única
+coerente. A decisão mudou (§12 da spec da Fase 1, "decisões antecipadas", e regra 3
+do `CLAUDE.md`): o membro externo não preenche nada — quem lança a nota e os
+comentários dele é o orientador ou a coordenação, em nome dele. Isso torna a
+premissa do `inicio.pdf` ("cada membro preenche") a peça que o sistema efetivamente
+**não** implementa, e o `inicio.pdf` acaba sendo a fonte que perde neste ponto,
+não o `CLAUDE.md` — o oposto do que a resolução original concluiu. O membro
+externo é só um nome, campo de texto em `MembroBanca` (Bloco D), sem CPF e sem
+autenticação nenhuma.
 
 ---
 

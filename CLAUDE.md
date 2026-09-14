@@ -209,7 +209,8 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   exceção autorizada pela coordenação, e painel da coordenação para trocar
   orientador e conceder/revogar limite.
 * **C** — TCC I
-* **D** — bancas e avaliação (inclui `ProfessorExterno` e autenticação por token)
+* **D** — bancas e avaliação (membro externo é só um nome, sem conta nem
+  autenticação — ver regra 3 acima)
 * **E** — atas e SUGRAD
 * **F** — TCC II
 * **G** — catálogo e calendário públicos
