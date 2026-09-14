@@ -59,6 +59,7 @@ class Projeto(models.Model):
     APROVADO = "APROVADO"
     CONCLUIDO = "CONCLUIDO"
     REPROVADO = "REPROVADO"
+    CANCELADO = "CANCELADO"
     STATUS = [
         (EM_ANDAMENTO, "Em andamento"),
         (AGUARDANDO_DEFESA, "Aguardando defesa"),
@@ -66,6 +67,7 @@ class Projeto(models.Model):
         (APROVADO, "Aprovado"),
         (CONCLUIDO, "Concluído"),
         (REPROVADO, "Reprovado"),
+        (CANCELADO, "Cancelado"),
     ]
 
     aluno = models.ForeignKey(
@@ -107,13 +109,14 @@ class Projeto(models.Model):
         verbose_name_plural = "projetos"
         ordering = ["-criado_em"]
         constraints = [
-            # Um aluno só pode ter um projeto ATIVO por etapa — CONCLUIDO e
-            # REPROVADO são estados terminais e ficam de fora da condição, para
-            # que um TCC já encerrado não impeça o aluno de iniciar outro na
-            # mesma etapa (ex.: reprovado e reiniciando).
+            # Um aluno só pode ter um projeto ATIVO por etapa — CONCLUIDO,
+            # REPROVADO e CANCELADO (Bloco D) são estados terminais e ficam de
+            # fora da condição, para que um TCC já encerrado não impeça o
+            # aluno de iniciar outro na mesma etapa (ex.: reprovado e
+            # reiniciando, ou cancelado e recomeçando).
             models.UniqueConstraint(
                 fields=["aluno", "etapa"],
-                condition=~Q(status__in=["CONCLUIDO", "REPROVADO"]),
+                condition=~Q(status__in=["CONCLUIDO", "REPROVADO", "CANCELADO"]),
                 name="projeto_ativo_unico_por_aluno_e_etapa",
             ),
         ]
