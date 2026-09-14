@@ -13,6 +13,7 @@ test_concorrencia.py").
 import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import IntegrityError
 from django.urls import reverse
 
 from apps.comum.semestre import semestre_vigente
@@ -345,6 +346,31 @@ def test_conceder_limite_converte_erro_de_integridade_em_validationerror(
 
 
 @pytest.mark.django_db
+def test_conceder_limite_nao_disfarca_erro_de_integridade_de_outra_constraint(
+    monkeypatch, professor_novo, coordenador
+):
+    """Menor da rodada de correção 1: `LimiteOrientacao.Meta` tem DUAS
+    constraints — `limite_unico_por_professor_etapa_e_semestre` (a que o
+    `except` de `conceder_limite` sabe traduzir) e `CheckConstraint`
+    `limite_maior_que_padrao`. Só a checagem Python de
+    `limite <= LIMITE_PADRAO_VAGAS`, ANTES do INSERT, impede hoje que esta
+    função alcance o INSERT com um valor que violaria a segunda — este
+    teste contorna essa checagem via `monkeypatch` (baixando
+    `LIMITE_PADRAO_VAGAS` para 0) para forçar a função a chegar no INSERT
+    com `limite=1`, que passa pela checagem Python (1 > 0) mas viola o
+    `CheckConstraint` do banco (1 não é > 3). O `IntegrityError` resultante
+    tem que atravessar CRU — não pode ser traduzido para a mensagem de
+    "já existe uma autorização", que mentiria sobre a causa real.
+    """
+    monkeypatch.setattr(services, "LIMITE_PADRAO_VAGAS", 0)
+
+    with pytest.raises(IntegrityError):
+        services.conceder_limite(
+            professor_novo, Projeto.TCC_I, 1, "Justificativa.", por=coordenador
+        )
+
+
+@pytest.mark.django_db
 def test_conceder_limite_por_professor_comum_e_recusado_com_permissiondenied(
     professor_novo, professor_antigo
 ):
@@ -492,6 +518,13 @@ def test_painel_orientacoes_concede_limite_invalido_mostra_erro_sem_criar(
 
     assert resposta.status_code == 200
     assert not LimiteOrientacao.objects.filter(professor=professor_novo).exists()
+    # Menor da rodada de correção 1: a ausência de `LimiteOrientacao` nova
+    # também seria verdade se a view engolisse o erro num `pass` silencioso
+    # em vez de chamar `formulario_limite.add_error` — sem afirmar a
+    # MENSAGEM (não só "3", que já aparece na explicação estática do teto
+    # padrão, presente na tela mesmo sem erro nenhum), esse `pass` passaria
+    # por este teste.
+    assert "não muda nada" in resposta.content.decode()
 
 
 # --------------------------------------------------------------------------
@@ -552,11 +585,19 @@ def test_trocar_orientador_view_recusa_quando_lotado_nao_derruba_com_500(
     resposta = client.post(
         reverse("projetos:trocar_orientador", args=[projeto.pk]),
         {"novo_orientador": professor_novo.pk},
+        follow=True,
     )
 
-    assert resposta.status_code == 302  # nunca 500
+    assert resposta.status_code == 200  # 302 seguido até o painel, nunca 500
     projeto.refresh_from_db()
     assert projeto.orientador != professor_novo.usuario
+    # Menor da rodada de correção 1: `orientador != professor_novo` também
+    # seria verdade se a view engolisse a `ValidationError` num `pass`
+    # silencioso em vez de chamar `messages.error` — sem afirmar a
+    # mensagem, esse `pass` passaria por este teste (a troca já não
+    # acontece de qualquer forma, pela recusa do serviço).
+    mensagens = [str(m) for m in resposta.context["messages"]]
+    assert any("3 de 3" in m for m in mensagens)
 
 
 # --------------------------------------------------------------------------

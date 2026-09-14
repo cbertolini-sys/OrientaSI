@@ -867,6 +867,15 @@ def trocar_orientador(projeto, novo_professor, por):
     que não muda nada. A tela (`FormularioTrocarOrientador`,
     `apps/projetos/forms.py`) evita o caso excluindo o orientador atual do
     `<select>`, mas este serviço, chamado direto, não tem essa proteção.
+
+    SEGUNDA LACUNA REGISTRADA (rodada de correção 1 da T12, spec §5.3): a
+    mensagem de recusa acima ("Conceda um limite maior a ele...") pressupõe
+    que a coordenação CONSEGUE conceder esse limite — verdade só quando
+    `projeto.ano`/`projeto.periodo` é o semestre VIGENTE. `conceder_limite`
+    (abaixo) só concede para o semestre vigente, nunca para um semestre
+    passado; para um `Projeto` de semestre passado, esta mensagem aconselha
+    uma ação que a coordenação não tem como executar. Não decidida aqui —
+    ver a nota completa no spec.
     """
     permissions.garante(
         permissions.pode_ajustar_orientacao(por),
@@ -917,6 +926,14 @@ def conceder_limite(professor, etapa, limite, justificativa, por):
     pedido do spec (§6) para a coordenação escolher um ano/período
     arbitrário na hora de conceder.
 
+    LACUNA REGISTRADA (rodada de correção 1 da T12, spec §5.3): esta função
+    só concede para o semestre VIGENTE, mas `trocar_orientador` revalida
+    vaga no semestre do PROJETO — para um `Projeto` de um semestre PASSADO,
+    a mensagem de recusa de `trocar_orientador` aconselha "conceda um
+    limite maior a ele", e esta função não tem como conceder nada para
+    aquele semestre. As duas decisões são corretas isoladamente; a nota
+    completa, não decidida aqui, está no spec.
+
     RECUSAS, nesta ordem: permissão (só coordenação); limite que não eleva
     nada acima do teto padrão (ambiguidade 1 do controlador da T12 —
     `LimiteOrientacao.Meta.constraints` já impõe `limite > 3` no banco com
@@ -944,6 +961,20 @@ def conceder_limite(professor, etapa, limite, justificativa, por):
     SAVEPOINT aninhado (`with transaction.atomic()`) isola o INSERT para que
     o `IntegrityError`, se disparar, não "envenene" a transação inteira
     desta função.
+
+    QUAL CONSTRAINT DISPAROU (Menor da rodada de correção 1): `LimiteOrientacao.Meta`
+    tem DUAS constraints — a `UniqueConstraint` acima e
+    `CheckConstraint(limite__gt=3, name="limite_maior_que_padrao")`. A checagem
+    Python de `limite <= LIMITE_PADRAO_VAGAS`, logo no início desta função, já
+    intercepta todo valor que violaria o `CheckConstraint` antes de chegar
+    neste INSERT — então, hoje, todo `IntegrityError` que sai daqui só pode
+    ser o `UniqueConstraint`. O `except` abaixo não presume isso: ele lê
+    `erro.__cause__.diag.constraint_name` (o psycopg, driver deste projeto,
+    expõe o nome da constraint que o Postgres reportou) e só traduz a
+    mensagem amigável quando o nome bate com o `UniqueConstraint` esperado;
+    qualquer outro nome (uma constraint nova adicionada ao modelo no futuro,
+    por exemplo) é relançado como está, em vez de mentir sobre qual
+    constraint disparou.
     """
     permissions.garante(
         permissions.pode_conceder_limite(por),
@@ -977,7 +1008,15 @@ def conceder_limite(professor, etapa, limite, justificativa, por):
                 justificativa=justificativa.strip(),
                 autorizado_por=por,
             )
-    except IntegrityError:
+    except IntegrityError as erro:
+        nome_da_constraint = getattr(getattr(erro, "__cause__", None), "diag", None)
+        nome_da_constraint = getattr(nome_da_constraint, "constraint_name", None)
+        if nome_da_constraint != "limite_unico_por_professor_etapa_e_semestre":
+            # Não é a corrida que esta função sabe traduzir — ver a nota
+            # "QUAL CONSTRAINT DISPAROU" na docstring acima. Relança o
+            # IntegrityError original em vez de afirmar uma causa que não
+            # foi verificada.
+            raise
         raise ValidationError(mensagem_ja_autorizado) from None
 
 

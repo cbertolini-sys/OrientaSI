@@ -406,6 +406,21 @@ transações concorrentes poderiam usar valores diferentes.
 dias, e as vagas podem ter enchido nesse meio-tempo: a tela oferecer "aceitar" não é
 promessa de que ainda cabe.
 
+**Lacuna registrada na rodada de correção 1 da Tarefa 12, para não repetir a
+investigação:** `trocar_orientador` revalida vaga no semestre em que o `Projeto` NASCEU
+(`projeto.ano`/`projeto.periodo`, congelados na criação — decisão correta, documentada
+acima e na docstring do serviço), nunca no semestre vigente. Mas `conceder_limite`
+(§3.6/§4.5) só concede autorização para o semestre VIGENTE — não há parâmetro nem tela
+para a coordenação escolher outro. As duas decisões são corretas isoladamente; a
+interseção não é: para um `Projeto` de um semestre PASSADO, a mensagem de recusa de
+`trocar_orientador` diz "conceda um limite maior a ele", e a coordenação não tem como
+fazer isso — qualquer `LimiteOrientacao` concedido hoje vale para o semestre vigente, não
+para o semestre (já encerrado) do projeto. **Este parágrafo não decide o caso, e precisa
+decidir antes do Bloco C** — se `conceder_limite` deveria aceitar um semestre arbitrário
+como parâmetro, se a mensagem de `trocar_orientador` deveria deixar de sugerir uma ação
+impossível quando o semestre do projeto não é o vigente, ou se a lacuna é aceitável porque
+trocar orientador de um projeto de semestre passado já é, por si, um cenário raro.
+
 ---
 
 ## 6. Telas

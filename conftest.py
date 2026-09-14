@@ -234,10 +234,21 @@ def cria_professor_para_rotas():
 
 def cria_coordenador_para_rotas():
     """Fábrica de `/painel/`: professor promovido a coordenador (ver
-    apps/contas/tests/test_coordenacao_acessibilidade.py)."""
-    from apps.contas.models import Usuario
+    apps/contas/tests/test_coordenacao_acessibilidade.py).
 
-    return Usuario.objects.create_user(
+    `PerfilProfessor` acrescentado na rodada de correção 1 da T12 (Menor):
+    a docstring já prometia "professor promovido a coordenador", mas até
+    aqui a fábrica não criava o perfil — a navegação mais densa que
+    `base.html` produz para esse papel (coordenador que também é professor:
+    "Painel da coordenação", "Painel de orientações", "Meus temas",
+    "Minhas orientações", "Mural de temas", "Meu perfil" e "Sair", seis
+    botões além do nome) nunca era medida por `ROTAS`. A revisão testou esse
+    cenário à parte, em `tests/test_navegacao.py`, e ele passa — não era
+    defeito vivo, só cobertura ausente nas cinco suítes transversais.
+    """
+    from apps.contas.models import PerfilProfessor, Usuario
+
+    usuario = Usuario.objects.create_user(
         email="coordenador-das-rotas@ufsm.br",
         password="x",
         nome_completo="Coordenador das Rotas",
@@ -245,6 +256,8 @@ def cria_coordenador_para_rotas():
         is_coordenador=True,
         is_staff=True,
     )
+    PerfilProfessor.objects.create(usuario=usuario, siape="1000000")
+    return usuario
 
 
 def cria_aluno_para_rotas():
