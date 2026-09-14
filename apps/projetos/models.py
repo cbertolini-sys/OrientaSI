@@ -1,6 +1,11 @@
 from django.db import models
 from django.db.models import Q
 
+from apps.comum.validators import (
+    valida_extensao_editavel,
+    valida_extensao_pdf,
+    valida_tamanho_arquivo,
+)
 from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 
 # Compartilhado por Projeto e LimiteOrientacao: o semestre gravado é sempre o
@@ -333,3 +338,43 @@ class OpcaoCandidatura(models.Model):
 
     def __str__(self):
         return f"{self.candidatura} — opção {self.ordem} ({self.get_situacao_display()})"
+
+
+class Submissao(models.Model):
+    """O trabalho escrito que o aluno entrega para a banca (Bloco C, spec
+    §4.1) — uma linha por `Projeto`, não uma tabela de histórico: reenviar
+    ATUALIZA esta mesma linha, substituindo os arquivos e incrementando
+    `versao`. A versão anterior não fica acessível pelo sistema depois de
+    substituída — decisão do usuário, ciente do custo (sem histórico para
+    auditar depois de uma correção). Ver `services.enviar_submissao`.
+    """
+
+    projeto = models.OneToOneField(
+        Projeto,
+        # PROTECT: apagar o Projeto não pode arrastar a submissão em
+        # cascata, mesmo raciocínio de Candidatura.aluno/OpcaoCandidatura.tema
+        # no Bloco B.
+        on_delete=models.PROTECT,
+        related_name="submissao",
+        verbose_name="projeto",
+    )
+    pdf = models.FileField(
+        "PDF",
+        upload_to="submissoes/",
+        validators=[valida_extensao_pdf, valida_tamanho_arquivo],
+    )
+    editavel = models.FileField(
+        "editável",
+        upload_to="submissoes/",
+        validators=[valida_extensao_editavel, valida_tamanho_arquivo],
+    )
+    versao = models.PositiveSmallIntegerField("versão", default=1)
+    enviada_em = models.DateTimeField("enviada em", auto_now_add=True)
+    atualizada_em = models.DateTimeField("atualizada em", auto_now=True)
+
+    class Meta:
+        verbose_name = "submissão"
+        verbose_name_plural = "submissões"
+
+    def __str__(self):
+        return f"{self.projeto} — versão {self.versao}"

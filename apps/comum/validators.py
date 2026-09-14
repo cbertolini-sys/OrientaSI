@@ -29,3 +29,24 @@ def valida_tamanho_arquivo(arquivo):
             f"Arquivo de {arquivo.size / 1024 / 1024:.1f}MB excede o limite de "
             f"{settings.TAMANHO_MAXIMO_UPLOAD_MB}MB."
         )
+
+
+EXTENSAO_PDF = {".pdf"}
+EXTENSAO_EDITAVEL = {".docx"}
+
+
+def valida_extensao_pdf(arquivo):
+    """Só `.pdf` — usado no campo `pdf` de `Submissao`
+    (`apps/projetos/models.py`). Distinto de `valida_extensao_documento`,
+    que aceita `.pdf` OU `.docx` em qualquer campo: `Submissao` tem dois
+    campos com formatos diferentes e nomes que prometem qual é qual, e o
+    validator genérico deixaria um `.docx` passar despercebido no campo
+    `pdf` (spec do Bloco C, §4.1)."""
+    _valida_extensao(arquivo, EXTENSAO_PDF)
+
+
+def valida_extensao_editavel(arquivo):
+    """Só `.docx` — usado no campo `editavel` de `Submissao`. Ver
+    `valida_extensao_pdf`, acima, para o motivo de não reaproveitar
+    `valida_extensao_documento`."""
+    _valida_extensao(arquivo, EXTENSAO_EDITAVEL)
