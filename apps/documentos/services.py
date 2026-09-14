@@ -1,11 +1,13 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.template.loader import render_to_string
 from django.utils import timezone
 
 from apps.bancas.models import Banca
 from apps.documentos import permissions
 from apps.documentos.models import Ata, RevisaoSUGRAD
+from apps.documentos.tasks import enviar_ata_para_sugrad, enviar_devolucao_para_orientador
 from apps.projetos.models import Projeto
 
 
@@ -39,6 +41,8 @@ def gerar_ata(projeto):
     ata.save()
 
     RevisaoSUGRAD.objects.create(ata=ata)
+
+    transaction.on_commit(lambda: enviar_ata_para_sugrad.delay(ata.id))
 
     return ata
 
@@ -75,6 +79,8 @@ def devolver_ata(ata, por, comentario):
     revisao.decidida_em = timezone.now()
     revisao.save(update_fields=["status", "comentario", "decidida_em"])
 
+    transaction.on_commit(lambda: enviar_devolucao_para_orientador.delay(ata.id))
+
 
 def reenviar_a_sugrad(ata, por):
     """O orientador reenvia uma ata `DEVOLVIDA` — volta a `PENDENTE`
@@ -88,3 +94,5 @@ def reenviar_a_sugrad(ata, por):
 
     revisao.status = RevisaoSUGRAD.PENDENTE
     revisao.save(update_fields=["status"])
+
+    transaction.on_commit(lambda: enviar_ata_para_sugrad.delay(ata.id))

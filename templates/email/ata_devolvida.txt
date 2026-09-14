@@ -1,0 +1,10 @@
+Olá, {{ orientador.nome_completo }}.
+
+A SUGRAD devolveu a ata {{ ata.numero }} de {{ ata.projeto.aluno.nome_completo }}
+com o seguinte comentário:
+
+{{ comentario }}
+
+Entre no sistema para reenviar depois de resolver: {{ link }}
+
+OrientaSI — Sistema de Gestão de TCC

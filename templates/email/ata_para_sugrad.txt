@@ -1,0 +1,10 @@
+Olá, SUGRAD.
+
+Uma nova ata está disponível para revisão:
+
+Aluno: {{ ata.projeto.aluno.nome_completo }}
+Número da ata: {{ ata.numero }}
+
+Entre no sistema para baixar o PDF e decidir: {{ link }}
+
+OrientaSI — Sistema de Gestão de TCC
