@@ -98,6 +98,15 @@
                 {{ projeto.get_etapa_display }}
                 {% if projeto.tema %} — {{ projeto.tema.titulo }}{% endif %}
               </p>
+              {% if projeto.submissao %}
+                <p class="mt-1 text-sm">
+                  <a href="{{ projeto.submissao.pdf.url }}" class="link">
+                    Ver PDF enviado (versão {{ projeto.submissao.versao }})
+                  </a>
+                </p>
+              {% else %}
+                <p class="mt-1 text-sm text-base-content/70">Ainda não enviou o trabalho.</p>
+              {% endif %}
             </li>
           {% endfor %}
         </ul>

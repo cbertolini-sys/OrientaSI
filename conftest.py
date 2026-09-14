@@ -470,7 +470,7 @@ def cria_professor_com_manifestacao_para_rotas():
     """
     from apps.comum.semestre import semestre_vigente
     from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
-    from apps.projetos.models import Candidatura, OpcaoCandidatura, Projeto, Tema
+    from apps.projetos.models import Candidatura, OpcaoCandidatura, Projeto, Submissao, Tema
 
     usuario = Usuario.objects.create_user(
         email="professor-orientacoes-das-rotas@ufsm.br",
@@ -525,8 +525,35 @@ def cria_professor_com_manifestacao_para_rotas():
         papel=Usuario.ALUNO,
     )
     PerfilAluno.objects.create(usuario=orientando, matricula="2026399903")
-    Projeto.objects.create(
+    projeto_orientando = Projeto.objects.create(
         aluno=orientando,
+        orientador=usuario,
+        tema=tema,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=ano,
+        periodo=periodo,
+    )
+    Submissao.objects.create(
+        projeto=projeto_orientando,
+        pdf="submissoes/rota-orientacoes.pdf",
+        editavel="submissoes/rota-orientacoes.docx",
+    )
+
+    # Segundo orientando, SEM submissão (Bloco C): a fábrica original (rodada
+    # de correção 1 do Bloco B) só criava um `Projeto` — nenhum dos dois
+    # ramos do `{% if projeto.submissao %}` ficaria descoberto se todo
+    # orientando desta fábrica tivesse envio.
+    orientando_sem_envio = Usuario.objects.create_user(
+        email="aluno-orientacoes-sem-envio-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Orientações Sem Envio das Rotas",
+        cpf=_gera_cpf_das_rotas(4),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=orientando_sem_envio, matricula="2026399904")
+    Projeto.objects.create(
+        aluno=orientando_sem_envio,
         orientador=usuario,
         tema=tema,
         etapa=Projeto.TCC_I,

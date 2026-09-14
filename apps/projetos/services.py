@@ -431,7 +431,7 @@ def orientandos_atuais(professor):
             periodo=periodo,
             status=Projeto.EM_ANDAMENTO,
         )
-        .select_related("aluno", "tema")
+        .select_related("aluno", "tema", "submissao")
         .order_by("aluno__nome_completo")
     )
 

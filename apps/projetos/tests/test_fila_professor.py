@@ -21,6 +21,8 @@ import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.core import mail
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -28,7 +30,7 @@ from apps.comum.semestre import semestre_vigente
 from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
 from apps.projetos import permissions, services
-from apps.projetos.models import Candidatura, OpcaoCandidatura, Projeto
+from apps.projetos.models import Candidatura, OpcaoCandidatura, Projeto, Submissao
 
 ANO_VIGENTE, PERIODO_VIGENTE = semestre_vigente()
 
@@ -696,3 +698,76 @@ def test_aceitar_opcao_de_segundo_projeto_ativo_do_aluno_e_recusado_sem_500(
     opcao_b.refresh_from_db()
     assert opcao_b.situacao == OpcaoCandidatura.ENVIADA  # não foi aceita por cima do conflito
     assert Projeto.objects.filter(aluno=aluno.usuario, etapa=Projeto.TCC_I).count() == 1
+
+
+@pytest.mark.django_db
+def test_orientandos_atuais_mostra_se_enviou_submissao(tres_professores, area):
+    """`orientandos_atuais` não muda de assinatura — só passa a permitir
+    `projeto.submissao` sem N+1 (Bloco C)."""
+    professor = tres_professores[0]
+    ano, periodo = semestre_vigente()
+
+    aluno_enviou = _cria_aluno(10, "Aluno Enviou")
+    projeto_com_envio = Projeto.objects.create(
+        aluno=aluno_enviou.usuario,
+        orientador=professor.usuario,
+        etapa=Projeto.TCC_I,
+        ano=ano,
+        periodo=periodo,
+    )
+    Submissao.objects.create(
+        projeto=projeto_com_envio, pdf="submissoes/v1.pdf", editavel="submissoes/v1.docx"
+    )
+
+    aluno_nao_enviou = _cria_aluno(11, "Aluno Não Enviou")
+    Projeto.objects.create(
+        aluno=aluno_nao_enviou.usuario,
+        orientador=professor.usuario,
+        etapa=Projeto.TCC_I,
+        ano=ano,
+        periodo=periodo,
+    )
+
+    resultado = list(services.orientandos_atuais(professor))
+    por_aluno = {p.aluno_id: p for p in resultado}
+
+    assert hasattr(por_aluno[aluno_enviou.usuario_id], "submissao")
+    assert not hasattr(por_aluno[aluno_nao_enviou.usuario_id], "submissao")
+
+
+@pytest.mark.django_db
+def test_orientandos_atuais_nao_faz_query_extra_por_submissao(
+    tres_professores, area, django_assert_num_queries
+):
+    """Prova de ausência de N+1 — mesma disciplina de
+    `test_temas_do_mural_sem_n_mais_um` (T7, Bloco B): mede o número de
+    consultas com um orientando, depois com dois, e afirma que o segundo
+    número não é maior que o primeiro."""
+    professor = tres_professores[0]
+    ano, periodo = semestre_vigente()
+
+    def _cria_orientando(indice):
+        aluno = _cria_aluno(indice, f"Aluno N+1 {indice}")
+        projeto = Projeto.objects.create(
+            aluno=aluno.usuario,
+            orientador=professor.usuario,
+            etapa=Projeto.TCC_I,
+            ano=ano,
+            periodo=periodo,
+        )
+        Submissao.objects.create(
+            projeto=projeto,
+            pdf=f"submissoes/{indice}.pdf",
+            editavel=f"submissoes/{indice}.docx",
+        )
+
+    _cria_orientando(12)
+    with CaptureQueriesContext(connection) as captura:
+        for projeto in services.orientandos_atuais(professor):
+            _ = projeto.submissao.versao if hasattr(projeto, "submissao") else None
+    numero_com_um = len(captura.captured_queries)
+
+    _cria_orientando(13)
+    with django_assert_num_queries(numero_com_um):
+        for projeto in services.orientandos_atuais(professor):
+            _ = projeto.submissao.versao if hasattr(projeto, "submissao") else None
