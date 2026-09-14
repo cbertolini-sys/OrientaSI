@@ -6,6 +6,7 @@ from django.db import IntegrityError
 
 from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
+from apps.projetos import services
 from apps.projetos.models import Projeto, TermoPublicacao
 
 
@@ -104,3 +105,45 @@ def test_projeto_coorientador_aceita_so_um_ou_nenhum(projeto_tcc_i):
 def test_termo_publicacao_existencia_significa_assinado(projeto_tcc_i):
     termo = TermoPublicacao.objects.create(projeto=projeto_tcc_i)
     assert termo.assinado_em is not None
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_automatico_copia_aluno_e_orientador(projeto_tcc_i):
+    tcc_ii = services.criar_tcc_ii_automatico(projeto_tcc_i)
+    assert tcc_ii.aluno_id == projeto_tcc_i.aluno_id
+    assert tcc_ii.orientador_id == projeto_tcc_i.orientador_id
+    assert tcc_ii.etapa == Projeto.TCC_II
+    assert tcc_ii.status == Projeto.EM_ANDAMENTO
+    assert tcc_ii.anterior_id == projeto_tcc_i.id
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_automatico_copia_coorientador(projeto_tcc_i):
+    coorientador = _professor(7, "Coorientador Copiado")
+    projeto_tcc_i.coorientador = coorientador
+    projeto_tcc_i.save()
+    tcc_ii = services.criar_tcc_ii_automatico(projeto_tcc_i)
+    assert tcc_ii.coorientador_id == coorientador.id
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_automatico_nao_checa_limite_de_vagas(projeto_tcc_i):
+    """Mutação obrigatória (spec §3.1): este teste prova a AUSÊNCIA da
+    checagem de vaga. Cria 3 outros TCC_II EM_ANDAMENTO para o mesmo
+    orientador (o teto padrão) antes de chamar `criar_tcc_ii_automatico` —
+    se a função checasse limite, este quarto TCC_II seria recusado."""
+    from apps.comum.semestre import semestre_vigente
+
+    ano, periodo = semestre_vigente()
+    orientador = projeto_tcc_i.orientador
+    for indice in (10, 11, 12):
+        Projeto.objects.create(
+            aluno=_aluno(indice, f"Aluno Vaga Cheia {indice}"),
+            orientador=orientador,
+            etapa=Projeto.TCC_II,
+            status=Projeto.EM_ANDAMENTO,
+            ano=ano,
+            periodo=periodo,
+        )
+    tcc_ii = services.criar_tcc_ii_automatico(projeto_tcc_i)
+    assert tcc_ii.pk is not None

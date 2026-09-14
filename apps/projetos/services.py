@@ -1341,3 +1341,24 @@ def aprovar_projeto(projeto, por):
     from apps.documentos.services import gerar_ata
 
     gerar_ata(projeto)
+
+
+def criar_tcc_ii_automatico(projeto_tcc_i):
+    """Cria o TCC II a partir de um TCC I `Concluído` (Bloco F, spec §3.1)
+    — chamada por `apps.documentos.services.aprovar_ata` no momento em que
+    o TCC I vira `CONCLUIDO`. Copia aluno, orientador e coorientador; NÃO
+    checa limite de vagas (é continuação de um aluno que o professor já
+    orienta, não um compromisso novo — ao contrário de
+    `criar_tcc_ii_manual`, que reaproveita `criar_projeto_sob_limite`)."""
+    ano, periodo = semestre_vigente()
+    return Projeto.objects.create(
+        aluno=projeto_tcc_i.aluno,
+        orientador=projeto_tcc_i.orientador,
+        coorientador=projeto_tcc_i.coorientador,
+        coorientador_externo=projeto_tcc_i.coorientador_externo,
+        etapa=Projeto.TCC_II,
+        status=Projeto.EM_ANDAMENTO,
+        anterior=projeto_tcc_i,
+        ano=ano,
+        periodo=periodo,
+    )

@@ -128,3 +128,66 @@ def test_reenviar_a_sugrad_recusa_quem_nao_e_o_orientador(ata_pendente, sugrad):
 def test_reenviar_a_sugrad_recusa_fora_de_devolvida(ata_pendente):
     with pytest.raises(ValidationError):
         services.reenviar_a_sugrad(ata_pendente, por=ata_pendente.projeto.orientador)
+
+
+@pytest.mark.django_db
+def test_aprovar_ata_cria_tcc_ii_quando_etapa_e_tcc_i(ata_pendente, sugrad):
+    from apps.projetos.models import Projeto
+
+    assert ata_pendente.projeto.etapa == Projeto.TCC_I
+    services.aprovar_ata(ata_pendente, por=sugrad)
+    tcc_ii = Projeto.objects.get(anterior=ata_pendente.projeto)
+    assert tcc_ii.etapa == Projeto.TCC_II
+    assert tcc_ii.aluno_id == ata_pendente.projeto.aluno_id
+
+
+@pytest.mark.django_db
+def test_aprovar_ata_nao_cria_tcc_iii_para_tcc_ii_concluido(sugrad):
+    from django.utils import timezone
+
+    from apps.bancas.models import Banca
+    from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+    from apps.contas.validators import _digito
+    from apps.projetos.models import Projeto
+
+    def cpf(indice):
+        base = f"{820000000 + indice:09d}"
+        d1 = _digito(base, 10)
+        d2 = _digito(base + str(d1), 11)
+        return base + str(d1) + str(d2)
+
+    aluno = Usuario.objects.create_user(
+        email="aluno.tccii.ata@ufsm.br",
+        password="x",
+        nome_completo="Aluno TCC II Ata",
+        papel=Usuario.ALUNO,
+        cpf=cpf(1),
+    )
+    PerfilAluno.objects.create(usuario=aluno, matricula="2026TCCIIATA1")
+    orientador = Usuario.objects.create_user(
+        email="orientador.tccii.ata@ufsm.br",
+        password="x",
+        nome_completo="Orientador TCC II Ata",
+        cpf=cpf(2),
+    )
+    PerfilProfessor.objects.create(usuario=orientador, siape="TCCIIATA1")
+    projeto_tcc_ii = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO,
+        ano=2026,
+        periodo=1,
+    )
+    Banca.objects.create(
+        projeto=projeto_tcc_ii,
+        data_hora=timezone.now(),
+        local="Sala 1",
+        status=Banca.REALIZADA,
+        nota=9.0,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+    )
+    ata = services.gerar_ata(projeto_tcc_ii)
+    total_antes = Projeto.objects.count()
+    services.aprovar_ata(ata, por=sugrad)
+    assert Projeto.objects.count() == total_antes

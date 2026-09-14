@@ -63,6 +63,11 @@ def aprovar_ata(ata, por):
     ata.projeto.status = Projeto.CONCLUIDO
     ata.projeto.save(update_fields=["status"])
 
+    if ata.projeto.etapa == Projeto.TCC_I:
+        from apps.projetos.services import criar_tcc_ii_automatico
+
+        criar_tcc_ii_automatico(ata.projeto)
+
 
 def devolver_ata(ata, por, comentario):
     """A SUGRAD devolve a ata com um comentário — não muda
