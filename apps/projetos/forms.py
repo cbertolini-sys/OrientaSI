@@ -1,6 +1,11 @@
 from django import forms
 from django.core.exceptions import ValidationError
 
+from apps.comum.validators import (
+    valida_extensao_editavel,
+    valida_extensao_pdf,
+    valida_tamanho_arquivo,
+)
 from apps.contas.forms import MisturaAcessibilidadeFormulario
 from apps.contas.models import Area, PerfilProfessor
 from apps.projetos.models import Projeto, Tema
@@ -241,4 +246,23 @@ class FormularioFiltroMural(MisturaAcessibilidadeFormulario, forms.Form):
         required=False,
         empty_label="Todas as áreas",
         widget=forms.Select(attrs={"class": "select w-full"}),
+    )
+
+
+class FormularioSubmissao(MisturaAcessibilidadeFormulario, forms.Form):
+    """Envio/reenvio do trabalho escrito (Bloco C). `MisturaAcessibilidadeFormulario`
+    já detecta `ClearableFileInput` e aplica `.file-input w-full`
+    (`apps/contas/forms.py::aplica_estilo`) — nenhum `widget=` explícito
+    precisa ser passado aqui. Sem `autocomplete` nos dois campos: nenhum
+    token da lista de "input purposes" do WHATWG/WCAG 2.1 (critério 1.3.5)
+    serve para upload de arquivo (mesmo raciocínio de `FormularioConvidado.foto`,
+    `apps/contas/forms.py`)."""
+
+    pdf = forms.FileField(
+        label="PDF",
+        validators=[valida_extensao_pdf, valida_tamanho_arquivo],
+    )
+    editavel = forms.FileField(
+        label="Editável (.docx)",
+        validators=[valida_extensao_editavel, valida_tamanho_arquivo],
     )

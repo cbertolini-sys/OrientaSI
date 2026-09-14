@@ -54,6 +54,7 @@ HREF_MURAL = 'href="/temas/"'
 HREF_MEUS_TEMAS = 'href="/temas/meus/"'
 HREF_ORIENTACOES = 'href="/orientacoes/"'
 HREF_CANDIDATURA = 'href="/candidatura/"'
+HREF_MEU_TCC = 'href="/meu-tcc/"'
 HREF_PERFIL = 'href="/perfil/"'
 HREF_PAINEL_COORDENACAO = 'href="/painel/"'
 HREF_PAINEL_ORIENTACOES = 'href="/painel/orientacoes/"'
@@ -63,6 +64,7 @@ TODOS_OS_HREFS_AUTENTICADOS = [
     HREF_MEUS_TEMAS,
     HREF_ORIENTACOES,
     HREF_CANDIDATURA,
+    HREF_MEU_TCC,
     HREF_PERFIL,
     HREF_PAINEL_COORDENACAO,
     HREF_PAINEL_ORIENTACOES,
@@ -121,7 +123,7 @@ def test_navegacao_aluno(client):
 
     _assert_presentes_e_ausentes(
         html,
-        presentes=[HREF_CANDIDATURA, HREF_PERFIL, HREF_MURAL],
+        presentes=[HREF_CANDIDATURA, HREF_MEU_TCC, HREF_PERFIL, HREF_MURAL],
         ausentes=[
             HREF_MEUS_TEMAS,
             HREF_ORIENTACOES,
@@ -150,6 +152,7 @@ def test_navegacao_professor_comum(client):
         presentes=[HREF_ORIENTACOES, HREF_MEUS_TEMAS, HREF_MURAL, HREF_PERFIL],
         ausentes=[
             HREF_CANDIDATURA,
+            HREF_MEU_TCC,
             HREF_PAINEL_COORDENACAO,
             HREF_PAINEL_ORIENTACOES,
             HREF_ENTRAR,
@@ -174,7 +177,7 @@ def test_navegacao_coordenador_sem_perfil_professor(client):
     _assert_presentes_e_ausentes(
         html,
         presentes=[HREF_PAINEL_COORDENACAO, HREF_PAINEL_ORIENTACOES, HREF_PERFIL, HREF_MURAL],
-        ausentes=[HREF_ORIENTACOES, HREF_MEUS_TEMAS, HREF_CANDIDATURA, HREF_ENTRAR],
+        ausentes=[HREF_ORIENTACOES, HREF_MEUS_TEMAS, HREF_CANDIDATURA, HREF_MEU_TCC, HREF_ENTRAR],
     )
 
 
@@ -203,5 +206,5 @@ def test_navegacao_coordenador_que_tambem_e_professor(client):
             HREF_MURAL,
             HREF_PERFIL,
         ],
-        ausentes=[HREF_CANDIDATURA, HREF_ENTRAR],
+        ausentes=[HREF_CANDIDATURA, HREF_MEU_TCC, HREF_ENTRAR],
     )

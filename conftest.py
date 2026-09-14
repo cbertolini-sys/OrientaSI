@@ -657,6 +657,54 @@ def cria_aluno_com_candidatura_para_rotas():
     return usuario
 
 
+def cria_aluno_com_projeto_para_rotas():
+    """Fábrica de `/meu-tcc/` (Bloco C): aluno com `Projeto` `EM_ANDAMENTO`
+    no semestre vigente e uma `Submissao` já enviada — para que o ramo "já
+    enviou, versão N" do template entre na medição, não só o formulário
+    vazio (mesma lição de `cria_professor_com_manifestacao_para_rotas`,
+    acima: semear os dois lados de um `{% if %}`, não só o estado inicial).
+
+    Sem `Area`: `meu_tcc.html` não usa área nenhuma — diferente das fábricas
+    de tema/mural, que precisam de uma `Area` para o professor declarar."""
+    from apps.comum.semestre import semestre_vigente
+    from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Projeto, Submissao
+
+    usuario = Usuario.objects.create_user(
+        email="aluno-meutcc-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Meu TCC das Rotas",
+        cpf=_gera_cpf_das_rotas(10),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=usuario, matricula="2026399910")
+
+    professor = PerfilProfessor.objects.create(
+        usuario=Usuario.objects.create_user(
+            email="professor-meutcc-das-rotas@ufsm.br",
+            password="x",
+            nome_completo="Professor Meu TCC das Rotas",
+            cpf=_gera_cpf_das_rotas(11),
+        ),
+        siape="1000010",
+    )
+
+    ano, periodo = semestre_vigente()
+    projeto = Projeto.objects.create(
+        aluno=usuario,
+        orientador=professor.usuario,
+        etapa=Projeto.TCC_I,
+        ano=ano,
+        periodo=periodo,
+    )
+    Submissao.objects.create(
+        projeto=projeto,
+        pdf="submissoes/rota-teste.pdf",
+        editavel="submissoes/rota-teste.docx",
+    )
+    return usuario
+
+
 def cria_coordenador_com_painel_orientacoes_para_rotas():
     """Fábrica de `/painel/orientacoes/` (T12): coordenador autenticado, mais
     dois `Projeto` de professores DIFERENTES — um com tema, um sem (os dois
@@ -877,6 +925,12 @@ ROTAS = [
         "form",
         fabrica_usuario=cria_coordenador_com_painel_orientacoes_para_rotas,
         h1="Painel de orientações",
+    ),
+    Rota(
+        "/meu-tcc/",
+        "form",
+        fabrica_usuario=cria_aluno_com_projeto_para_rotas,
+        h1="Meu TCC",
     ),
 ]
 

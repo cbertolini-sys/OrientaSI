@@ -18,6 +18,7 @@ urlpatterns = [
         views.cancelar_candidatura_view,
         name="cancelar_candidatura",
     ),
+    path("meu-tcc/", views.meu_tcc, name="meu_tcc"),
     path("painel/orientacoes/", views.painel_orientacoes, name="painel_orientacoes"),
     path(
         "painel/orientacoes/<int:projeto_id>/trocar-orientador/",

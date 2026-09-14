@@ -11,6 +11,7 @@ from apps.projetos.forms import (
     FormularioConcederLimite,
     FormularioFiltroMural,
     FormularioRecusaOpcao,
+    FormularioSubmissao,
     FormularioTema,
     FormularioTrocarOrientador,
 )
@@ -443,6 +444,58 @@ def cancelar_candidatura_view(request, candidatura_id):
     else:
         messages.success(request, "Candidatura cancelada.")
     return redirect("projetos:candidatura")
+
+
+@login_required
+def meu_tcc(request):
+    """Tela do aluno para enviar/reenviar a submissão do TCC I (Bloco C,
+    spec §6).
+
+    Portão de PAPEL antes de tocar `perfil_aluno` — reaproveita
+    `pode_montar_candidatura` (T11, Bloco B): apesar do nome, ela responde
+    exatamente "`usuario` é um aluno com perfil?", a mesma pergunta que esta
+    tela precisa fazer antes de qualquer coisa (mesma cautela de
+    `candidatura`/`orientacoes`, acima, contra o 500 de usuário com papel
+    mas sem perfil — Fase 1, `apps/contas/views.py::perfil`).
+
+    Sem `Projeto` ativo: estado vazio, sem formulário — não há para onde
+    enviar. Com `Projeto` ativo: formulário de envio/reenvio
+    (`FormularioSubmissao`), pré-carregando a `Submissao` atual se houver
+    (`hasattr(projeto, "submissao")` — acesso reverso de `OneToOneField` que
+    levanta `RelatedObjectDoesNotExist`, subclasse de `ObjectDoesNotExist`,
+    para quem ainda não enviou nada; usar `hasattr` aqui, do lado do Python,
+    em vez de depender do `silent_variable_failure` do template, porque o
+    valor é usado em lógica de view, não só de exibição).
+    """
+    permissions.garante(
+        permissions.pode_montar_candidatura(request.user),
+        "Somente alunos acessam esta tela.",
+    )
+    projeto = services.projeto_ativo_do_aluno(request.user, Projeto.TCC_I)
+    if projeto is None:
+        return render(request, "projetos/meu_tcc.html", {"projeto": None})
+
+    submissao_atual = projeto.submissao if hasattr(projeto, "submissao") else None
+
+    if request.method == "POST":
+        formulario = FormularioSubmissao(request.POST, request.FILES)
+        if formulario.is_valid():
+            services.enviar_submissao(
+                projeto,
+                por=request.user,
+                pdf=formulario.cleaned_data["pdf"],
+                editavel=formulario.cleaned_data["editavel"],
+            )
+            messages.success(request, "Submissão enviada com sucesso.")
+            return redirect("projetos:meu_tcc")
+    else:
+        formulario = FormularioSubmissao()
+
+    return render(
+        request,
+        "projetos/meu_tcc.html",
+        {"projeto": projeto, "formulario": formulario, "submissao_atual": submissao_atual},
+    )
 
 
 @login_required
