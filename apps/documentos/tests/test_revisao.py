@@ -191,3 +191,5 @@ def test_aprovar_ata_nao_cria_tcc_iii_para_tcc_ii_concluido(sugrad):
     total_antes = Projeto.objects.count()
     services.aprovar_ata(ata, por=sugrad)
     assert Projeto.objects.count() == total_antes
+    projeto_tcc_ii.refresh_from_db()
+    assert projeto_tcc_ii.status == Projeto.CONCLUIDO
