@@ -80,6 +80,8 @@
             valendo em toda página do sistema — ver tarefa-12-report.md.
           {% endcomment %}
           <ul class="flex flex-wrap items-center gap-2">
+            <li><a href="{% url 'publico:catalogo' %}" class="btn btn-ghost">Catálogo</a></li>
+            <li><a href="{% url 'publico:calendario' %}" class="btn btn-ghost">Calendário</a></li>
             {% if user.is_authenticated %}
               <li><span class="px-2">{{ user.nome_completo }}</span></li>
               {% if user.is_coordenador %}

@@ -1037,6 +1037,107 @@ def cria_professor_com_correcao_para_rotas():
     return orientador
 
 
+def cria_projeto_catalogavel_para_rotas():
+    """Fábrica de `/catalogo/` (Bloco G): um TCC_II Concluído completo
+    (tema, submissão, termo, ata aprovada) — sem isso a suíte mediria a
+    lista vazia, uma tela degenerada em vez da real (mesmo raciocínio de
+    `cria_sugrad_com_ata_pendente_para_rotas`, Bloco E)."""
+    from apps.bancas.models import Banca
+    from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
+    from apps.documentos.models import Ata, RevisaoSUGRAD
+    from apps.projetos.models import Projeto, Submissao, Tema, TermoPublicacao
+
+    orientador = Usuario.objects.create_user(
+        email="orientador-catalogo-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Orientador Catálogo das Rotas",
+        cpf=_gera_cpf_das_rotas(40),
+    )
+    perfil_orientador = PerfilProfessor.objects.create(usuario=orientador, siape="1000027")
+    aluno = Usuario.objects.create_user(
+        email="aluno-catalogo-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Catálogo das Rotas",
+        cpf=_gera_cpf_das_rotas(41),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=aluno, matricula="2026399923")
+    area = Area.objects.create(nome="Área Catálogo das Rotas")
+    tema = Tema.objects.create(
+        professor=perfil_orientador,
+        area=area,
+        titulo="Tema Catálogo das Rotas",
+        descricao="Descrição do tema catalogado.",
+    )
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador,
+        tema=tema,
+        etapa=Projeto.TCC_II,
+        status=Projeto.CONCLUIDO,
+        ano=2026,
+        periodo=1,
+    )
+    Submissao.objects.create(
+        projeto=projeto,
+        pdf="submissoes/rota-catalogo.pdf",
+        editavel="submissoes/rota-catalogo.docx",
+    )
+    TermoPublicacao.objects.create(projeto=projeto)
+    banca = Banca.objects.create(
+        projeto=projeto,
+        data_hora=timezone.now(),
+        local="Sala Catálogo das Rotas",
+        status=Banca.REALIZADA,
+        nota=9.0,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+    )
+    ata = Ata.objects.create(
+        projeto=projeto, banca=banca, numero="999/2026", pdf="atas/rota-catalogo.pdf"
+    )
+    RevisaoSUGRAD.objects.create(ata=ata, status=RevisaoSUGRAD.APROVADA, decidida_em=timezone.now())
+    return aluno
+
+
+def cria_banca_agendada_para_calendario_das_rotas():
+    """Fábrica de `/calendario/` (Bloco G): uma `Banca` `AGENDADA` no
+    futuro, pra suíte medir a tela com pelo menos um item."""
+    from apps.bancas.models import Banca
+    from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Projeto
+
+    orientador = Usuario.objects.create_user(
+        email="orientador-calendario-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Orientador Calendário das Rotas",
+        cpf=_gera_cpf_das_rotas(42),
+    )
+    PerfilProfessor.objects.create(usuario=orientador, siape="1000028")
+    aluno = Usuario.objects.create_user(
+        email="aluno-calendario-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Calendário das Rotas",
+        cpf=_gera_cpf_das_rotas(43),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=aluno, matricula="2026399924")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador,
+        etapa=Projeto.TCC_I,
+        status=Projeto.AGUARDANDO_DEFESA,
+        ano=2026,
+        periodo=1,
+    )
+    Banca.objects.create(
+        projeto=projeto,
+        data_hora=timezone.now() + timezone.timedelta(days=5),
+        local="Sala Calendário das Rotas",
+        status=Banca.AGENDADA,
+    )
+    return aluno
+
+
 # Lista única de rotas submetidas às cinco suítes transversais
 # (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
@@ -1202,6 +1303,18 @@ ROTAS = [
         "form",
         fabrica_usuario=cria_professor_com_correcao_para_rotas,
         h1="Correções — Aluno Correção das Rotas",
+    ),
+    Rota(
+        "/catalogo/",
+        "form",
+        fabrica_usuario=cria_projeto_catalogavel_para_rotas,
+        h1="Catálogo de TCCs",
+    ),
+    Rota(
+        "/calendario/",
+        "h1",
+        fabrica_usuario=cria_banca_agendada_para_calendario_das_rotas,
+        h1="Calendário de Apresentações",
     ),
 ]
 

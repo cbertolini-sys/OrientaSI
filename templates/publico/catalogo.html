@@ -7,8 +7,15 @@
     <h1 class="font-display text-2xl font-bold text-primary">Catálogo de TCCs</h1>
 
     <form method="get" class="mt-4 flex flex-wrap items-end gap-4">
+      {% comment %}
+        Sem as classes DaisyUI `.label`/`.label-text` nos dois rótulos
+        abaixo — mesmo achado da Fase 1 (`templates/contas/_campo.html`):
+        elas esmaecem o texto a 4.38:1, abaixo do mínimo de 4.5:1 do WCAG 2
+        AA. `text-base-content` é a cor de texto padrão do tema, com
+        contraste alto de propósito.
+      {% endcomment %}
       <div>
-        <label for="filtro-area" class="label"><span class="label-text">Área</span></label>
+        <label for="filtro-area" class="font-medium text-base-content">Área</label>
         <select id="filtro-area" name="area" class="select w-full">
           <option value="">Todas</option>
           {% for area in areas %}
@@ -19,7 +26,7 @@
         </select>
       </div>
       <div>
-        <label for="filtro-ano" class="label"><span class="label-text">Ano</span></label>
+        <label for="filtro-ano" class="font-medium text-base-content">Ano</label>
         <select id="filtro-ano" name="ano" class="select w-full">
           <option value="">Todos</option>
           {% for ano_opcao in anos %}
