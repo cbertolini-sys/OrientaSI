@@ -119,3 +119,73 @@ def test_meu_tcc_recusa_papel_aluno_sem_perfil_com_403_nao_500(client):
     client.force_login(usuario_sem_perfil)
     resposta = client.get(reverse("projetos:meu_tcc"))
     assert resposta.status_code == 403
+
+
+@pytest.mark.django_db
+def test_meu_tcc_mostra_correcoes_pendentes_e_botao_de_termo(client):
+    from apps.bancas.models import ItemCorrecao
+
+    aluno_usuario = Usuario.objects.create_user(
+        email="aluno.meutccii.correcoes@ufsm.br",
+        password="x",
+        nome_completo="Aluno Meu TCC II Correções",
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(950000020),
+    )
+    PerfilAluno.objects.create(usuario=aluno_usuario, matricula="2026MTC0020")
+    professor_usuario = Usuario.objects.create_user(
+        email="professor.meutccii.correcoes@ufsm.br",
+        password="x",
+        nome_completo="Professor Meu TCC II Correções",
+        cpf=_cpf_valido(950000021),
+    )
+    PerfilProfessor.objects.create(usuario=professor_usuario, siape="9500021")
+    projeto_tcc_ii = Projeto.objects.create(
+        aluno=aluno_usuario,
+        orientador=professor_usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=2,
+    )
+    ItemCorrecao.objects.create(projeto=projeto_tcc_ii, descricao="Ajustar a introdução.")
+
+    client.force_login(aluno_usuario)
+    resposta = client.get(reverse("projetos:meu_tcc"))
+    conteudo = resposta.content.decode()
+    assert "Ajustar a introdução." in conteudo
+    assert "Assinar termo de aceite de publicação" in conteudo
+
+
+@pytest.mark.django_db
+def test_meu_tcc_assinar_termo_cria_a_linha(client):
+    from apps.projetos.models import TermoPublicacao
+
+    aluno_usuario = Usuario.objects.create_user(
+        email="aluno.meutccii.termo@ufsm.br",
+        password="x",
+        nome_completo="Aluno Meu TCC II Termo",
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(950000022),
+    )
+    PerfilAluno.objects.create(usuario=aluno_usuario, matricula="2026MTC0022")
+    professor_usuario = Usuario.objects.create_user(
+        email="professor.meutccii.termo@ufsm.br",
+        password="x",
+        nome_completo="Professor Meu TCC II Termo",
+        cpf=_cpf_valido(950000023),
+    )
+    PerfilProfessor.objects.create(usuario=professor_usuario, siape="9500023")
+    projeto_tcc_ii = Projeto.objects.create(
+        aluno=aluno_usuario,
+        orientador=professor_usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=2,
+    )
+
+    client.force_login(aluno_usuario)
+    resposta = client.post(reverse("projetos:meu_tcc"), {"acao": "assinar_termo"})
+    assert resposta.status_code == 302
+    assert TermoPublicacao.objects.filter(projeto=projeto_tcc_ii).exists()

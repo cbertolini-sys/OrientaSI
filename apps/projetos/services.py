@@ -17,6 +17,7 @@ from apps.projetos.models import (
     Projeto,
     Submissao,
     Tema,
+    TermoPublicacao,
 )
 
 # Teto padrão de vagas por professor, por etapa, no semestre vigente
@@ -1374,3 +1375,13 @@ def criar_tcc_ii_manual(aluno, professor, por):
         raise PermissionDenied("Somente o próprio professor cria um TCC II em seu nome.")
 
     return criar_projeto_sob_limite(aluno, professor, tema=None, etapa=Projeto.TCC_II)
+
+
+def assinar_termo_publicacao(projeto, por):
+    """Aluno assina o aceite de publicação do TCC II (Bloco F, spec §3.4) —
+    a existência da linha já significa "assinado"; sem estado intermediário,
+    sem como desfazer."""
+    if not permissions.pode_assinar_termo(por, projeto):
+        raise PermissionDenied("Somente o aluno do projeto assina o termo.")
+
+    return TermoPublicacao.objects.create(projeto=projeto)

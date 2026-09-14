@@ -41,6 +41,30 @@
           {% if submissao_atual %}Reenviar{% else %}Enviar{% endif %}
         </button>
       </form>
+
+      {% if projeto.etapa == "TCC_II" %}
+        {% if itens_correcao_pendentes %}
+          <section class="mt-6">
+            <h2 class="font-display text-lg font-bold text-primary">Correções pendentes</h2>
+            <ul class="mt-2 space-y-2">
+              {% for item in itens_correcao_pendentes %}
+                <li class="text-sm">{{ item.descricao }}</li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endif %}
+        {% if pode_assinar %}
+          <form method="post" class="mt-6">
+            {% csrf_token %}
+            <input type="hidden" name="acao" value="assinar_termo">
+            <button type="submit" class="btn btn-primary">
+              Assinar termo de aceite de publicação
+            </button>
+          </form>
+        {% elif ja_assinou %}
+          <p class="mt-4 text-sm text-base-content/70">Termo de publicação já assinado.</p>
+        {% endif %}
+      {% endif %}
     {% endif %}
   </article>
 {% endblock %}

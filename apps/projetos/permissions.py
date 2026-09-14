@@ -137,6 +137,12 @@ def pode_aprovar_projeto(usuario, projeto):
     return bool(usuario and usuario.is_authenticated and usuario == projeto.orientador)
 
 
+def pode_assinar_termo(usuario, projeto):
+    """`usuario` é exatamente o aluno de `projeto` (Bloco F, spec §6) —
+    posse, mesmo padrão de `pode_enviar_submissao` (Bloco C)."""
+    return bool(usuario and usuario.is_authenticated and usuario == projeto.aluno)
+
+
 def pode_criar_tcc_ii_manual(usuario, professor):
     """`usuario` é exatamente `professor` (Bloco F, spec §6) — combina o
     portão de papel (`hasattr perfil_professor`, mesmo de `pode_criar_tema`)

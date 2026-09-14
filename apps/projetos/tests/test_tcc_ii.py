@@ -199,3 +199,36 @@ def test_criar_tcc_ii_manual_view_redireciona(client):
     assert Projeto.objects.filter(
         aluno=aluno, etapa=Projeto.TCC_II, orientador=orientador.usuario
     ).exists()
+
+
+@pytest.mark.django_db
+def test_assinar_termo_publicacao_cria_a_linha():
+    orientador = _professor(40, "Orientador Termo")
+    aluno = _aluno(41, "Aluno Termo")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador.usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=1,
+    )
+    termo = services.assinar_termo_publicacao(projeto, por=aluno)
+    assert termo.projeto_id == projeto.id
+
+
+@pytest.mark.django_db
+def test_assinar_termo_publicacao_recusa_quem_nao_e_o_aluno():
+    orientador = _professor(42, "Orientador Termo Dois")
+    aluno = _aluno(43, "Aluno Termo Dois")
+    outro = _aluno(44, "Outro Aluno Termo")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador.usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=1,
+    )
+    with pytest.raises(PermissionDenied):
+        services.assinar_termo_publicacao(projeto, por=outro)

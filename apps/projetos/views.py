@@ -477,11 +477,26 @@ def meu_tcc(request):
         permissions.pode_montar_candidatura(request.user),
         "Somente alunos acessam esta tela.",
     )
-    projeto = services.projeto_ativo_do_aluno(request.user, Projeto.TCC_I)
+    projeto = services.projeto_ativo_do_aluno(
+        request.user, Projeto.TCC_II
+    ) or services.projeto_ativo_do_aluno(request.user, Projeto.TCC_I)
     if projeto is None:
         return render(request, "projetos/meu_tcc.html", {"projeto": None})
 
     submissao_atual = projeto.submissao if hasattr(projeto, "submissao") else None
+
+    itens_correcao_pendentes = []
+    pode_assinar = False
+    ja_assinou = False
+    if projeto.etapa == Projeto.TCC_II:
+        itens_correcao_pendentes = projeto.itens_correcao.filter(concluido=False)
+        ja_assinou = hasattr(projeto, "termo_publicacao")
+        pode_assinar = projeto.status == Projeto.APROVADO_COM_RESSALVAS and not ja_assinou
+
+    if request.method == "POST" and request.POST.get("acao") == "assinar_termo":
+        services.assinar_termo_publicacao(projeto, por=request.user)
+        messages.success(request, "Termo de publicação assinado.")
+        return redirect("projetos:meu_tcc")
 
     if request.method == "POST":
         formulario = FormularioSubmissao(request.POST, request.FILES)
@@ -500,7 +515,14 @@ def meu_tcc(request):
     return render(
         request,
         "projetos/meu_tcc.html",
-        {"projeto": projeto, "formulario": formulario, "submissao_atual": submissao_atual},
+        {
+            "projeto": projeto,
+            "formulario": formulario,
+            "submissao_atual": submissao_atual,
+            "itens_correcao_pendentes": itens_correcao_pendentes,
+            "pode_assinar": pode_assinar,
+            "ja_assinou": ja_assinou,
+        },
     )
 
 
