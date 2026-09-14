@@ -15,9 +15,9 @@ Todos os comandos devem rodar via container Docker:
   compose up -d` falha antes de subir qualquer container. Não repita o comando
   num ambiente já configurado: ele sobrescreve o `.env` existente.
 * **Subir ambiente:** `docker compose up -d` (inclui `web`, `db`, `redis`,
-  `celery_worker`, `minio` e o auxiliar `tailwind`, que compila o CSS em modo
-  `--watch`; nenhum desses serviços está atrás de `profiles`, então este único
-  comando sobe tudo).
+  `celery_worker`, `celery_beat`, `minio` e o auxiliar `tailwind`, que compila
+  o CSS em modo `--watch`; nenhum desses serviços está atrás de `profiles`,
+  então este único comando sobe tudo).
 * **Derrubar ambiente:** `docker compose down`
 * **Criar migrações:** `docker compose exec web python manage.py makemigrations`
 * **Aplicar migrações:** `docker compose exec web python manage.py migrate`
@@ -84,7 +84,7 @@ Todos os comandos devem rodar via container Docker:
 
 * `apps/comum`: validators de upload e utilitários transversais a todo o projeto.
 * `apps/contas`: usuário, perfis, áreas, convites, painel de perfil e painel da
-  coordenação. Única app com regra de negócio implementada na Fase 1.
+  coordenação. Única app com regra de negócio no Bloco A.
 * `apps/projetos`: mural de temas, candidatura do aluno em cascata (até três
   opções, com prazo automático via Celery Beat), fila de aceite/recusa do
   professor e painel da coordenação para ajustar orientação e conceder limite
@@ -155,12 +155,13 @@ português. Interface, mensagens de erro, comentários e commits também.
    `.docx` e limite máximo de tamanho (ex: 15MB) via *validators* nos modelos
    (`apps/comum/validators.py`, `apps/contas/validators.py`).
 8. **Alocação Contínua, Não por Desempenho (Bloco B):** o aluno manifesta
-   interesse por até três professores em ordem, e a vaga vai para quem aceitar
-   primeiro — não para quem tiver melhor desempenho escolar. Isso contraria o
-   `inicio.pdf`, que pedia alocação em lote por desempenho; decisão tomada, com
-   o custo aceito de que um professor requisitado preenche as vagas por ordem
-   de chegada, não por mérito. O sistema não tem de onde tirar uma métrica de
-   desempenho, então essa é também a única alternativa viável.
+   interesse por até três professores em ordem, e o primeiro professor que
+   aceitar leva a vaga — não o aluno com melhor desempenho escolar. Isso
+   contraria o `inicio.pdf`, que pedia alocação em lote por desempenho;
+   decisão tomada, com o custo aceito de que um professor requisitado
+   preenche as vagas por ordem de chegada dos alunos, não por mérito. O
+   sistema não tem de onde tirar uma métrica de desempenho, então essa é
+   também a única alternativa viável.
 
 ---
 
@@ -194,7 +195,7 @@ O projeto é planejado e revisado em fases, uma spec e um plano por fase, em
 O domínio inteiro está mapeado em oito blocos (ver §12 do spec da Fase 1),
 para que as fronteiras de cada fase sejam escolhas conscientes:
 
-* **A — Fundação e contas** (esta fase, concluída): esqueleto Django em Docker,
+* **A — Fundação e contas** (concluído): esqueleto Django em Docker,
   modelo de usuário, perfis, áreas, convites, login/logout, recuperação de
   senha, painel de perfil, painel da coordenação, comando de semeadura.
 * **B — temas e alocação (concluído)**: mural de temas, painel do professor

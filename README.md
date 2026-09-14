@@ -51,7 +51,7 @@ convenções de código em `CLAUDE.md`.
 
 - `apps/comum` — validators e utilitários transversais.
 - `apps/contas` — usuário, perfis, áreas, convites, painel de perfil e painel
-  da coordenação. Única app com regra de negócio na Fase 1.
+  da coordenação. Única app com regra de negócio no Bloco A.
 - `apps/projetos` — mural de temas, candidatura em cascata e painel de
   orientações da coordenação (Bloco B, implementado).
 - `apps/bancas`, `apps/documentos` — criadas e registradas, vazias, reservadas

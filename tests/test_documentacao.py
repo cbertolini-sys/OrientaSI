@@ -102,6 +102,17 @@ def test_claude_md_cita_celery_beat_na_arquitetura_de_containers():
     assert "celery_beat" in CLAUDE
 
 
+def test_claude_md_lista_celery_beat_no_comando_de_subir_ambiente():
+    """Achado da revisão da Tarefa 13: o teste acima passa mesmo se
+    `celery_beat` só aparecer na seção de arquitetura — não protege contra
+    esquecê-lo no bullet 'Subir ambiente', que é o primeiro lugar onde
+    alguém procura o comando real. Isola esse trecho e cobra a citação ali
+    também."""
+    inicio = CLAUDE.index("**Subir ambiente:**")
+    fim = CLAUDE.index("**Derrubar ambiente:**")
+    assert "celery_beat" in CLAUDE[inicio:fim]
+
+
 def test_claude_md_registra_a_alocacao_continua_e_a_divergencia_do_inicio_pdf():
     """Decisão de produto do Bloco B (spec §3.1): alocação por ordem de chegada,
     não por desempenho escolar — ao contrário do que o `inicio.pdf` pedia."""
