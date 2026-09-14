@@ -9,8 +9,9 @@ delas afirma que um link existe, ou para quem. A revisão desta rodada mutou
 do link "Minha candidatura" (passaria a aparecer para professores e
 coordenadores) e removendo por completo o `<li>` de "Painel de orientações"
 (exatamente o defeito que o acréscimo de escopo da T12 existe para fechar) —
-e rodou a suíte inteira as duas vezes: `535 passed, 6 skipped`, zero falhas.
-Este arquivo é o teste que faltava.
+e rodou a suíte inteira as duas vezes: `533 passed, 6 skipped` (o baseline
+antes desta rodada), zero falhas nas duas mutações. Este arquivo é o teste
+que faltava.
 
 Renderiza `/` (a `TemplateView` pública de `config/urls.py`, que estende
 `base.html` e não exige autenticação) para cada uma das cinco personas do
@@ -29,13 +30,16 @@ from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
 
 
-# CPFs sintéticos com dígito verificador válido — faixa própria (200000000+),
-# distinta das faixas já usadas pelas suítes de apps/projetos/tests/ e
-# apps/contas/tests/ (ver, por exemplo, o comentário de
-# apps/projetos/tests/test_painel_orientacoes.py sobre por que manter faixas
-# distintas facilita achar de qual suíte um CPF veio).
+# CPFs sintéticos com dígito verificador válido, faixa 300000000+. A faixa
+# 200000000+ (achado da re-revisão da rodada de correção 1 da T12) já é usada
+# por apps/contas/tests/test_coordenacao.py::_gera_cpf, com a MESMA fórmula —
+# os CPFs gerados por índices 0-3 nos dois arquivos são strings idênticas.
+# Inofensivo hoje (cada teste roda em transação própria com rollback, e
+# nenhum teste usa as duas fábricas ao mesmo tempo), mas anula o propósito de
+# separar faixas por suíte; 300000000+ está livre (conferido por grep) e é a
+# faixa deste arquivo a partir de agora.
 def _gera_cpf(indice):
-    base = f"{200000000 + indice:09d}"
+    base = f"{300000000 + indice:09d}"
     d1 = _digito(base, 10)
     d2 = _digito(base + str(d1), 11)
     return base + str(d1) + str(d2)
