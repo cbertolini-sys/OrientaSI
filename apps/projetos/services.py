@@ -435,7 +435,13 @@ def orientandos_atuais(professor):
             orientador=professor.usuario,
             ano=ano,
             periodo=periodo,
-            status__in=[Projeto.EM_ANDAMENTO, Projeto.AGUARDANDO_DEFESA, Projeto.REPROVADO],
+            status__in=[
+                Projeto.EM_ANDAMENTO,
+                Projeto.AGUARDANDO_DEFESA,
+                Projeto.REPROVADO,
+                Projeto.APROVADO_COM_RESSALVAS,
+                Projeto.APROVADO,
+            ],
         )
         .select_related("aluno", "tema", "submissao")
         .order_by("aluno__nome_completo")
@@ -1315,4 +1321,19 @@ def cancelar_projeto(projeto, por):
         raise ValidationError("Só é possível cancelar um projeto reprovado.")
 
     projeto.status = Projeto.CANCELADO
+    projeto.save(update_fields=["status"])
+
+
+def aprovar_projeto(projeto, por):
+    """Confirma que o aluno corrigiu o que a banca pediu — fecha
+    `Aprovado com Ressalvas` → `Aprovado` para o TCC I (Bloco E, spec §3.1).
+    Sem checklist: o `inicio.pdf` só descreve checklist de correções para o
+    TCC II (Bloco F, ainda não existe); esta transição é uma confirmação
+    simples do orientador."""
+    if not permissions.pode_aprovar_projeto(por, projeto):
+        raise PermissionDenied("Somente o orientador do projeto pode aprová-lo.")
+    if projeto.status != Projeto.APROVADO_COM_RESSALVAS:
+        raise ValidationError("Só é possível aprovar um projeto aprovado com ressalvas.")
+
+    projeto.status = Projeto.APROVADO
     projeto.save(update_fields=["status"])

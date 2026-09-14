@@ -129,3 +129,9 @@ def pode_reabrir_projeto(usuario, projeto):
 def pode_cancelar_projeto(usuario, projeto):
     """Mesma regra de posse de `pode_reabrir_projeto`."""
     return bool(usuario and usuario.is_authenticated and usuario == projeto.orientador)
+
+
+def pode_aprovar_projeto(usuario, projeto):
+    """`usuario` é exatamente o orientador de `projeto` (Bloco E, spec §3.1)
+    — posse, não papel."""
+    return bool(usuario and usuario.is_authenticated and usuario == projeto.orientador)
