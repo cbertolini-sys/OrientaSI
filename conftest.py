@@ -978,6 +978,65 @@ def cria_sugrad_com_ata_pendente_para_rotas():
     return sugrad
 
 
+def cria_professor_para_criar_tcc_ii_para_rotas():
+    """Fábrica de `/temas/tcc-ii/criar/` (Bloco F): só precisa de um
+    professor com `PerfilProfessor` — a tela não depende de nenhum aluno
+    pré-existente (o `<select>` lista todo `PerfilAluno`, e a suíte não
+    precisa que a lista tenha itens pra medir a tela)."""
+    from apps.contas.models import PerfilProfessor, Usuario
+
+    usuario = Usuario.objects.create_user(
+        email="professor-criar-tccii-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Professor Criar TCC II das Rotas",
+        cpf=_gera_cpf_das_rotas(37),
+    )
+    PerfilProfessor.objects.create(usuario=usuario, siape="1000025")
+    return usuario
+
+
+def cria_professor_com_correcao_para_rotas():
+    """Fábrica de `/bancas/<projeto_id>/correcoes/` (Bloco F): professor
+    orientador com um `Projeto` TCC_II `Aprovado com Ressalvas` e um
+    `ItemCorrecao` já criado, pra medir o ramo "concluído"/"não concluído"
+    do template."""
+    from apps.bancas.models import ItemCorrecao
+    from apps.comum.semestre import semestre_vigente
+    from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+    from apps.projetos.models import Projeto
+
+    orientador = Usuario.objects.create_user(
+        email="professor-correcao-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Professor Correção das Rotas",
+        cpf=_gera_cpf_das_rotas(38),
+    )
+    PerfilProfessor.objects.create(usuario=orientador, siape="1000026")
+
+    aluno = Usuario.objects.create_user(
+        email="aluno-correcao-das-rotas@ufsm.br",
+        password="x",
+        nome_completo="Aluno Correção das Rotas",
+        cpf=_gera_cpf_das_rotas(39),
+        papel=Usuario.ALUNO,
+    )
+    PerfilAluno.objects.create(usuario=aluno, matricula="2026399922")
+
+    ano, periodo = semestre_vigente()
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=ano,
+        periodo=periodo,
+    )
+    ItemCorrecao.objects.create(projeto=projeto, descricao="Item das rotas.")
+
+    orientador.projeto_id_para_rota = projeto.pk
+    return orientador
+
+
 # Lista única de rotas submetidas às cinco suítes transversais
 # (tests/test_acessibilidade.py, test_toque.py, test_responsivo.py,
 # test_teclado.py, test_rotas.py). Acrescentar uma rota aqui é o que submete uma
@@ -1131,6 +1190,18 @@ ROTAS = [
         "form",
         fabrica_usuario=cria_sugrad_com_ata_pendente_para_rotas,
         h1="Painel SUGRAD",
+    ),
+    Rota(
+        "/temas/tcc-ii/criar/",
+        "form",
+        fabrica_usuario=cria_professor_para_criar_tcc_ii_para_rotas,
+        h1="Criar TCC II",
+    ),
+    Rota(
+        lambda usuario: f"/bancas/{usuario.projeto_id_para_rota}/correcoes/",
+        "form",
+        fabrica_usuario=cria_professor_com_correcao_para_rotas,
+        h1="Correções — Aluno Correção das Rotas",
     ),
 ]
 
