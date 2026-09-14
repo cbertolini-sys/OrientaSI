@@ -84,3 +84,24 @@ def cancelar_banca(banca, por):
 
     banca.projeto.status = Projeto.EM_ANDAMENTO
     banca.projeto.save(update_fields=["status"])
+
+
+def registrar_resultado(banca, nota, resultado, comentario, por):
+    """Registra o resultado da apresentação — fecha `AGUARDANDO_DEFESA` →
+    `resultado` (Bloco D, spec §3.2/§5.1). Sem trava de data (§3.5): confia
+    no orientador para só chamar depois que a apresentação aconteceu."""
+    if not permissions.pode_registrar_resultado_banca(por, banca):
+        raise PermissionDenied("Somente o orientador do projeto registra o resultado.")
+    if banca.status != Banca.AGENDADA:
+        raise ValidationError("Esta banca já teve o resultado registrado, ou foi cancelada.")
+
+    banca.nota = nota
+    banca.resultado = resultado
+    banca.comentario = comentario
+    banca.status = Banca.REALIZADA
+    banca.save(update_fields=["nota", "resultado", "comentario", "status"])
+
+    banca.projeto.status = resultado
+    banca.projeto.save(update_fields=["status"])
+
+    return banca
