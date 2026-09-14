@@ -80,3 +80,18 @@ def test_calendario_publico_ordena_mais_proxima_primeiro():
     mais_proxima = _banca(6, timezone.now() + timezone.timedelta(days=2))
     resultado = list(services.calendario_publico())
     assert resultado.index(mais_proxima) < resultado.index(mais_distante)
+
+
+@pytest.mark.django_db
+def test_calendario_view_renderiza_lista(client):
+    futura = timezone.now() + timezone.timedelta(days=5)
+    banca = _banca(7, futura)
+    resposta = client.get("/calendario/")
+    assert resposta.status_code == 200
+    assert banca.projeto.aluno.nome_completo in resposta.content.decode()
+
+
+@pytest.mark.django_db
+def test_calendario_view_sem_login_funciona(client):
+    resposta = client.get("/calendario/")
+    assert resposta.status_code == 200

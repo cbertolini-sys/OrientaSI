@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Calendário de Apresentações{% endblock %}
+
+{% block conteudo %}
+  <article class="mx-auto max-w-2xl rounded-box bg-base-100 p-6 shadow-sm">
+    <h1 class="font-display text-2xl font-bold text-primary">Calendário de Apresentações</h1>
+
+    {% if bancas %}
+      <ul class="mt-6 space-y-4">
+        {% for banca in bancas %}
+          <li class="rounded-box border border-base-300 p-4">
+            <p class="font-medium">
+              {{ banca.projeto.aluno.nome_completo }}
+              {% if banca.projeto.tema %} — "{{ banca.projeto.tema.titulo }}"{% endif %}
+            </p>
+            <p class="mt-1 text-sm text-base-content/80">
+              Orientador: {{ banca.projeto.orientador.nome_completo }}
+            </p>
+            <p class="mt-1 text-sm">{{ banca.data_hora }} — {{ banca.local }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-6">Nenhuma apresentação agendada no momento.</p>
+    {% endif %}
+  </article>
+{% endblock %}

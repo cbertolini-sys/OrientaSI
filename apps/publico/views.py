@@ -27,3 +27,9 @@ def catalogo(request):
             "ano_selecionado": ano,
         },
     )
+
+
+def calendario(request):
+    """Calendário público de apresentações futuras (Bloco G, spec §6) —
+    sem login, sem filtro (YAGNI: nenhum requisito pediu)."""
+    return render(request, "publico/calendario.html", {"bancas": services.calendario_publico()})
