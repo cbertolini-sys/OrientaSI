@@ -111,3 +111,24 @@ def registrar_resultado(banca, nota, resultado, comentario, por):
     banca.projeto.save(update_fields=["status"])
 
     return banca
+
+
+def anexar_banca_ativa(projetos):
+    """Decora cada `Projeto` de `projetos` (lista já materializada, não
+    queryset) com `.banca_ativa` — a `Banca` não cancelada desse projeto, ou
+    `None` (Bloco D, spec §3.7/§7). UMA query para todos os projetos, não
+    uma por projeto: mesma disciplina de N+1 de
+    `apps.projetos.services.orientandos_atuais` (`select_related`) — aqui
+    não dá pra usar `select_related`/`prefetch_related` na queryset de
+    `Projeto` porque `Banca.projeto` é o lado FK inverso vindo de OUTRO
+    app; a alternativa é este mapa construído com uma query só."""
+    ids = [p.id for p in projetos]
+    bancas_por_projeto = {
+        banca.projeto_id: banca
+        for banca in Banca.objects.filter(projeto_id__in=ids)
+        .exclude(status=Banca.CANCELADA)
+        .prefetch_related("membros__professor__usuario")
+    }
+    for projeto in projetos:
+        projeto.banca_ativa = bancas_por_projeto.get(projeto.id)
+    return projetos

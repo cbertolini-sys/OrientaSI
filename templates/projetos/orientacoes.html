@@ -98,14 +98,64 @@
                 {{ projeto.get_etapa_display }}
                 {% if projeto.tema %} — {{ projeto.tema.titulo }}{% endif %}
               </p>
+              {% comment %}
+                Três ramos, nesta ordem (Bloco D, spec §7): EM_ANDAMENTO
+                (com/sem submissão), banca AGENDADA, banca REALIZADA (só
+                aparece aqui quando o projeto está REPROVADO — os outros
+                dois resultados possíveis de uma banca REALIZADA,
+                Aprovado com Ressalvas, já saem do filtro de
+                `orientandos_atuais`, spec §3.7). `projeto.banca_ativa.status`
+                é o proxy checado, não `projeto.status` diretamente — mesmo
+                raciocínio já registrado em candidatura.html sobre preferir
+                um campo mais específico a comparar a string de status.
+              {% endcomment %}
               {% if projeto.submissao %}
                 <p class="mt-1 text-sm">
                   <a href="{{ projeto.submissao.pdf.url }}" class="link">
                     Ver PDF enviado (versão {{ projeto.submissao.versao }})
                   </a>
                 </p>
-              {% else %}
+              {% endif %}
+
+              {% if projeto.banca_ativa.status == "AGENDADA" %}
+                <p class="mt-1 text-sm">
+                  Banca agendada: {{ projeto.banca_ativa.data_hora }} — {{ projeto.banca_ativa.local }}
+                </p>
+                <p class="text-sm text-base-content/80">
+                  Membros:
+                  {% for membro in projeto.banca_ativa.membros.all %}
+                    {% if membro.professor %}{{ membro.professor.usuario.nome_completo }}{% else %}{{ membro.nome_externo }} (externo){% endif %}{% if not forloop.last %}, {% endif %}
+                  {% endfor %}
+                </p>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <a href="{% url 'bancas:editar' projeto.banca_ativa.pk %}" class="btn btn-outline btn-sm">Editar</a>
+                  <form method="post" action="{% url 'bancas:cancelar' projeto.banca_ativa.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline btn-sm">Cancelar</button>
+                  </form>
+                  <a href="{% url 'bancas:resultado' projeto.banca_ativa.pk %}" class="btn btn-primary btn-sm">Registrar resultado</a>
+                </div>
+              {% elif projeto.banca_ativa %}
+                <p class="mt-1 text-sm">
+                  Resultado da banca: Reprovado — nota {{ projeto.banca_ativa.nota }}.
+                  {{ projeto.banca_ativa.comentario }}
+                </p>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <form method="post" action="{% url 'projetos:reabrir_projeto' projeto.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline btn-sm">Reabrir projeto</button>
+                  </form>
+                  <form method="post" action="{% url 'projetos:cancelar_projeto' projeto.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline btn-sm">Cancelar definitivamente</button>
+                  </form>
+                </div>
+              {% elif not projeto.submissao %}
                 <p class="mt-1 text-sm text-base-content/70">Ainda não enviou o trabalho.</p>
+              {% else %}
+                <p class="mt-1 text-sm">
+                  <a href="{% url 'bancas:agendar' projeto.pk %}" class="link">Agendar banca</a>
+                </p>
               {% endif %}
             </li>
           {% endfor %}

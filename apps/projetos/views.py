@@ -235,7 +235,10 @@ def orientacoes(request):
         }
         for opcao in services.manifestacoes_pendentes(professor)
     ]
-    orientandos = services.orientandos_atuais(professor)
+    from apps.bancas.services import anexar_banca_ativa
+
+    orientandos = list(services.orientandos_atuais(professor))
+    anexar_banca_ativa(orientandos)
     return render(
         request, "projetos/orientacoes.html", {"itens": itens, "orientandos": orientandos}
     )
@@ -618,3 +621,27 @@ def revogar_limite_view(request, limite_id):
     services.revogar_limite(limite, por=request.user)
     messages.success(request, "Limite revogado.")
     return redirect("projetos:painel_orientacoes")
+
+
+@login_required
+@require_POST
+def reabrir_projeto_view(request, projeto_id):
+    """Reabre um `Projeto` `REPROVADO` — volta a `EM_ANDAMENTO` (Bloco D,
+    spec §7). Lookup escopado ao orientador autenticado, mesmo padrão de
+    `desativar_tema`: projeto alheio e inexistente respondem os dois com
+    404."""
+    projeto = get_object_or_404(Projeto, pk=projeto_id, orientador=request.user)
+    services.reabrir_projeto(projeto, por=request.user)
+    messages.success(request, "Projeto reaberto.")
+    return redirect("projetos:orientacoes")
+
+
+@login_required
+@require_POST
+def cancelar_projeto_view(request, projeto_id):
+    """Cancela definitivamente um `Projeto` `REPROVADO` (Bloco D, spec §7).
+    Mesmo padrão de lookup escopado de `reabrir_projeto_view`."""
+    projeto = get_object_or_404(Projeto, pk=projeto_id, orientador=request.user)
+    services.cancelar_projeto(projeto, por=request.user)
+    messages.success(request, "Projeto cancelado.")
+    return redirect("projetos:orientacoes")

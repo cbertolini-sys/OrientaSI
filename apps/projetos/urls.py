@@ -30,4 +30,14 @@ urlpatterns = [
         views.revogar_limite_view,
         name="revogar_limite",
     ),
+    path(
+        "orientacoes/<int:projeto_id>/reabrir/",
+        views.reabrir_projeto_view,
+        name="reabrir_projeto",
+    ),
+    path(
+        "orientacoes/<int:projeto_id>/cancelar/",
+        views.cancelar_projeto_view,
+        name="cancelar_projeto",
+    ),
 ]

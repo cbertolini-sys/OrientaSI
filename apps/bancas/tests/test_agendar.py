@@ -191,3 +191,84 @@ def test_agendar_banca_recusa_numero_errado_de_membros(
             membros=[{"professor": dois_professores[0]}],
             por=orientador.usuario,
         )
+
+
+@pytest.mark.django_db
+def test_anexar_banca_ativa_marca_none_sem_banca(projeto_com_submissao):
+    from apps.bancas import services as bancas_services
+
+    projetos = [projeto_com_submissao]
+    bancas_services.anexar_banca_ativa(projetos)
+    assert projetos[0].banca_ativa is None
+
+
+@pytest.mark.django_db
+def test_anexar_banca_ativa_encontra_a_nao_cancelada(
+    projeto_com_submissao, orientador, dois_professores
+):
+    from apps.bancas import services as bancas_services
+
+    banca = services.agendar_banca(
+        projeto_com_submissao,
+        data_hora=timezone.now(),
+        local="Sala 1",
+        membros=[{"professor": dois_professores[0]}, {"professor": dois_professores[1]}],
+        por=orientador.usuario,
+    )
+    projetos = [projeto_com_submissao]
+    bancas_services.anexar_banca_ativa(projetos)
+    assert projetos[0].banca_ativa.pk == banca.pk
+
+
+@pytest.mark.django_db
+def test_anexar_banca_ativa_sem_query_extra_por_projeto(orientador, dois_professores):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from apps.bancas import services as bancas_services
+    from apps.contas.models import PerfilAluno
+
+    def _cria_projeto_com_banca(indice):
+        aluno = Usuario.objects.create_user(
+            email=f"aluno.anexar.{indice}@ufsm.br",
+            password="x",
+            nome_completo=f"Aluno Anexar {indice}",
+            papel=Usuario.ALUNO,
+            cpf=_cpf(10 + indice),
+        )
+        PerfilAluno.objects.create(usuario=aluno, matricula=f"2026ANEXAR{indice:02d}")
+        projeto = Projeto.objects.create(
+            aluno=aluno,
+            orientador=orientador.usuario,
+            etapa=Projeto.TCC_I,
+            status=Projeto.EM_ANDAMENTO,
+            ano=2026,
+            periodo=1,
+        )
+        Submissao.objects.create(
+            projeto=projeto,
+            pdf=f"submissoes/{indice}.pdf",
+            editavel=f"submissoes/{indice}.docx",
+        )
+        services.agendar_banca(
+            projeto,
+            data_hora=timezone.now(),
+            local="Sala 1",
+            membros=[{"professor": dois_professores[0]}, {"professor": dois_professores[1]}],
+            por=orientador.usuario,
+        )
+        return projeto
+
+    projetos = [_cria_projeto_com_banca(1)]
+    with CaptureQueriesContext(connection) as captura:
+        bancas_services.anexar_banca_ativa(projetos)
+        for p in projetos:
+            _ = p.banca_ativa.local if p.banca_ativa else None
+    numero_com_um = len(captura.captured_queries)
+
+    projetos = [_cria_projeto_com_banca(2), _cria_projeto_com_banca(3)]
+    with CaptureQueriesContext(connection) as captura:
+        bancas_services.anexar_banca_ativa(projetos)
+        for p in projetos:
+            _ = p.banca_ativa.local if p.banca_ativa else None
+    assert len(captura.captured_queries) == numero_com_um
