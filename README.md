@@ -16,8 +16,10 @@ docker compose exec web python manage.py semear_sistema \
 ```
 
 `docker compose up -d` sobe todos os serviços de uma vez — `web`, `db`, `redis`,
-`celery_worker`, `minio` e o auxiliar `tailwind` (compila o CSS em modo
-`--watch`) — nenhum deles está atrás de um profile.
+`celery_worker`, `celery_beat`, `minio` e o auxiliar `tailwind` (compila o CSS
+em modo `--watch`) — nenhum deles está atrás de um profile. O `celery_beat`
+agenda as tarefas periódicas (hoje, o avanço automático da cascata de
+candidatura por prazo vencido); quem as executa é o `celery_worker`.
 
 `semear_sistema` cria a conta única da SUGRAD e o primeiro coordenador do
 sistema; é idempotente, mas recusa nomear um segundo coordenador se o sistema
@@ -50,8 +52,10 @@ convenções de código em `CLAUDE.md`.
 - `apps/comum` — validators e utilitários transversais.
 - `apps/contas` — usuário, perfis, áreas, convites, painel de perfil e painel
   da coordenação. Única app com regra de negócio na Fase 1.
-- `apps/projetos`, `apps/bancas`, `apps/documentos` — criadas e registradas,
-  vazias, reservadas para os blocos B–E.
+- `apps/projetos` — mural de temas, candidatura em cascata e painel de
+  orientações da coordenação (Bloco B, implementado).
+- `apps/bancas`, `apps/documentos` — criadas e registradas, vazias, reservadas
+  para os blocos D–E.
 
 ## Documentação
 

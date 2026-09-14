@@ -71,6 +71,8 @@ Todos os comandos devem rodar via container Docker:
 * `db`: Banco de dados PostgreSQL.
 * `redis`: Broker de mensagens e cache.
 * `celery_worker`: Processamento assíncrono de e-mails e PDFs.
+* `celery_beat`: Agendador — publica as tarefas periódicas (hoje, o avanço da
+  cascata de candidatura por prazo vencido) na fila do `celery_worker`.
 * `minio`: S3 local para desenvolvimento.
 * `tailwind`: compila `static/css/entrada.css` em `static/css/orientasi.css`
   (Tailwind CLI, modo `--watch`, imagem `node:22-alpine`, sem instalação local
@@ -83,8 +85,12 @@ Todos os comandos devem rodar via container Docker:
 * `apps/comum`: validators de upload e utilitários transversais a todo o projeto.
 * `apps/contas`: usuário, perfis, áreas, convites, painel de perfil e painel da
   coordenação. Única app com regra de negócio implementada na Fase 1.
-* `apps/projetos`: criada, registrada no `INSTALLED_APPS`, vazia — reservada
-  para os Blocos B (temas e alocação) e C (TCC I).
+* `apps/projetos`: mural de temas, candidatura do aluno em cascata (até três
+  opções, com prazo automático via Celery Beat), fila de aceite/recusa do
+  professor e painel da coordenação para ajustar orientação e conceder limite
+  (Bloco B, implementado). O modelo `Projeto` nasce aqui, mas só chega ao
+  status `EM_ANDAMENTO`; as demais transições (envio de arquivo, defesa,
+  aprovação, correções) ficam para o Bloco C.
 * `apps/bancas`: criada, registrada, vazia — reservada para o Bloco D (bancas e
   avaliação).
 * `apps/documentos`: criada, registrada, vazia — reservada para o Bloco E (atas
@@ -113,10 +119,16 @@ português. Interface, mensagens de erro, comentários e commits também.
 
 ## 🔒 Regras de Negócio Inegociáveis
 
-1. **Limite de Vagas:** Bloqueio automático de novas orientações quando o professor
-   atingir **3 alunos em TCC I** e **3 alunos em TCC II** no semestre letivo
-   vigente. (Regra especificada para o Bloco B/C — a Fase 1 não tem projetos de
-   TCC ainda.)
+1. **Limite de Vagas (implementado no Bloco B):** Bloqueio automático de novas
+   orientações quando o professor atingir **3 alunos em TCC I** e **3 alunos em
+   TCC II** no semestre letivo vigente (`LIMITE_PADRAO_VAGAS`, em
+   `apps/projetos/services.py`). A coordenação pode conceder uma **exceção para
+   cima** a esse teto — nunca para baixo — para um professor, uma etapa e um
+   semestre específicos, com justificativa obrigatória e autoria registrada
+   (`LimiteOrientacao`, em `apps/projetos/models.py`). A exceção vale só para a
+   chave exata (professor, etapa, ano, período): não se propaga para outra
+   etapa nem sobrevive à virada do semestre. Revogar a exceção não desfaz os
+   projetos já criados sob ela, só trava o próximo aceite.
 2. **Coordenadores/Admins:**
 
    * Máximo de **4 coordenadores** no sistema (`LIMITE_COORDENADORES`, em
@@ -142,6 +154,13 @@ português. Interface, mensagens de erro, comentários e commits também.
 7. **Validação de Uploads:** Validar obrigatoriamente as extensões `.pdf` e
    `.docx` e limite máximo de tamanho (ex: 15MB) via *validators* nos modelos
    (`apps/comum/validators.py`, `apps/contas/validators.py`).
+8. **Alocação Contínua, Não por Desempenho (Bloco B):** o aluno manifesta
+   interesse por até três professores em ordem, e a vaga vai para quem aceitar
+   primeiro — não para quem tiver melhor desempenho escolar. Isso contraria o
+   `inicio.pdf`, que pedia alocação em lote por desempenho; decisão tomada, com
+   o custo aceito de que um professor requisitado preenche as vagas por ordem
+   de chegada, não por mérito. O sistema não tem de onde tirar uma métrica de
+   desempenho, então essa é também a única alternativa viável.
 
 ---
 
@@ -150,8 +169,12 @@ português. Interface, mensagens de erro, comentários e commits também.
 Status permitidos: `Em Andamento` ➔ `Aguardando Defesa` ➔ `Aprovado com Ressalvas`
 ➔ `Aprovado` ➔ `Concluído` (ou `Reprovado`).
 
-Este ciclo de vida é especificado para os Blocos C–F; o modelo `Projeto` ainda não
-existe na Fase 1 (`apps/projetos` está vazia).
+O modelo `Projeto` existe desde o Bloco B (`apps/projetos/models.py`), com o
+vocabulário completo do ciclo já nos `choices` de `status` — mas só
+`EM_ANDAMENTO` é alcançável até aqui: o aceite de uma opção de candidatura cria
+o `Projeto` e para nesse status. As demais transições (`Aguardando Defesa` em
+diante) são especificadas para os Blocos C–F, que ainda vão implementá-las
+sobre o mesmo modelo.
 
 1. **`Em Andamento`:** Aluno aceito e elaborando o trabalho.
 2. **`Aguardando Defesa`:** Aluno envia PDF/Editável e orientador agenda a banca.
@@ -174,7 +197,12 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
 * **A — Fundação e contas** (esta fase, concluída): esqueleto Django em Docker,
   modelo de usuário, perfis, áreas, convites, login/logout, recuperação de
   senha, painel de perfil, painel da coordenação, comando de semeadura.
-* **B** — temas e alocação
+* **B — temas e alocação (concluído)**: mural de temas, painel do professor
+  para publicar/editar/desativar tema, candidatura do aluno com até três
+  opções em cascata (prazo automático via Celery Beat), fila de aceite/recusa
+  do professor, criação do `Projeto` de TCC I no aceite, limite de vagas com
+  exceção autorizada pela coordenação, e painel da coordenação para trocar
+  orientador e conceder/revogar limite.
 * **C** — TCC I
 * **D** — bancas e avaliação (inclui `ProfessorExterno` e autenticação por token)
 * **E** — atas e SUGRAD
@@ -184,3 +212,25 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
 
 Antes de assumir que uma regra de negócio, modelo ou tela já existe, confira a
 qual bloco ela pertence e se aquele bloco já foi implementado.
+
+---
+
+## 🧪 Disciplina de Testes
+
+Convenções de engenharia para os Blocos C em diante, tiradas de padrões que se
+repetiram nas revisões do Bloco B:
+
+* **Uma checagem nova só está provada por mutação, nunca pela suíte verde.**
+  Rodar a suíte com o código certo não diz nada sobre o código errado. Prove
+  removendo de propósito a checagem (a permissão, o filtro, a trava) e
+  confirmando que algum teste reprova; só então desfaça a remoção. "A suíte
+  passou" não é evidência de que a checagem nova é testada.
+* **Uma checagem vizinha pode mascarar a ausência da checagem nova.** Uma
+  trava de outra função, ou de outro elemento da mesma tela, às vezes absorve
+  o efeito da mutação sem que nenhum teste perceba, e a suíte inteira continua
+  verde com a checagem nova ausente. A defesa é sempre a mesma: mutar e olhar
+  a saída do teste, nunca inferir cobertura pela suíte passando.
+* **Uma citação de arquivo:linha só vale se conferida no momento em que é
+  escrita.** Um commit anterior pode ter deslocado o arquivo, e uma citação
+  copiada de memória (ou de uma revisão anterior) fica errada em silêncio. Leia
+  o código real antes de citar a linha, não confie numa citação já pronta.

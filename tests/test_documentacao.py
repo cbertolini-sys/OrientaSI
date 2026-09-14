@@ -73,3 +73,59 @@ def test_readme_existe_e_tem_comando_de_subida_real():
     readme = (RAIZ / "README.md").read_text(encoding="utf-8")
     assert "docker compose up -d" in readme
     assert "--profile dev" not in readme
+
+
+def test_claude_md_descreve_a_excecao_ao_teto_de_vagas():
+    """O CLAUDE.md dizia que o bloqueio em 3 é automático e absoluto. O Bloco B
+    implementou uma exceção autorizada pela coordenação (LimiteOrientacao,
+    apps/projetos/models.py). Documento que descreve regra mais rígida do que
+    o sistema aplica faz alguém confiar numa trava que não existe."""
+    assert "exceção" in CLAUDE
+    assert "LimiteOrientacao" in CLAUDE
+    assert "apps/projetos/models.py" in CLAUDE
+
+
+def test_claude_md_descreve_apps_projetos_como_nao_vazia():
+    """apps/projetos deixou de estar vazia neste bloco: temas, mural,
+    candidatura em cascata e painel da coordenação moram lá agora."""
+    assert "apps/projetos" in CLAUDE
+    assert "vazia" not in _trecho_da_app_projetos()
+
+
+def _trecho_da_app_projetos():
+    inicio = CLAUDE.index("`apps/projetos`")
+    fim = CLAUDE.index("`apps/bancas`")
+    return CLAUDE[inicio:fim]
+
+
+def test_claude_md_cita_celery_beat_na_arquitetura_de_containers():
+    assert "celery_beat" in CLAUDE
+
+
+def test_claude_md_registra_a_alocacao_continua_e_a_divergencia_do_inicio_pdf():
+    """Decisão de produto do Bloco B (spec §3.1): alocação por ordem de chegada,
+    não por desempenho escolar — ao contrário do que o `inicio.pdf` pedia."""
+    assert "inicio.pdf" in CLAUDE
+    assert "desempenho" in CLAUDE
+
+
+def test_claude_md_atualiza_o_ciclo_de_vida_do_projeto():
+    """O modelo Projeto passou a existir neste bloco; só EM_ANDAMENTO é
+    alcançável até o Bloco C trazer as demais transições."""
+    assert "o modelo `Projeto` ainda não existe" not in CLAUDE
+    assert "EM_ANDAMENTO" in CLAUDE
+
+
+def test_claude_md_marca_o_bloco_b_como_concluido():
+    assert "B — temas e alocação (concluído)" in CLAUDE
+
+
+def test_claude_md_registra_disciplina_de_prova_por_mutacao():
+    """Convenção de engenharia tirada do Bloco B para os blocos seguintes: uma
+    checagem só está provada quando removê-la faz um teste reprovar."""
+    assert "mutação" in CLAUDE
+
+
+def test_readme_documenta_o_celery_beat():
+    readme = (RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "celery_beat" in readme
