@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import BooleanField, Count, ExpressionWrapper, F, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
@@ -410,13 +410,19 @@ def orientandos_atuais(professor):
     plano inteiro — defeito do plano, fechado nesta rodada de correção da T9,
     ver `tarefa-9-fix-1-brief.md`).
 
-    Filtra por `status=Projeto.EM_ANDAMENTO`: um projeto já `CONCLUIDO` ou
-    `REPROVADO` não é mais uma orientação ATUAL. O spec não decide se um
-    orientando recém-concluído deveria continuar aparecendo aqui por algum
-    tempo (ex.: até o professor "arquivar"), e esta função também não
-    decide por ele — LACUNA REGISTRADA, não uma escolha silenciosa, no
-    mesmo formato das demais lacunas deste bloco (ver, por exemplo, a de
-    `editar_tema`, acima, sobre tema editado depois de já ter candidatura).
+    Filtra por `status__in=[EM_ANDAMENTO, AGUARDANDO_DEFESA, REPROVADO]`
+    (Bloco D, spec §3.7 — ampliado do filtro original só `EM_ANDAMENTO` do
+    Bloco B): o orientador precisa continuar vendo o projeto em
+    `/orientacoes/` para agendar/editar/cancelar a banca, registrar o
+    resultado, ou reabrir/cancelar um projeto reprovado — todas ações deste
+    bloco. `CONCLUIDO` e `CANCELADO` ficam de fora — são estados terminais,
+    e um projeto encerrado não precisa ocupar "orientandos atuais" para
+    sempre. O spec não decide se um orientando recém-concluído deveria
+    continuar aparecendo aqui por algum tempo (ex.: até o professor
+    "arquivar"), e esta função também não decide por ele — LACUNA
+    REGISTRADA, não uma escolha silenciosa, no mesmo formato das demais
+    lacunas deste bloco (ver, por exemplo, a de `editar_tema`, acima, sobre
+    tema editado depois de já ter candidatura).
 
     Sem `ano`/`periodo` como parâmetro, ao contrário de `vagas_ocupadas`:
     esta função sempre olha o semestre VIGENTE (`semestre_vigente()`) — a
@@ -429,7 +435,7 @@ def orientandos_atuais(professor):
             orientador=professor.usuario,
             ano=ano,
             periodo=periodo,
-            status=Projeto.EM_ANDAMENTO,
+            status__in=[Projeto.EM_ANDAMENTO, Projeto.AGUARDANDO_DEFESA, Projeto.REPROVADO],
         )
         .select_related("aluno", "tema", "submissao")
         .order_by("aluno__nome_completo")
@@ -1284,3 +1290,29 @@ def recusar_opcao(opcao, por, justificativa):
     transaction.on_commit(lambda: enviar_recusa.delay(opcao.id))
 
     return avancar_cascata(candidatura)
+
+
+def reabrir_projeto(projeto, por):
+    """Reabre um `Projeto` `REPROVADO` — volta a `EM_ANDAMENTO`, o aluno
+    tenta de novo (Bloco D, spec §3.6). Só o orientador, só a partir de
+    `REPROVADO`."""
+    if not permissions.pode_reabrir_projeto(por, projeto):
+        raise PermissionDenied("Somente o orientador do projeto pode reabri-lo.")
+    if projeto.status != Projeto.REPROVADO:
+        raise ValidationError("Só é possível reabrir um projeto reprovado.")
+
+    projeto.status = Projeto.EM_ANDAMENTO
+    projeto.save(update_fields=["status"])
+
+
+def cancelar_projeto(projeto, por):
+    """Encerra definitivamente um `Projeto` `REPROVADO` (Bloco D, spec
+    §3.6) — distinto de `REPROVADO`: registra que o projeto foi encerrado,
+    não só que a banca não aprovou."""
+    if not permissions.pode_cancelar_projeto(por, projeto):
+        raise PermissionDenied("Somente o orientador do projeto pode cancelá-lo.")
+    if projeto.status != Projeto.REPROVADO:
+        raise ValidationError("Só é possível cancelar um projeto reprovado.")
+
+    projeto.status = Projeto.CANCELADO
+    projeto.save(update_fields=["status"])

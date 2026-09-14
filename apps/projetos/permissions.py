@@ -118,3 +118,14 @@ def pode_responder_opcao(usuario, opcao):
         and hasattr(usuario, "perfil_professor")
         and usuario.perfil_professor == opcao.professor
     )
+
+
+def pode_reabrir_projeto(usuario, projeto):
+    """`usuario` é exatamente o orientador de `projeto` (Bloco D, spec §3.6)
+    — posse, não papel."""
+    return bool(usuario and usuario.is_authenticated and usuario == projeto.orientador)
+
+
+def pode_cancelar_projeto(usuario, projeto):
+    """Mesma regra de posse de `pode_reabrir_projeto`."""
+    return bool(usuario and usuario.is_authenticated and usuario == projeto.orientador)
