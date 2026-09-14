@@ -97,21 +97,36 @@ Todos os comandos devem rodar via container Docker:
   implementado — sem checklist para o TCC I, ver "Ciclo de Vida" abaixo). O
   modelo `Projeto` nasce no Bloco B; as transições `EM_ANDAMENTO` →
   `Aguardando Defesa` → `Aprovado com Ressalvas` → `Aprovado` → `Concluído`
-  (ou `Reprovado`/`Cancelado`) já estão todas implementadas para o TCC I; o
-  que falta (checklist de correções e termo de publicação do TCC II) fica
-  para o Bloco F.
+  (ou `Reprovado`/`Cancelado`) já estão todas implementadas para o TCC I e o
+  TCC II (Bloco F, implementado). O TCC II nasce por
+  `criar_tcc_ii_automatico` (a partir de um TCC I `Concluído`, mesmo aluno e
+  orientador, `anterior` — self-FK — apontando para o TCC I, sem checar
+  limite de vagas) ou por `criar_tcc_ii_manual` (professor cria do zero para
+  um aluno sem TCC I no sistema, casca fina sobre `criar_projeto_sob_limite`,
+  checando limite). `coorientador`/`coorientador_externo` no `Projeto` são
+  só informativos, e mutuamente exclusivos (`CheckConstraint`
+  `projeto_coorientador_nao_duplo`). Para o TCC II, `aprovar_projeto` exige
+  todos os `ItemCorrecao` concluídos e um `TermoPublicacao` assinado
+  (existência da linha = assinado) antes de aprovar — diferente do TCC I, que
+  não tem esse checklist.
 * `apps/bancas`: agendamento de banca (`agendar_banca`/`editar_banca`/
   `cancelar_banca`), registro do resultado da apresentação
   (`registrar_resultado`) e notificação por e-mail do agendamento (Bloco D,
   implementado). `Banca`/`MembroBanca` — nota e resultado são únicos por
   banca, não um por membro (decisão registrada, ver regra 3 abaixo e o spec
-  do bloco). Sem `Avaliacao` por membro, sem checklist de correções (Bloco F).
+  do bloco). `ItemCorrecao` (Bloco F, implementado): checklist de correções
+  pós-banca de um TCC II, digitado pelo orientador em
+  `/bancas/<id>/correcoes/`, com e-mail ao aluno a cada item novo (decisão
+  explícita do usuário, contra a recomendação de agrupar). Sem `Avaliacao`
+  por membro (decisão do Bloco D, ver regra 3).
 * `apps/documentos`: geração automática da `Ata` (PDF via WeasyPrint,
-  numeração sequencial `NNN/AAAA`) ao aprovar um projeto de TCC I, e o
-  painel da SUGRAD (`/painel/sugrad/`) para aprovar (`→ Concluído`) ou
+  numeração sequencial `NNN/AAAA`) ao aprovar um projeto (TCC I ou TCC II), e
+  o painel da SUGRAD (`/painel/sugrad/`) para aprovar (`→ Concluído`) ou
   devolver com comentário (`RevisaoSUGRAD`, Bloco E, implementado).
   `RevisaoSUGRAD` é uma linha só por `Ata`, sem histórico de rodadas — o
-  orientador reenvia a mesma ata depois de uma devolução.
+  orientador reenvia a mesma ata depois de uma devolução. Aprovar a ata de um
+  TCC I dispara `criar_tcc_ii_automatico` (Bloco F) — aprovar a de um TCC II
+  não cria nada além (fim de linha, sem "TCC III").
 
 Todo identificador de código (apps, modelos, campos, funções, variáveis) é em
 português. Interface, mensagens de erro, comentários e commits também.
@@ -210,13 +225,19 @@ o ciclo até `Aprovado com Ressalvas`/`Reprovado`: `agendar_banca` fecha
 `reabrir_projeto`/`cancelar_projeto` levam a `Em Andamento` (o aluno tenta de
 novo) ou a `Cancelado` (fim de linha). O Bloco E fechou o restante do TCC I:
 `aprovar_projeto` fecha `Aprovado com Ressalvas` → `Aprovado` — **sem
-checklist**, decisão do brainstorming do Bloco E: o `inicio.pdf` só descreve
-checklist de correções e termo de publicação para o **TCC II** (mapa de
-domínio da Fase 1, §12: `ItemCorrecao` tagueado `[F]`), então essa transição,
-para o TCC I, é só uma confirmação do orientador — `gerar_ata` roda no mesmo
-passo, e `aprovar_ata` (SUGRAD) fecha `Aprovado` → `Concluído`. Quando o
-Bloco F existir, ele decide como o TCC II enriquece (ou substitui) essa
-mesma transição sem quebrar o caminho do TCC I.
+checklist para o TCC I**, decisão do brainstorming do Bloco E: o
+`inicio.pdf` só descreve checklist de correções e termo de publicação para o
+**TCC II** — `gerar_ata` roda no mesmo passo, e `aprovar_ata` (SUGRAD) fecha
+`Aprovado` → `Concluído`. O Bloco F implementou o TCC II sobre o mesmo
+modelo `Projeto`/mesma máquina de status: para o TCC II, `aprovar_projeto`
+exige adicionalmente que todo `ItemCorrecao` esteja concluído e que exista
+um `TermoPublicacao` (o aluno assina em `/meu-tcc/`) antes de aprovar —
+sem quebrar o caminho do TCC I, que continua sem esse checklist. Quando a
+ata de um TCC I é aprovada pela SUGRAD, `criar_tcc_ii_automatico` cria o
+TCC II na hora (mesmo aluno/orientador, `anterior` apontando pro TCC I, sem
+checar limite de vagas); um professor também pode criar um TCC II
+manualmente a qualquer momento para um aluno sem TCC I no sistema
+(`criar_tcc_ii_manual`, checando limite de vagas).
 
 1. **`Em Andamento`:** Aluno aceito e elaborando o trabalho.
 2. **`Aguardando Defesa`:** Aluno envia PDF/Editável e orientador agenda a banca
@@ -224,12 +245,16 @@ mesma transição sem quebrar o caminho do TCC I.
 3. **`Aprovado com Ressalvas`:** Defesa realizada com nota e comentários (uma
    nota geral da banca, não uma por membro — ver regra 3), abrindo prazo de
    correções.
-4. **`Aprovado`:** Orientador confirma a correção (`aprovar_projeto`, Bloco
-   E) — sem checklist para o TCC I (ver acima). O sistema gera a `Ata` e
-   notifica a SUGRAD no mesmo passo. Para o TCC II, o **checklist de
-   correções** e o **termo de aceite de publicação** ficam para o Bloco F.
+4. **`Aprovado`:** Orientador confirma a correção (`aprovar_projeto`). Para o
+   TCC I (Bloco E) é só uma confirmação, sem checklist. Para o TCC II (Bloco
+   F) exige o **checklist de correções** (`ItemCorrecao`, todos concluídos)
+   e o **termo de aceite de publicação** (`TermoPublicacao`, assinado pelo
+   aluno) antes de aprovar. Em ambos os casos o sistema gera a `Ata` e
+   notifica a SUGRAD no mesmo passo.
 5. **`Concluído`:** SUGRAD aprova a Ata no Painel SUGRAD (`aprovar_ata`,
-   `/painel/sugrad/`, Bloco E, implementado).
+   `/painel/sugrad/`, Bloco E, implementado). Se a ata era de um TCC I, o
+   TCC II é criado automaticamente nesse momento (Bloco F); se já era de um
+   TCC II, o ciclo do aluno termina ali — nenhum "TCC III" é criado.
 6. **`Reprovado`:** Defesa realizada sem aprovação — o orientador reabre
    (volta a `Em Andamento`) ou cancela definitivamente (`Cancelado`).
 7. **`Cancelado`:** Estado terminal — nenhuma ação definida a partir daqui
@@ -273,7 +298,17 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   (`/painel/sugrad/`, permissão por PAPEL — único caso do sistema além de
   `is_coordenador`) fecham `Aprovado → Concluído` ou devolvem com
   comentário (`RevisaoSUGRAD`, uma linha só por `Ata`, sem histórico).
-* **F** — TCC II
+* **F — TCC II (concluído)**: `criar_tcc_ii_automatico` (a partir de um TCC I
+  `Concluído`, sem checar limite de vagas, `anterior` self-FK ligando os
+  dois) e `criar_tcc_ii_manual` (professor cria do zero para aluno sem TCC I
+  no sistema, casca sobre `criar_projeto_sob_limite`, checando limite).
+  `coorientador`/`coorientador_externo` no `Projeto` (informativo, mutuamente
+  exclusivo). Para o TCC II, `aprovar_projeto` exige o checklist
+  (`ItemCorrecao`, `apps/bancas`) todo concluído e o `TermoPublicacao`
+  assinado pelo aluno (`/meu-tcc/`) antes de aprovar; aprovar a ata de um
+  TCC I dispara a criação automática do TCC II, aprovar a de um TCC II
+  termina o ciclo (sem "TCC III"). Notificação por e-mail ao aluno na
+  criação do TCC II e a cada item de correção novo.
 * **G** — catálogo e calendário públicos
 * **H** — API DRF (`djangorestframework` + `drf-spectacular` entram aqui)
 
