@@ -88,9 +88,11 @@ Todos os comandos devem rodar via container Docker:
 * `apps/projetos`: mural de temas, candidatura do aluno em cascata (até três
   opções, com prazo automático via Celery Beat), fila de aceite/recusa do
   professor e painel da coordenação para ajustar orientação e conceder limite
-  (Bloco B, implementado). O modelo `Projeto` nasce aqui, mas só chega ao
-  status `EM_ANDAMENTO`; as demais transições (envio de arquivo, defesa,
-  aprovação, correções) ficam para o Bloco C.
+  (Bloco B, implementado). Envio/reenvio do trabalho escrito (PDF + editável)
+  pelo aluno em `/meu-tcc/`, com visibilidade do estado de envio para o
+  orientador em `/orientacoes/` (`Submissao`, Bloco C, implementado). O modelo
+  `Projeto` nasce no Bloco B, mas só chega ao status `EM_ANDAMENTO`; as demais
+  transições (defesa, aprovação, correções) ficam para os Blocos D em diante.
 * `apps/bancas`: criada, registrada, vazia — reservada para o Bloco D (bancas e
   avaliação).
 * `apps/documentos`: criada, registrada, vazia — reservada para o Bloco E (atas
@@ -177,9 +179,12 @@ Status permitidos: `Em Andamento` ➔ `Aguardando Defesa` ➔ `Aprovado com Ress
 O modelo `Projeto` existe desde o Bloco B (`apps/projetos/models.py`), com o
 vocabulário completo do ciclo já nos `choices` de `status` — mas só
 `EM_ANDAMENTO` é alcançável até aqui: o aceite de uma opção de candidatura cria
-o `Projeto` e para nesse status. As demais transições (`Aguardando Defesa` em
-diante) são especificadas para os Blocos C–F, que ainda vão implementá-las
-sobre o mesmo modelo.
+o `Projeto` e para nesse status. O Bloco C acrescenta o envio do trabalho
+escrito (`Submissao`) sem fechar a transição para `Aguardando Defesa` — ela
+também depende do agendamento de uma `Banca`, que só existe a partir do
+Bloco D. As demais transições (`Aguardando Defesa` em diante) são
+especificadas para os Blocos D–F, que ainda vão implementá-las sobre o mesmo
+modelo.
 
 1. **`Em Andamento`:** Aluno aceito e elaborando o trabalho.
 2. **`Aguardando Defesa`:** Aluno envia PDF/Editável e orientador agenda a banca.
@@ -208,7 +213,12 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   do professor, criação do `Projeto` de TCC I no aceite, limite de vagas com
   exceção autorizada pela coordenação, e painel da coordenação para trocar
   orientador e conceder/revogar limite.
-* **C** — TCC I
+* **C — TCC I (concluído)**: modelo `Submissao` (PDF + editável, sem
+  histórico de versões — reenvio substitui e incrementa `versao`), tela do
+  aluno para enviar/reenviar (`/meu-tcc/`) e visibilidade do estado de envio
+  para o orientador em `/orientacoes/`. Não fecha a transição de
+  `Projeto.status` para `Aguardando Defesa` — essa transição também depende
+  do agendamento de uma `Banca` (Bloco D).
 * **D** — bancas e avaliação (membro externo é só um nome, sem conta nem
   autenticação — ver regra 3 acima)
 * **E** — atas e SUGRAD
