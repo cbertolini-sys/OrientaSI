@@ -3,7 +3,9 @@ ampliado de `orientandos_atuais` (spec §3.6)."""
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils import timezone
 
+from apps.bancas.models import Banca
 from apps.comum.semestre import semestre_vigente
 from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
@@ -47,9 +49,13 @@ def orientador(db):
 
 @pytest.fixture
 def projeto_com_ressalvas(db, orientador):
+    """`aprovar_projeto` (Tarefa 3 em diante) gera uma `Ata` de verdade, que
+    exige uma `Banca` `REALIZADA` do projeto — sem ela,
+    `apps.documentos.services.gerar_ata` levanta `Banca.DoesNotExist`. Esta
+    fixture precisa refletir a precondição real, não só o `status` isolado."""
     ano, periodo = semestre_vigente()
     aluno = _aluno(2, "Aluno Com Ressalvas")
-    return Projeto.objects.create(
+    projeto = Projeto.objects.create(
         aluno=aluno,
         orientador=orientador.usuario,
         etapa=Projeto.TCC_I,
@@ -57,6 +63,15 @@ def projeto_com_ressalvas(db, orientador):
         ano=ano,
         periodo=periodo,
     )
+    Banca.objects.create(
+        projeto=projeto,
+        data_hora=timezone.now(),
+        local="Sala 1",
+        status=Banca.REALIZADA,
+        nota=8.0,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+    )
+    return projeto
 
 
 @pytest.mark.django_db

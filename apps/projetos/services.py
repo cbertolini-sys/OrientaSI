@@ -1337,3 +1337,7 @@ def aprovar_projeto(projeto, por):
 
     projeto.status = Projeto.APROVADO
     projeto.save(update_fields=["status"])
+
+    from apps.documentos.services import gerar_ata
+
+    gerar_ata(projeto)
