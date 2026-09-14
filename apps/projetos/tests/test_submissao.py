@@ -1,10 +1,11 @@
 import pytest
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 
 from apps.comum.validators import valida_extensao_editavel, valida_extensao_pdf
 from apps.contas.models import PerfilAluno, PerfilProfessor, Usuario
+from apps.projetos import permissions, services
 from apps.projetos.models import Projeto, Submissao
 
 
@@ -92,3 +93,110 @@ def test_submissao_nasce_com_versao_um(projeto_em_andamento):
         editavel=_arquivo("v1.docx"),
     )
     assert submissao.versao == 1
+
+
+@pytest.mark.django_db
+def test_projeto_ativo_do_aluno_encontra_em_andamento(projeto_em_andamento):
+    encontrado = services.projeto_ativo_do_aluno(projeto_em_andamento.aluno, Projeto.TCC_I)
+    assert encontrado == projeto_em_andamento
+
+
+@pytest.mark.django_db
+def test_projeto_ativo_do_aluno_ignora_concluido(projeto_em_andamento):
+    projeto_em_andamento.status = Projeto.CONCLUIDO
+    projeto_em_andamento.save(update_fields=["status"])
+    assert services.projeto_ativo_do_aluno(projeto_em_andamento.aluno, Projeto.TCC_I) is None
+
+
+@pytest.mark.django_db
+def test_projeto_ativo_do_aluno_sem_projeto_devolve_none(db):
+    aluno = Usuario.objects.create_user(
+        email="aluno.sem.projeto@ufsm.br",
+        password="x",
+        nome_completo="Aluno Sem Projeto",
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(950000003),
+    )
+    assert services.projeto_ativo_do_aluno(aluno, Projeto.TCC_I) is None
+
+
+@pytest.mark.django_db
+def test_pode_enviar_submissao_e_o_dono_do_projeto(projeto_em_andamento):
+    assert permissions.pode_enviar_submissao(projeto_em_andamento.aluno, projeto_em_andamento)
+
+
+@pytest.mark.django_db
+def test_pode_enviar_submissao_recusa_quem_nao_e_dono(projeto_em_andamento):
+    outro = Usuario.objects.create_user(
+        email="outro.aluno.submissao@ufsm.br",
+        password="x",
+        nome_completo="Outro Aluno",
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(950000004),
+    )
+    assert not permissions.pode_enviar_submissao(outro, projeto_em_andamento)
+
+
+@pytest.mark.django_db
+def test_enviar_submissao_cria_na_primeira_vez(projeto_em_andamento):
+    submissao = services.enviar_submissao(
+        projeto_em_andamento,
+        por=projeto_em_andamento.aluno,
+        pdf=_arquivo("v1.pdf"),
+        editavel=_arquivo("v1.docx"),
+    )
+    assert submissao.versao == 1
+    assert submissao.projeto == projeto_em_andamento
+
+
+@pytest.mark.django_db
+def test_enviar_submissao_reenvio_atualiza_e_incrementa_versao(projeto_em_andamento):
+    primeira = services.enviar_submissao(
+        projeto_em_andamento,
+        por=projeto_em_andamento.aluno,
+        pdf=_arquivo("v1.pdf"),
+        editavel=_arquivo("v1.docx"),
+    )
+    segunda = services.enviar_submissao(
+        projeto_em_andamento,
+        por=projeto_em_andamento.aluno,
+        pdf=_arquivo("v2.pdf"),
+        editavel=_arquivo("v2.docx"),
+    )
+    assert segunda.pk == primeira.pk
+    assert segunda.versao == 2
+    # `Submissao` já está importado no topo do arquivo (Tarefa 1, Passo 5).
+    assert Submissao.objects.filter(projeto=projeto_em_andamento).count() == 1
+
+
+@pytest.mark.django_db
+def test_enviar_submissao_recusa_quem_nao_e_dono(projeto_em_andamento):
+    outro = Usuario.objects.create_user(
+        email="outro.aluno.enviar@ufsm.br",
+        password="x",
+        nome_completo="Outro Aluno Enviar",
+        papel=Usuario.ALUNO,
+        cpf=_cpf_valido(950000005),
+    )
+    with pytest.raises(PermissionDenied):
+        services.enviar_submissao(
+            projeto_em_andamento, por=outro, pdf=_arquivo("v1.pdf"), editavel=_arquivo("v1.docx")
+        )
+
+
+@pytest.mark.django_db
+def test_enviar_submissao_recusa_fora_de_em_andamento(projeto_em_andamento):
+    """Mutação obrigatória (Global Constraints): hoje nenhum outro status é
+    alcançável em produção (o Bloco D ainda não existe), mas este teste cria
+    o `Projeto` DIRETAMENTE com outro status, sem depender do Bloco D — a
+    checagem precisa de prova mesmo sendo hoje inalcançável pelo fluxo real
+    (spec §5.1)."""
+    projeto_em_andamento.status = Projeto.AGUARDANDO_DEFESA
+    projeto_em_andamento.save(update_fields=["status"])
+    with pytest.raises(ValidationError):
+        services.enviar_submissao(
+            projeto_em_andamento,
+            por=projeto_em_andamento.aluno,
+            pdf=_arquivo("v1.pdf"),
+            editavel=_arquivo("v1.docx"),
+        )

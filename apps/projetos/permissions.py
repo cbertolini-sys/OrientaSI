@@ -92,6 +92,14 @@ def pode_conceder_limite(usuario):
     return bool(usuario and usuario.is_authenticated and usuario.is_coordenador)
 
 
+def pode_enviar_submissao(usuario, projeto):
+    """`usuario` é exatamente o aluno de `projeto` — checagem de POSSE, não
+    de papel (Bloco C, spec §5). `Projeto.aluno` é `Usuario` diretamente
+    (ao contrário de `Candidatura.aluno`, que é `PerfilAluno`) — comparação
+    direta, sem passar por nenhum perfil."""
+    return bool(usuario and usuario.is_authenticated and usuario == projeto.aluno)
+
+
 def pode_responder_opcao(usuario, opcao):
     """`usuario` pode aceitar/recusar `opcao` — só o professor DONO dela
     (T9), mesma checagem de POSSE de `_e_o_dono`: pergunta "é ESTE

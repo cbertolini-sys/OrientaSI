@@ -366,12 +366,7 @@ def candidatura(request):
     )
     aluno = request.user.perfil_aluno
 
-    projeto_atual = (
-        Projeto.objects.filter(aluno=request.user, etapa=Projeto.TCC_I)
-        .exclude(status__in=[Projeto.CONCLUIDO, Projeto.REPROVADO])
-        .select_related("orientador", "tema")
-        .first()
-    )
+    projeto_atual = services.projeto_ativo_do_aluno(request.user, Projeto.TCC_I)
     if projeto_atual is not None:
         return render(request, "projetos/candidatura.html", {"projeto_atual": projeto_atual})
 

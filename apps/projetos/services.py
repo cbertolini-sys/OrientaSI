@@ -10,7 +10,14 @@ from django.utils import timezone
 from apps.comum.semestre import semestre_vigente
 from apps.contas.models import PerfilProfessor
 from apps.projetos import permissions
-from apps.projetos.models import Candidatura, LimiteOrientacao, OpcaoCandidatura, Projeto, Tema
+from apps.projetos.models import (
+    Candidatura,
+    LimiteOrientacao,
+    OpcaoCandidatura,
+    Projeto,
+    Submissao,
+    Tema,
+)
 
 # Teto padrão de vagas por professor, por etapa, no semestre vigente
 # (CLAUDE.md, "Regras de Negócio Inegociáveis" item 1). A coordenação pode
@@ -427,6 +434,65 @@ def orientandos_atuais(professor):
         .select_related("aluno", "tema")
         .order_by("aluno__nome_completo")
     )
+
+
+def projeto_ativo_do_aluno(usuario, etapa):
+    """`Projeto` de `usuario` em `etapa` que ainda não terminou —
+    `CONCLUIDO`/`REPROVADO` são estados terminais e ficam de fora, mesma
+    condição do `UniqueConstraint` de `Projeto.Meta`
+    (`projeto_ativo_unico_por_aluno_e_etapa`). `None` se não houver.
+
+    Extraída de `views.py::candidatura` (T11, Bloco B) para esta tarefa
+    (Bloco C) não duplicar a mesma consulta uma segunda vez em
+    `views.py::meu_tcc`.
+    """
+    return (
+        Projeto.objects.filter(aluno=usuario, etapa=etapa)
+        .exclude(status__in=[Projeto.CONCLUIDO, Projeto.REPROVADO])
+        .select_related("orientador", "tema")
+        .first()
+    )
+
+
+@transaction.atomic
+def enviar_submissao(projeto, por, pdf, editavel):
+    """Registra o envio (ou reenvio) do trabalho escrito de `projeto` (Bloco
+    C, spec §5). Cria a `Submissao` na primeira chamada; nas seguintes,
+    ATUALIZA a mesma linha (substitui `pdf`/`editavel`, incrementa `versao`)
+    — não existe histórico de versões anteriores (spec §3.2, decisão do
+    usuário, custo aceito).
+
+    GARANTIA que esta função entrega, e só esta: `por` é exatamente o aluno
+    de `projeto` (`permissions.pode_enviar_submissao`), e `projeto.status`
+    é `EM_ANDAMENTO` no momento da chamada. Ela NÃO garante nada sobre uma
+    corrida entre dois reenvios simultâneos do mesmo aluno — não há
+    `select_for_update` aqui, porque o recurso (a `Submissao` de UM projeto)
+    não é disputado por partes concorrentes do sistema do jeito que vagas de
+    professor são: só o próprio aluno escreve nesta linha, e duas abas do
+    mesmo aluno reenviando ao mesmo tempo é uma corrida de baixíssimo risco
+    (o pior caso é a versão que perder a corrida ficar como se nunca tivesse
+    sido enviada — sem corrupção de dado, só uma versão a menos do que o
+    aluno esperava).
+    """
+    permissions.garante(
+        permissions.pode_enviar_submissao(por, projeto),
+        "Você só pode enviar a submissão do seu próprio projeto.",
+    )
+    if projeto.status != Projeto.EM_ANDAMENTO:
+        raise ValidationError(
+            "Este projeto não está mais em andamento — não é possível enviar ou "
+            "reenviar a submissão."
+        )
+
+    submissao, criada = Submissao.objects.get_or_create(
+        projeto=projeto, defaults={"pdf": pdf, "editavel": editavel}
+    )
+    if not criada:
+        submissao.pdf = pdf
+        submissao.editavel = editavel
+        submissao.versao += 1
+        submissao.save(update_fields=["pdf", "editavel", "versao", "atualizada_em"])
+    return submissao
 
 
 def _possui_candidatura_em_curso(aluno):
