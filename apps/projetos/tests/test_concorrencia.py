@@ -497,7 +497,7 @@ def _cancela_candidatura_em_thread(candidatura_id, aluno_usuario_id, resultados,
 
 
 @pytest.mark.django_db(transaction=True)
-def test_aceitar_opcao_e_cancelar_candidatura_concorrentes_nao_deixam_projeto_orfao():
+def test_aceitar_opcao_e_cancelar_candidatura_concorrentes_nao_deixam_projeto_orfao(settings):
     """Professor aceita a opção 1 no exato instante em que o aluno cancela a
     candidatura. Sem a trava de `Candidatura` em `cancelar_candidatura`
     (`select_for_update`, acréscimo 4 do brief original da T9), o `UPDATE`
@@ -512,7 +512,20 @@ def test_aceitar_opcao_e_cancelar_candidatura_concorrentes_nao_deixam_projeto_or
     `Candidatura`. Com a trava certa, `t_cancela` só lê o estado depois que
     `t_aceita` comita, encontra `candidatura.status == ACEITA` (não
     `EM_CURSO`) e é recusada pela checagem de status — sem tocar em nada.
+
+    `settings.CELERY_TASK_ALWAYS_EAGER = True` (achado da Tarefa 13, ao
+    reconstruir o ambiente do zero): este teste usa `django_db(transaction=True)`
+    — a transação de `registrar_candidatura`, abaixo, COMITA de verdade, ao
+    contrário dos testes com rollback padrão. Sem o modo eager, o `on_commit`
+    de `_enviar_opcao` despacha `enviar_manifestacao.delay(...)` para o broker
+    Redis real, e o `celery_worker` real do `docker-compose` processa a tarefa
+    depois que o teardown do teste já truncou a tabela — `OpcaoCandidatura.
+    DoesNotExist` no log do worker, medido rodando a suíte inteira contra um
+    ambiente reconstruído do zero. Nenhuma asserção deste teste depende do
+    e-mail; o modo eager só evita a mensagem no broker real, sem afetar a
+    prova de concorrência que segue.
     """
+    settings.CELERY_TASK_ALWAYS_EAGER = True
     professor = _cria_professor(30)
     aluno = _cria_perfil_aluno(30)
 
