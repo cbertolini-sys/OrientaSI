@@ -125,3 +125,18 @@ def test_concluir_item_view_redireciona(client, projeto_tcc_ii):
     assert resposta.status_code == 302
     item.refresh_from_db()
     assert item.concluido is True
+
+
+@pytest.mark.django_db
+def test_criar_item_correcao_notifica_aluno(
+    settings, django_capture_on_commit_callbacks, projeto_tcc_ii
+):
+    from django.core import mail
+
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    with django_capture_on_commit_callbacks(execute=True):
+        services.criar_item_correcao(
+            projeto_tcc_ii, descricao="Ajustar.", por=projeto_tcc_ii.orientador
+        )
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [projeto_tcc_ii.aluno.email]

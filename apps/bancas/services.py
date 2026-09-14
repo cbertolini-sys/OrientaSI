@@ -3,7 +3,7 @@ from django.db import transaction
 
 from apps.bancas import permissions
 from apps.bancas.models import Banca, ItemCorrecao, MembroBanca
-from apps.bancas.tasks import enviar_agendamento_banca
+from apps.bancas.tasks import enviar_agendamento_banca, enviar_item_correcao_criado
 from apps.projetos.models import Projeto
 
 
@@ -137,12 +137,16 @@ def anexar_banca_ativa(projetos):
 def criar_item_correcao(projeto, descricao, por):
     """Orientador digita um item do checklist de correções (Bloco F, spec
     §5.2) — baseado no que a banca pediu (`Banca.comentario`), não
-    estruturado a partir da banca em si. A notificação por e-mail entra na
-    Tarefa 7 — esta tarefa entrega só a criação do item."""
+    estruturado a partir da banca em si. Notifica o aluno por e-mail a cada
+    item novo (decisão explícita do usuário, spec §8)."""
     if not permissions.pode_gerenciar_correcao(por, projeto):
         raise PermissionDenied("Somente o orientador do projeto gerencia as correções.")
 
-    return ItemCorrecao.objects.create(projeto=projeto, descricao=descricao)
+    item = ItemCorrecao.objects.create(projeto=projeto, descricao=descricao)
+
+    transaction.on_commit(lambda: enviar_item_correcao_criado.delay(item.id))
+
+    return item
 
 
 def concluir_item_correcao(item, por):

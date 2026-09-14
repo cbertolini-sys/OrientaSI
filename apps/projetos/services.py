@@ -1359,7 +1359,7 @@ def criar_tcc_ii_automatico(projeto_tcc_i):
     orienta, não um compromisso novo — ao contrário de
     `criar_tcc_ii_manual`, que reaproveita `criar_projeto_sob_limite`)."""
     ano, periodo = semestre_vigente()
-    return Projeto.objects.create(
+    tcc_ii = Projeto.objects.create(
         aluno=projeto_tcc_i.aluno,
         orientador=projeto_tcc_i.orientador,
         coorientador=projeto_tcc_i.coorientador,
@@ -1371,6 +1371,12 @@ def criar_tcc_ii_automatico(projeto_tcc_i):
         periodo=periodo,
     )
 
+    from apps.projetos.tasks import enviar_tcc_ii_criado
+
+    transaction.on_commit(lambda: enviar_tcc_ii_criado.delay(tcc_ii.id))
+
+    return tcc_ii
+
 
 def criar_tcc_ii_manual(aluno, professor, por):
     """Cria um TCC II do zero, sem TCC I anterior no sistema — comprova
@@ -1381,7 +1387,13 @@ def criar_tcc_ii_manual(aluno, professor, por):
     if not permissions.pode_criar_tcc_ii_manual(por, professor):
         raise PermissionDenied("Somente o próprio professor cria um TCC II em seu nome.")
 
-    return criar_projeto_sob_limite(aluno, professor, tema=None, etapa=Projeto.TCC_II)
+    tcc_ii = criar_projeto_sob_limite(aluno, professor, tema=None, etapa=Projeto.TCC_II)
+
+    from apps.projetos.tasks import enviar_tcc_ii_criado
+
+    transaction.on_commit(lambda: enviar_tcc_ii_criado.delay(tcc_ii.id))
+
+    return tcc_ii
 
 
 def assinar_termo_publicacao(projeto, por):

@@ -283,3 +283,25 @@ def enviar_esgotamento(self, candidatura_id):
         )
     except Exception as erro:  # noqa: BLE001 — repetimos qualquer falha de entrega
         raise self.retry(exc=erro, countdown=60 * 2**self.request.retries) from erro
+
+
+@shared_task(bind=True, max_retries=3)
+def enviar_tcc_ii_criado(self, projeto_id):
+    """Avisa o aluno de que o TCC II foi criado — automático ou manual
+    (Bloco F, spec §8)."""
+    from apps.projetos.models import Projeto
+
+    projeto = Projeto.objects.select_related("aluno", "orientador").get(pk=projeto_id)
+    corpo = render_to_string(
+        "email/tcc_ii_criado.txt",
+        {"aluno": projeto.aluno, "orientador": projeto.orientador, "link": _link_login()},
+    )
+    try:
+        send_mail(
+            subject="OrientaSI — seu TCC II foi criado",
+            message=corpo,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[projeto.aluno.email],
+        )
+    except Exception as erro:  # noqa: BLE001 — repetimos qualquer falha de entrega
+        raise self.retry(exc=erro, countdown=60 * 2**self.request.retries) from erro

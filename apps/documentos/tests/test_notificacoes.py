@@ -63,6 +63,49 @@ def cenario(db):
     return {"sugrad": sugrad, "aluno": aluno, "orientador": orientador, "projeto": projeto}
 
 
+@pytest.fixture
+def cenario_tcc_ii(db):
+    sugrad = Usuario.objects.create_user(
+        email="sugrad.notiftccii@ufsm.br",
+        password="x",
+        nome_completo="SUGRAD",
+        papel=Usuario.SUGRAD,
+        cpf=None,
+    )
+    aluno = Usuario.objects.create_user(
+        email="aluno.notiftccii@ufsm.br",
+        password="x",
+        nome_completo="Aluno Notif TCC II",
+        papel=Usuario.ALUNO,
+        cpf=_cpf(3),
+    )
+    PerfilAluno.objects.create(usuario=aluno, matricula="2026NOTIFTCCII1")
+    orientador = Usuario.objects.create_user(
+        email="orientador.notiftccii@ufsm.br",
+        password="x",
+        nome_completo="Orientador Notif TCC II",
+        cpf=_cpf(4),
+    )
+    PerfilProfessor.objects.create(usuario=orientador, siape="NOTIFTCCII1")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO,
+        ano=2026,
+        periodo=1,
+    )
+    Banca.objects.create(
+        projeto=projeto,
+        data_hora=timezone.now(),
+        local="Sala 1",
+        status=Banca.REALIZADA,
+        nota=8.0,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+    )
+    return {"sugrad": sugrad, "aluno": aluno, "orientador": orientador, "projeto": projeto}
+
+
 @pytest.mark.django_db
 def test_gerar_ata_notifica_sugrad(settings, django_capture_on_commit_callbacks, cenario):
     settings.CELERY_TASK_ALWAYS_EAGER = True
@@ -101,11 +144,33 @@ def test_reenviar_a_sugrad_notifica_sugrad_de_novo(
 
 
 @pytest.mark.django_db
-def test_aprovar_ata_nao_notifica(settings, django_capture_on_commit_callbacks, cenario):
+def test_aprovar_ata_de_tcc_ii_nao_notifica(
+    settings, django_capture_on_commit_callbacks, cenario_tcc_ii
+):
+    """Aprovar a ata de um TCC II é o fim da linha — não cria um "TCC III",
+    então não há cascata de notificação (Bloco F)."""
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    with django_capture_on_commit_callbacks(execute=True):
+        ata = services.gerar_ata(cenario_tcc_ii["projeto"])
+    mail.outbox.clear()
+    with django_capture_on_commit_callbacks(execute=True):
+        services.aprovar_ata(ata, por=cenario_tcc_ii["sugrad"])
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+def test_aprovar_ata_de_tcc_i_notifica_criacao_do_tcc_ii(
+    settings, django_capture_on_commit_callbacks, cenario
+):
+    """Aprovar a ata de um TCC I cria o TCC II automaticamente
+    (`apps.projetos.services.criar_tcc_ii_automatico`), o que dispara o
+    e-mail de aviso ao aluno (Bloco F, spec §8) — diferente do
+    comportamento de `aprovar_ata` isolado, que não notifica por si só."""
     settings.CELERY_TASK_ALWAYS_EAGER = True
     with django_capture_on_commit_callbacks(execute=True):
         ata = services.gerar_ata(cenario["projeto"])
     mail.outbox.clear()
     with django_capture_on_commit_callbacks(execute=True):
         services.aprovar_ata(ata, por=cenario["sugrad"])
-    assert len(mail.outbox) == 0
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [cenario["aluno"].email]

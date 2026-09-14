@@ -328,3 +328,29 @@ def test_aprovar_projeto_view_com_item_pendente_nao_da_500(client, projeto_tcc_i
     assert resposta.status_code == 302
     projeto_tcc_ii_com_ressalvas.refresh_from_db()
     assert projeto_tcc_ii_com_ressalvas.status == Projeto.APROVADO_COM_RESSALVAS
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_automatico_notifica_aluno(
+    settings, django_capture_on_commit_callbacks, projeto_tcc_i
+):
+    from django.core import mail
+
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    with django_capture_on_commit_callbacks(execute=True):
+        services.criar_tcc_ii_automatico(projeto_tcc_i)
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [projeto_tcc_i.aluno.email]
+
+
+@pytest.mark.django_db
+def test_criar_tcc_ii_manual_notifica_aluno(settings, django_capture_on_commit_callbacks):
+    from django.core import mail
+
+    orientador = _professor(70, "Orientador Notif Manual")
+    aluno = _aluno(71, "Aluno Notif Manual")
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    with django_capture_on_commit_callbacks(execute=True):
+        services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, por=orientador.usuario)
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [aluno.email]

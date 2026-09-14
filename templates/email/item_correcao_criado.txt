@@ -1,0 +1,9 @@
+Olá, {{ aluno.nome_completo }}.
+
+Seu orientador registrou um novo item de correção no seu TCC II:
+
+{{ item.descricao }}
+
+Entre no sistema para ver todos os itens pendentes: {{ link }}
+
+OrientaSI — Sistema de Gestão de TCC

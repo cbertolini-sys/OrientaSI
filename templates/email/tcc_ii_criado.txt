@@ -1,0 +1,7 @@
+Olá, {{ aluno.nome_completo }}.
+
+Seu TCC II foi criado no sistema, orientado por {{ orientador.nome_completo }}.
+
+Entre no sistema para enviar seu trabalho: {{ link }}
+
+OrientaSI — Sistema de Gestão de TCC
