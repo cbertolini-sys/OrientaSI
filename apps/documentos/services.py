@@ -1,9 +1,12 @@
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.template.loader import render_to_string
 from django.utils import timezone
 
 from apps.bancas.models import Banca
+from apps.documentos import permissions
 from apps.documentos.models import Ata, RevisaoSUGRAD
+from apps.projetos.models import Projeto
 
 
 def gerar_ata(projeto):
@@ -38,3 +41,36 @@ def gerar_ata(projeto):
     RevisaoSUGRAD.objects.create(ata=ata)
 
     return ata
+
+
+def aprovar_ata(ata, por):
+    """A SUGRAD aprova a ata — fecha `Aprovado` → `Concluído` (Bloco E,
+    spec §5.2). Permissão por papel (§3.5), não por posse do projeto."""
+    if not permissions.pode_revisar_ata(por):
+        raise PermissionDenied("Somente a SUGRAD revisa atas.")
+    revisao = ata.revisao
+    if revisao.status != RevisaoSUGRAD.PENDENTE:
+        raise ValidationError("Esta ata já foi revisada.")
+
+    revisao.status = RevisaoSUGRAD.APROVADA
+    revisao.decidida_em = timezone.now()
+    revisao.save(update_fields=["status", "decidida_em"])
+
+    ata.projeto.status = Projeto.CONCLUIDO
+    ata.projeto.save(update_fields=["status"])
+
+
+def devolver_ata(ata, por, comentario):
+    """A SUGRAD devolve a ata com um comentário — não muda
+    `Projeto.status` (§3.4): a devolução é sobre o documento, não sobre o
+    mérito acadêmico já decidido pela banca."""
+    if not permissions.pode_revisar_ata(por):
+        raise PermissionDenied("Somente a SUGRAD revisa atas.")
+    revisao = ata.revisao
+    if revisao.status != RevisaoSUGRAD.PENDENTE:
+        raise ValidationError("Esta ata já foi revisada.")
+
+    revisao.status = RevisaoSUGRAD.DEVOLVIDA
+    revisao.comentario = comentario
+    revisao.decidida_em = timezone.now()
+    revisao.save(update_fields=["status", "comentario", "decidida_em"])
