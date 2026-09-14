@@ -239,6 +239,8 @@ def orientacoes(request):
 
     orientandos = list(services.orientandos_atuais(professor))
     anexar_banca_ativa(orientandos)
+    for projeto in orientandos:
+        projeto.ata_ativa = projeto.atas.select_related("revisao").order_by("-gerada_em").first()
     return render(
         request, "projetos/orientacoes.html", {"itens": itens, "orientandos": orientandos}
     )

@@ -99,15 +99,20 @@
                 {% if projeto.tema %} — {{ projeto.tema.titulo }}{% endif %}
               </p>
               {% comment %}
-                Três ramos, nesta ordem (Bloco D, spec §7): EM_ANDAMENTO
-                (com/sem submissão), banca AGENDADA, banca REALIZADA (só
-                aparece aqui quando o projeto está REPROVADO — os outros
-                dois resultados possíveis de uma banca REALIZADA,
-                Aprovado com Ressalvas, já saem do filtro de
-                `orientandos_atuais`, spec §3.7). `projeto.banca_ativa.status`
-                é o proxy checado, não `projeto.status` diretamente — mesmo
-                raciocínio já registrado em candidatura.html sobre preferir
-                um campo mais específico a comparar a string de status.
+                Ramos, nesta ordem — a ORDEM importa porque `banca_ativa` é
+                truthy para REALIZADA de mais de um status (Bloco D+E):
+                1) AGENDADA: `projeto.banca_ativa.status` como proxy (mesmo
+                   raciocínio de candidatura.html sobre preferir um campo
+                   mais específico a comparar a string de status).
+                2) APROVADO_COM_RESSALVAS: sem proxy melhor disponível — a
+                   `Ata` só existe depois de `APROVADO` — comparação direta
+                   de `projeto.status` (Bloco E, spec §7).
+                3) APROVADO com ata DEVOLVIDA / 4) APROVADO sem pendência:
+                   idem, comparação direta (Bloco E).
+                5) `elif projeto.banca_ativa`: alcançado só por REPROVADO
+                   agora — os outros dois resultados de uma banca REALIZADA
+                   (Aprovado com Ressalvas, Aprovado) já foram capturados
+                   pelos ramos 2-4 acima antes de chegar aqui.
               {% endcomment %}
               {% if projeto.submissao %}
                 <p class="mt-1 text-sm">
@@ -135,6 +140,25 @@
                   </form>
                   <a href="{% url 'bancas:resultado' projeto.banca_ativa.pk %}" class="btn btn-primary btn-sm">Registrar resultado</a>
                 </div>
+              {% elif projeto.status == "APROVADO_COM_RESSALVAS" %}
+                <div class="mt-2">
+                  <form method="post" action="{% url 'projetos:aprovar_projeto' projeto.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary btn-sm">Aprovar</button>
+                  </form>
+                </div>
+              {% elif projeto.status == "APROVADO" and projeto.ata_ativa.revisao.status == "DEVOLVIDA" %}
+                <p class="mt-1 text-sm">
+                  A SUGRAD devolveu a ata: {{ projeto.ata_ativa.revisao.comentario }}
+                </p>
+                <div class="mt-2">
+                  <form method="post" action="{% url 'projetos:reenviar_ata' projeto.ata_ativa.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline btn-sm">Reenviar à SUGRAD</button>
+                  </form>
+                </div>
+              {% elif projeto.status == "APROVADO" %}
+                <p class="mt-1 text-sm text-base-content/70">Aguardando revisão da SUGRAD.</p>
               {% elif projeto.banca_ativa %}
                 <p class="mt-1 text-sm">
                   Resultado da banca: Reprovado — nota {{ projeto.banca_ativa.nota }}.

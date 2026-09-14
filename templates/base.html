@@ -131,6 +131,19 @@
                   </a>
                 </li>
               {% endif %}
+              {% comment %}
+                SUGRAD (Bloco E): `papel` é um campo direto de `Usuario`,
+                sem `RelatedObjectDoesNotExist` a evitar aqui — mesmo
+                raciocínio de `user.is_coordenador`, acima, não o dos
+                perfis `perfil_professor`/`perfil_aluno`.
+              {% endcomment %}
+              {% if user.papel == "SUGRAD" %}
+                <li>
+                  <a href="{% url 'documentos:painel' %}" class="btn btn-ghost">
+                    Painel SUGRAD
+                  </a>
+                </li>
+              {% endif %}
               <li><a href="{% url 'contas:perfil' %}" class="btn btn-ghost">Meu perfil</a></li>
               <li>
                 <form method="post" action="{% url 'logout' %}">
