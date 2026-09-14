@@ -127,6 +127,9 @@ Todos os comandos devem rodar via container Docker:
   orientador reenvia a mesma ata depois de uma devolução. Aprovar a ata de um
   TCC I dispara `criar_tcc_ii_automatico` (Bloco F) — aprovar a de um TCC II
   não cria nada além (fim de linha, sem "TCC III").
+* `apps/publico`: catálogo (`/catalogo/`) e calendário (`/calendario/`)
+  públicos, sem login e sem models próprios — `services.py` só consulta
+  `Projeto`/`Banca` dos apps donos (Bloco G, implementado).
 
 Todo identificador de código (apps, modelos, campos, funções, variáveis) é em
 português. Interface, mensagens de erro, comentários e commits também.
@@ -309,7 +312,15 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   TCC I dispara a criação automática do TCC II, aprovar a de um TCC II
   termina o ciclo (sem "TCC III"). Notificação por e-mail ao aluno na
   criação do TCC II e a cada item de correção novo.
-* **G** — catálogo e calendário públicos
+* **G — catálogo e calendário públicos (concluído)**: `apps/publico`, sem
+  models próprios — `/catalogo/` (TCCs `Concluído` do TCC_II com termo
+  assinado, Título/Resumo vindos de `Projeto.tema`, filtro por área do
+  orientador e por ano) e `/calendario/` (bancas `Agendada` com data
+  futura), ambas sem login. Reabre o Bloco F: `Projeto.tema` passa a
+  existir também no TCC_II (herdado do TCC I na criação automática,
+  escolhido pelo professor — um tema seu — na manual). Reabre o Bloco C:
+  `enviar_submissao` aceita reenvio também em `Aprovado com Ressalvas`
+  quando `etapa=TCC_II`, pra depositar a versão corrigida pós-banca.
 * **H** — API DRF (`djangorestframework` + `drf-spectacular` entram aqui)
 
 Antes de assumir que uma regra de negócio, modelo ou tela já existe, confira a
