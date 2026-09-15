@@ -50,6 +50,7 @@ urlpatterns = [
     path("", include("apps.bancas.urls")),
     path("", include("apps.documentos.urls")),
     path("", include("apps.publico.urls")),
+    path("api/v1/", include("apps.publico.api_urls")),
 ]
 
 if settings.DEBUG:

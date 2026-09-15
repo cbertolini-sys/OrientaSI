@@ -30,6 +30,8 @@ INSTALLED_APPS = [
     "apps.bancas",
     "apps.documentos",
     "apps.publico",
+    "rest_framework",
+    "drf_spectacular",
 ]
 
 MIDDLEWARE = [
@@ -253,3 +255,20 @@ else:
         "default": (_armazenamento_s3() if os.environ.get("S3_ENDPOINT") else _ARMAZENAMENTO_LOCAL),
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
+
+REST_FRAMEWORK = {
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
+    ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "OrientaSI API",
+    "DESCRIPTION": "API pública de leitura do catálogo de TCCs e do calendário de apresentações.",
+    "VERSION": "1.0.0",
+}
