@@ -13,7 +13,7 @@ def professora(db):
 
 @pytest.mark.django_db
 def test_perfil_professor_guarda_siape_e_areas(professora):
-    ia = Area.objects.create(nome="Inteligência Artificial")
+    ia = Area.objects.create(nome="Área de Teste Um")
     redes = Area.objects.create(nome="Redes")
     perfil = PerfilProfessor.objects.create(usuario=professora, siape="1234567")
     perfil.areas.set([ia, redes])

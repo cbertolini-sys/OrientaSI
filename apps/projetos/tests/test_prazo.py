@@ -88,7 +88,7 @@ def _cria_aluno(indice):
 
 @pytest.fixture
 def area(db):
-    return Area.objects.create(nome="Engenharia de Software")
+    return Area.objects.create(nome="Área de Teste Padrão")
 
 
 @pytest.fixture
@@ -328,7 +328,7 @@ def test_dois_ticks_do_beat_sobrepostos_nao_duplicam_avanco(settings):
     `avancar_cascata` a faz não fazer nada.
     """
     settings.CELERY_TASK_ALWAYS_EAGER = True
-    Area.objects.create(nome="Engenharia de Software")
+    Area.objects.create(nome="Área de Teste Padrão")
     professor1 = _cria_professor(10)
     professor2 = _cria_professor(11)
     aluno = _cria_aluno(10)

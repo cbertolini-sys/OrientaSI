@@ -41,7 +41,7 @@ def professor2(db):
 
 @pytest.fixture
 def area(db):
-    return Area.objects.create(nome="Engenharia de Software")
+    return Area.objects.create(nome="Área de Teste Padrão")
 
 
 @pytest.mark.django_db

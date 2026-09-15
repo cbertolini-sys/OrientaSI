@@ -71,7 +71,7 @@ def _cria_aluno(indice, nome="Aluno Fila"):
 
 @pytest.fixture
 def area(db):
-    return Area.objects.create(nome="Engenharia de Software")
+    return Area.objects.create(nome="Área de Teste Padrão")
 
 
 @pytest.fixture

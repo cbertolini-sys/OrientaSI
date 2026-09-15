@@ -11,6 +11,7 @@ from apps.contas.forms import (
     FormularioAlunoConvidado,
     FormularioConvite,
     FormularioPerfil,
+    FormularioPerfilAluno,
     FormularioPerfilProfessor,
     FormularioProfessorConvidado,
 )
@@ -56,9 +57,13 @@ def aceitar_convite(request, token):
 
 @login_required
 def perfil(request):
-    """Tela em que a pessoa autenticada mantém os próprios dados. Quem tem
-    `PerfilProfessor` recebe também o campo de áreas de atuação; quem não
-    tem, não.
+    """Tela em que a pessoa autenticada mantém os próprios dados — nome,
+    e-mail, CPF, telefone e foto pra qualquer papel, mais o campo exclusivo
+    de quem tem `PerfilProfessor` (SIAPE + áreas de atuação) ou
+    `PerfilAluno` (matrícula). Pedido explícito do usuário: "editar todos os
+    campos quando entro como professor ou coordenador ou aluno" —
+    coordenador não tem perfil próprio, é um `PerfilProfessor` com
+    `is_coordenador=True`, então cai no mesmo ramo de professor.
 
     A condição é a **existência do perfil** (`hasattr`), não o `papel`: o
     papel padrão de `Usuario.objects.create_user`/`create_superuser` é
@@ -68,29 +73,70 @@ def perfil(request):
     autenticar). Usar `request.user.papel == Usuario.PROFESSOR` como
     condição, como o brief sugeria, levava a `RelatedObjectDoesNotExist` (500)
     ao tentar ler `request.user.perfil_professor.areas` de quem tem o papel
-    mas não o perfil.
+    mas não o perfil. Quem não tem nenhum dos dois perfis (a conta da
+    SUGRAD, ou um professor sem `PerfilProfessor`) cai no formulário base,
+    `FormularioPerfil` — sem matrícula nem SIAPE, mas com nome/e-mail/CPF
+    (CPF opcional pra SUGRAD, ver `FormularioPerfil.clean_cpf`).
     """
     tem_perfil_professor = hasattr(request.user, "perfil_professor")
-    Formulario = FormularioPerfilProfessor if tem_perfil_professor else FormularioPerfil
+    tem_perfil_aluno = hasattr(request.user, "perfil_aluno")
+    if tem_perfil_professor:
+        Formulario = FormularioPerfilProfessor
+    elif tem_perfil_aluno:
+        Formulario = FormularioPerfilAluno
+    else:
+        Formulario = FormularioPerfil
 
     if request.method == "POST":
-        formulario = Formulario(request.POST, request.FILES)
+        formulario = Formulario(request.POST, request.FILES, usuario=request.user)
         if formulario.is_valid():
             services.atualiza_perfil(
                 request.user,
+                nome_completo=formulario.cleaned_data["nome_completo"],
+                email=formulario.cleaned_data["email"],
+                cpf=formulario.cleaned_data["cpf"],
                 telefone=formulario.cleaned_data["telefone"],
                 areas=formulario.cleaned_data.get("areas"),
                 foto=formulario.cleaned_data.get("foto"),
+                matricula=formulario.cleaned_data.get("matricula"),
+                siape=formulario.cleaned_data.get("siape"),
             )
             messages.success(request, "Perfil atualizado.")
             return redirect("contas:perfil")
     else:
-        inicial = {"telefone": request.user.telefone}
+        inicial = {
+            "nome_completo": request.user.nome_completo,
+            "email": request.user.email,
+            "cpf": request.user.cpf,
+            "telefone": request.user.telefone,
+        }
         if tem_perfil_professor:
             inicial["areas"] = request.user.perfil_professor.areas.all()
-        formulario = Formulario(initial=inicial)
+            inicial["siape"] = request.user.perfil_professor.siape
+        elif tem_perfil_aluno:
+            inicial["matricula"] = request.user.perfil_aluno.matricula
+        formulario = Formulario(initial=inicial, usuario=request.user)
 
-    return render(request, "contas/perfil.html", {"formulario": formulario})
+    contexto = {"formulario": formulario}
+    if tem_perfil_professor:
+        # O `<select multiple>`/`CheckboxSelectMultiple` genérico de
+        # `formulario.areas` some do template (templates/contas/perfil.html
+        # renderiza a árvore área/subárea "na mão", agrupada por
+        # `services.areas_agrupadas_por_area` — pedido explícito do usuário
+        # de manter a ordem da lista do CNPq/CAPES e deixar só as 16
+        # subáreas marcáveis, com as 4 áreas como cabeçalho de agrupamento).
+        # `campo.value()` devolve pks como `int` (a partir de `initial`, uma
+        # queryset de `Area`) OU como `str` (a partir de `request.POST`, um
+        # formulário inválido que volta pra tela) — normalizar os dois pra
+        # `int` aqui é o que permite ao template comparar com `subarea.pk`
+        # direto, sem depender de tipo.
+        valor_areas = formulario["areas"].value() or []
+        contexto["areas_selecionadas"] = {
+            int(v.pk if hasattr(v, "pk") else v) for v in valor_areas
+        }
+        contexto["areas_agrupadas"] = services.areas_agrupadas_por_area()
+
+    return render(request, "contas/perfil.html", contexto)
 
 
 @login_required

@@ -136,7 +136,7 @@ def test_duas_aceitacoes_simultaneas_no_ultimo_lugar_resultam_em_uma_recusa():
     reais; sem ele, a garantia seria só uma frase no comentário — que foi exatamente
     como a Fase 1 descobriu que o raciocínio do spec estava errado.
     """
-    area = Area.objects.create(nome="Engenharia de Software")
+    area = Area.objects.create(nome="Área de Teste Padrão")
     professor = _cria_professor(0)
     tema = Tema.objects.create(
         professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."

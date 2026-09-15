@@ -265,10 +265,41 @@ class FormularioDefinirNovaSenha(MisturaAcessibilidadeFormulario, SetPasswordFor
 
 
 class FormularioPerfil(MisturaAcessibilidadeFormulario, forms.Form):
-    """Campos que qualquer pessoa (aluno ou professor) mantém sobre si mesma
-    na tela de perfil (T10). `FormularioPerfilProfessor`, abaixo, acrescenta
-    o campo de áreas, exclusivo de professor."""
+    """Campos que qualquer pessoa autenticada mantém sobre si mesma na tela
+    de perfil (T10; identidade — nome/e-mail/CPF — acrescentada depois, a
+    pedido explícito do usuário: "editar todos os campos"). Recebe o
+    `usuario` de quem está editando (obrigatório — `perfil`, em
+    apps/contas/views.py, é o único lugar que instancia este formulário) só
+    pra validar unicidade de e-mail/CPF EXCLUINDO a própria conta: sem isso,
+    salvar o formulário sem mudar nada reprovaria "já existe uma conta com
+    este e-mail/CPF" contra si mesma.
 
+    `FormularioPerfilAluno`/`FormularioPerfilProfessor`, abaixo, acrescentam
+    respectivamente matrícula e (SIAPE + áreas de atuação), exclusivos de
+    cada perfil.
+
+    `cpf` fica `required=False` aqui — a conta da SUGRAD não tem CPF
+    (`Usuario.Meta.constraints`, `cpf_obrigatorio_para_pessoas`, isenta só
+    `papel=SUGRAD`) — e a obrigatoriedade pra aluno/professor é reforçada em
+    `clean_cpf`, não no campo, porque o campo é compartilhado pelos três
+    papéis."""
+
+    nome_completo = forms.CharField(
+        label="Nome completo",
+        max_length=200,
+        widget=forms.TextInput(attrs={"autocomplete": "name"}),
+    )
+    email = forms.EmailField(
+        label="E-mail",
+        widget=forms.EmailInput(attrs={"autocomplete": "email"}),
+    )
+    cpf = forms.CharField(
+        label="CPF",
+        max_length=14,
+        required=False,
+        help_text="Você pode digitar com ou sem pontuação: pontos e traço são removidos "
+        "automaticamente.",
+    )
     telefone = forms.CharField(
         label="Telefone",
         max_length=20,
@@ -286,13 +317,56 @@ class FormularioPerfil(MisturaAcessibilidadeFormulario, forms.Form):
         # replicada aqui).
     )
 
+    def __init__(self, *args, usuario, **kwargs):
+        self.usuario = usuario
+        super().__init__(*args, **kwargs)
+
+    def clean_email(self):
+        # `__iexact`, não `=`: o e-mail é gravado sempre em minúsculas
+        # (`apps/contas/signals.py::normaliza_email_do_usuario`, roda em
+        # QUALQUER `save()`), mas a checagem de unicidade acontece ANTES
+        # desse sinal — sem `__iexact`, "Ana@ufsm.br" passaria pela
+        # validação do formulário mesmo já existindo "ana@ufsm.br", e só
+        # estouraria depois, como `IntegrityError` cru (500) no `save()`.
+        email = self.cleaned_data["email"].lower()
+        if Usuario.objects.exclude(pk=self.usuario.pk).filter(email__iexact=email).exists():
+            raise forms.ValidationError("Já existe uma conta cadastrada com este e-mail.")
+        return email
+
+    def clean_cpf(self):
+        cpf = "".join(c for c in self.cleaned_data["cpf"] if c.isdigit())
+        if not cpf:
+            if self.usuario.papel != Usuario.SUGRAD:
+                raise forms.ValidationError("CPF é obrigatório.")
+            return cpf
+        valida_cpf(cpf)
+        if Usuario.objects.exclude(pk=self.usuario.pk).filter(cpf=cpf).exists():
+            raise forms.ValidationError("Já existe uma conta cadastrada com este CPF.")
+        return cpf
+
+
+class FormularioPerfilAluno(FormularioPerfil):
+    """Acrescenta a matrícula, exclusiva de quem tem `PerfilAluno`."""
+
+    matricula = forms.CharField(label="Matrícula", max_length=20)
+
+    def clean_matricula(self):
+        matricula = self.cleaned_data["matricula"]
+        if (
+            PerfilAluno.objects.exclude(usuario=self.usuario)
+            .filter(matricula=matricula)
+            .exists()
+        ):
+            raise forms.ValidationError("Já existe um aluno cadastrado com esta matrícula.")
+        return matricula
+
 
 class FormularioPerfilProfessor(FormularioPerfil):
-    """Acrescenta a escolha das áreas de atuação, exclusiva de quem tem
-    `PerfilProfessor` (`PerfilProfessor.areas`, T6). O widget é
-    `CheckboxSelectMultiple`: o template (`templates/contas/perfil.html`)
-    envolve este campo num `<fieldset>`/`<legend>` em vez do `<label>` usado
-    pelos demais campos.
+    """Acrescenta o SIAPE e a escolha das áreas de atuação, exclusivos de
+    quem tem `PerfilProfessor` (`PerfilProfessor.areas`, T6). O widget de
+    `areas` é `CheckboxSelectMultiple`: o template
+    (`templates/contas/perfil.html`) envolve este campo num
+    `<fieldset>`/`<legend>` em vez do `<label>` usado pelos demais campos.
 
     Sem o `<fieldset>`/`<legend>`, um leitor de tela anuncia cada opção
     ("Redes", "Inteligência Artificial"...) sem dizer a que pergunta elas
@@ -307,12 +381,32 @@ class FormularioPerfilProfessor(FormularioPerfil):
     única rede de segurança contra a remoção deste elemento, o axe não
     cobre."""
 
+    siape = forms.CharField(label="SIAPE", max_length=20)
+    # Só as 16 SUBÁREAS do CNPq/CAPES são marcáveis (`area__isnull=False`,
+    # ou seja, toda `Area` que TEM uma área-pai) — pedido explícito do
+    # usuário: refatoração de terminologia, "cada uma das 4 áreas tem
+    # subáreas (totalizando 16). Quero que o professor consiga selecionar as
+    # subáreas". As 4 ÁREAS de topo (`area=None`) viram só cabeçalhos de
+    # agrupamento no template, não marcáveis. Restringir o `queryset`, e não
+    # só a lista renderizada no template, faz o formulário recusar de
+    # verdade um pk de área-de-topo que chegasse manipulado num POST — não é
+    # só uma questão de apresentação.
     areas = forms.ModelMultipleChoiceField(
         label="Áreas de atuação",
-        queryset=Area.objects.all(),
+        queryset=Area.objects.filter(area__isnull=False),
         required=False,
         widget=forms.CheckboxSelectMultiple,
     )
+
+    def clean_siape(self):
+        siape = self.cleaned_data["siape"]
+        if (
+            PerfilProfessor.objects.exclude(usuario=self.usuario)
+            .filter(siape=siape)
+            .exists()
+        ):
+            raise forms.ValidationError("Já existe um professor cadastrado com este SIAPE.")
+        return siape
 
 
 class FormularioConvite(MisturaAcessibilidadeFormulario, forms.Form):

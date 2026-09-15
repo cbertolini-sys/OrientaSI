@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import dj_database_url
 from celery.schedules import crontab
@@ -161,18 +162,51 @@ S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "")
 S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
 
 
-def _armazenamento_s3():
+def _armazenamento_s3(endpoint_publico=None):
     """Configuração do backend S3 (MinIO em dev, S3 de verdade em produção).
 
     É função, e não um dicionário no nível do módulo, porque `S3_ACCESS_KEY` e
     `S3_SECRET_KEY` são reatribuídos por `obrigatorio()` dentro do bloco de
     produção logo abaixo: um dicionário montado antes do bloco congelaria os
     valores lidos do ambiente sem a imposição.
+
+    `endpoint_publico` (só em dev, ver `STORAGES` abaixo — `S3_ENDPOINT_PUBLICO`)
+    é o achado desta tarefa: `endpoint_url` aponta pro hostname INTERNO do
+    Docker Compose (`http://minio:9000`, resolvível só de dentro da rede dos
+    containers) — certo pro boto3 fazer upload de dentro do container `web`,
+    mas as URLs assinadas que `S3Storage.url()` gera a partir DESSE MESMO
+    endpoint saem com "minio:9000" no host, e o navegador de quem acessa o
+    site de fora do Docker não resolve esse nome — a foto (ou o PDF, ou o
+    .docx) nunca carregava, só dava erro de conexão silencioso na aba de
+    rede. Passar `custom_domain` (só o host:porta, sem esquema — daí o
+    `urlsplit` abaixo) faz `S3Storage.url()` montar a URL com outro host
+    (aqui, `localhost:9000`, publicado no `docker-compose.yml`) — mas troca
+    as URLs assinadas por URLs SEM assinatura nenhuma (é assim que a
+    biblioteca implementa `custom_domain`: só funciona se o objeto for
+    público). Por isso o bucket de dev precisa de política de leitura
+    pública (`docker-compose.yml::minio_init`, `mc anonymous set
+    download`) — só em dev: produção não define `S3_ENDPOINT_PUBLICO`, e o
+    bucket real continua privado, com URL assinada de verdade.
+    `url_protocol` acompanha o esquema do próprio `endpoint_publico`
+    (`http:` aqui) — o padrão da biblioteca é `https:`, que o MinIO deste
+    ambiente (sem TLS) não atende.
+
+    `custom_domain` leva o NOME DO BUCKET colado (`localhost:9000/orientasi`,
+    não só `localhost:9000`): `S3Storage.url()` monta a URL como
+    `{protocolo}//{custom_domain}/{chave}` — sem o bucket no meio, ela
+    pressupõe endereçamento "virtual-hosted" (`bucket.dominio.com/chave`,
+    o padrão da AWS real), que o MinIO deste projeto não usa (endereçamento
+    "path-style", `dominio.com/bucket/chave`, é o padrão do MinIO). Sem o
+    bucket colado aqui, a URL gerada dava 403 — faltava o segmento
+    `/orientasi/` que a política de leitura pública (`minio_init`) está
+    concedida sobre.
     """
+    nome_bucket = os.environ.get("S3_BUCKET", "orientasi")
+    partes_publicas = urlsplit(endpoint_publico) if endpoint_publico else None
     return {
         "BACKEND": "storages.backends.s3.S3Storage",
         "OPTIONS": {
-            "bucket_name": os.environ.get("S3_BUCKET", "orientasi"),
+            "bucket_name": nome_bucket,
             # `endpoint_url` é OPCIONAL, e é por isso que ele não decide mais
             # qual backend usar (ver `STORAGES` abaixo): o MinIO precisa de um
             # endpoint próprio, mas a AWS S3 real não usa nenhum — o boto3
@@ -184,6 +218,8 @@ def _armazenamento_s3():
             "default_acl": None,
             "querystring_auth": True,
             "file_overwrite": False,
+            "custom_domain": f"{partes_publicas.netloc}/{nome_bucket}" if partes_publicas else None,
+            "url_protocol": f"{partes_publicas.scheme}:" if partes_publicas else "https:",
         },
     }
 
@@ -250,9 +286,15 @@ else:
     ALLOWED_HOSTS = ["*"]
     # Só em dev o fallback local existe, e só para quem roda sem o MinIO da
     # stack (o `.env.example` define `S3_ENDPOINT`, então o ambiente padrão do
-    # projeto usa o MinIO).
+    # projeto usa o MinIO). `S3_ENDPOINT_PUBLICO` (ver docstring de
+    # `_armazenamento_s3`) é o endpoint que o NAVEGADOR alcança — diferente
+    # de `S3_ENDPOINT`, que só o container `web` alcança.
     STORAGES = {
-        "default": (_armazenamento_s3() if os.environ.get("S3_ENDPOINT") else _ARMAZENAMENTO_LOCAL),
+        "default": (
+            _armazenamento_s3(os.environ.get("S3_ENDPOINT_PUBLICO"))
+            if os.environ.get("S3_ENDPOINT")
+            else _ARMAZENAMENTO_LOCAL
+        ),
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
 

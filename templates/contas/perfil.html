@@ -3,41 +3,212 @@
 {% block titulo %} — Meu perfil{% endblock %}
 
 {% block conteudo %}
-  <article class="mx-auto max-w-xl rounded-box bg-base-100 p-6 shadow-sm">
+  {% comment %}
+    Ficha de perfil (visualização) + formulário de edição, alternados sem
+    recarregar a página — pedido explícito do usuário: "exibir tipo uma
+    ficha de perfil com o botão editar", com a foto (quando existe) pequena
+    ao lado esquerdo do nome.
+
+    `editando` começa `true` quando o POST anterior voltou com erro (mesmo
+    padrão de `resumo-erros` abaixo): sem isso, um envio inválido voltaria
+    pra ficha de leitura em vez de mostrar os erros no formulário. De
+    propósito SEM `x-cloak` nos dois blocos: o `autofocus` do
+    `#resumo-erros" só funciona se o elemento já estiver visível quando o
+    navegador termina de interpretar a página — um elemento escondido via
+    `x-cloak` (que só some depois que o Alpine processa a página) não
+    recebe autofoco de forma confiável. O preço é um lampejo de menos de
+    50ms com os dois blocos visíveis antes do Alpine escolher um: pequeno
+    demais pra perceber, e muito menor risco que quebrar o foco do resumo
+    de erros — o mesmo comportamento que aceitar_convite.html e login.html
+    já dependem.
+  {% endcomment %}
+  <article class="mx-auto max-w-xl rounded-box bg-base-100 p-6 shadow-sm"
+           x-data="{ editando: {% if formulario.errors %}true{% else %}false{% endif %} }">
     <h1 class="font-display text-2xl font-bold text-primary">Meu perfil</h1>
-    <p class="mt-2">{{ user.nome_completo }} — {{ user.email }}</p>
 
-    <form method="post" enctype="multipart/form-data" class="mt-6 space-y-4" novalidate>
-      {% csrf_token %}
-
-      {% if formulario.errors %}
-        {% comment %}
-          `formulario.errors` (não `formulario.non_field_errors`, achado da
-          revisão 1): `FormularioPerfil` não faz validação entre campos —
-          os únicos erros possíveis (extensão de imagem inválida, arquivo
-          acima do limite) são erros DE CAMPO, e `non_field_errors` fica
-          sempre vazio aqui. Com a condição errada, o resumo nunca aparecia,
-          o foco ficava no topo do documento depois de um POST inválido, e
-          o `role="alert"` de cada campo (abaixo) não é anunciado de forma
-          confiável para quem não está com o foco nele no instante do erro.
-
-          Mesmo padrão de aceitar_convite.html e login.html quanto ao foco:
-          tabindex="-1" + autofocus move o foco do teclado para o resumo do
-          erro depois de um POST inválido (a página recarrega inteira, não
-          há HTMX aqui), em vez de deixar o foco voltar ao topo do documento
-          sem nenhum sinal.
-        {% endcomment %}
-        <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
-          <p>Corrija os campos indicados abaixo antes de continuar.</p>
-          {% for erro in formulario.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+    <div x-show="!editando" class="mt-6">
+      <div class="flex items-center gap-4">
+        {% if user.foto %}
+          <img src="{{ user.foto.url }}" alt=""
+               class="h-24 w-24 flex-none rounded-full border border-base-300 object-cover">
+        {% else %}
+          {% comment %}
+            Mesmo avatar de iniciais do cabeçalho (base.html) quando não há
+            foto — um só jeito de representar "sem foto" no sistema
+            inteiro, em vez de dois.
+          {% endcomment %}
+          <span class="flex h-24 w-24 flex-none items-center justify-center rounded-full bg-gradient-to-br from-secondary to-accent font-display text-2xl font-bold text-white"
+                aria-hidden="true">
+            {{ user.nome_completo|first|upper }}
+          </span>
+        {% endif %}
+        <div class="min-w-0">
+          <p class="truncate text-lg font-semibold text-base-content">{{ user.nome_completo }}</p>
+          <p class="text-sm text-base-content/70">{{ user.get_papel_display }}</p>
         </div>
-      {% endif %}
+      </div>
 
-      {% for campo in formulario %}
-        {% include "contas/_campo.html" with campo=campo %}
-      {% endfor %}
+      <dl class="mt-6 divide-y divide-base-300 border-t border-base-300 text-sm">
+        <div class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3">
+          <dt class="text-base-content/70">E-mail</dt>
+          <dd class="text-right text-base-content">{{ user.email }}</dd>
+        </div>
+        <div class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3">
+          <dt class="text-base-content/70">CPF</dt>
+          <dd class="text-right text-base-content">{{ user.cpf|default:"—" }}</dd>
+        </div>
+        <div class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3">
+          <dt class="text-base-content/70">Telefone</dt>
+          <dd class="text-right text-base-content">{{ user.telefone|default:"—" }}</dd>
+        </div>
+        {% if user.perfil_professor %}
+          <div class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3">
+            <dt class="text-base-content/70">SIAPE</dt>
+            <dd class="text-right text-base-content">{{ user.perfil_professor.siape }}</dd>
+          </div>
+          <div class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3">
+            <dt class="text-base-content/70">Áreas de atuação</dt>
+            <dd class="text-right text-base-content">
+              {% for area in user.perfil_professor.areas.all %}
+                {{ area.nome }}{% if not forloop.last %}, {% endif %}
+              {% empty %}
+                —
+              {% endfor %}
+            </dd>
+          </div>
+        {% elif user.perfil_aluno %}
+          <div class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-3">
+            <dt class="text-base-content/70">Matrícula</dt>
+            <dd class="text-right text-base-content">{{ user.perfil_aluno.matricula }}</dd>
+          </div>
+        {% endif %}
+      </dl>
 
-      <button type="submit" class="btn btn-primary w-full">Salvar</button>
-    </form>
+      <button type="button" @click="editando = true" class="btn btn-primary mt-6 w-full">
+        Editar
+      </button>
+    </div>
+
+    <div x-show="editando" class="mt-6">
+      {% comment %}
+        Sem o "{{ user.nome_completo }} — {{ user.email }}" solto que existia
+        aqui: os dois viraram campos editáveis do formulário abaixo (pedido
+        explícito do usuário — "editar todos os campos"), repeti-los como
+        texto estático ficaria redundante e desatualizado assim que a pessoa
+        mudasse um dos dois sem recarregar a página.
+      {% endcomment %}
+      <form method="post" enctype="multipart/form-data" class="space-y-4" novalidate>
+        {% csrf_token %}
+
+        {% if formulario.errors %}
+          {% comment %}
+            `formulario.errors` (não `formulario.non_field_errors`, achado da
+            revisão 1): `FormularioPerfil` não faz validação entre campos —
+            os únicos erros possíveis (extensão de imagem inválida, arquivo
+            acima do limite) são erros DE CAMPO, e `non_field_errors` fica
+            sempre vazio aqui. Com a condição errada, o resumo nunca aparecia,
+            o foco ficava no topo do documento depois de um POST inválido, e
+            o `role="alert"` de cada campo (abaixo) não é anunciado de forma
+            confiável para quem não está com o foco nele no instante do erro.
+
+            Mesmo padrão de aceitar_convite.html e login.html quanto ao foco:
+            tabindex="-1" + autofocus move o foco do teclado para o resumo do
+            erro depois de um POST inválido (a página recarrega inteira, não
+            há HTMX aqui), em vez de deixar o foco voltar ao topo do documento
+            sem nenhum sinal.
+          {% endcomment %}
+          <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
+            <p>Corrija os campos indicados abaixo antes de continuar.</p>
+            {% for erro in formulario.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+          </div>
+        {% endif %}
+
+        {% if user.foto %}
+          <div class="flex items-center gap-3">
+            <img src="{{ user.foto.url }}" alt="" class="h-12 w-12 flex-none rounded-full border border-base-300 object-cover">
+            <span class="text-sm text-base-content/70">Foto atual — escolha um arquivo abaixo pra trocar.</span>
+          </div>
+        {% endif %}
+
+        {% for campo in formulario %}
+          {% if campo.name != "areas" %}
+            {% include "contas/_campo.html" with campo=campo %}
+          {% endif %}
+        {% endfor %}
+
+        {% if areas_agrupadas %}
+          {% comment %}
+            Substitui o `CheckboxSelectMultiple` genérico (uma `<ul>` só,
+            achatada e em ordem alfabética — o que `_campo.html` produziria
+            de `{{ campo }}`) por uma lista desenhada à mão, na ordem exata
+            da Tabela de Áreas do Conhecimento CNPq/CAPES
+            (`services.areas_agrupadas_por_area`, view `perfil`). Terminologia
+            (pedido explícito do usuário, revisão desta tela): 4 ÁREAS, cada
+            uma com uma ou mais SUBÁREAS (16 ao todo) — só as SUBÁREAS são
+            marcáveis; a ÁREA é só o cabeçalho de agrupamento, sem checkbox
+            próprio. O `queryset` de `FormularioPerfilProfessor.areas` já
+            reforça isso no servidor (`apps/contas/forms.py`,
+            `area__isnull=False`), não é só uma questão de apresentação.
+
+            Um cartão por área, com suas subáreas como linhas dentro dele
+            (não mais um único nível "achatado" nem um checkbox por área):
+            com 20 opções ao todo, agrupar visualmente por área evita a
+            enxurrada de 20 checkboxes soltos que uma versão anterior desta
+            tela mostrou ser "layout estranho, muito grande".
+
+            `<fieldset>`/`<legend>` continua aqui, mesma razão do ramo
+            genérico em _campo.html (leitor de tela precisa saber a que
+            pergunta as opções soltas respondem —
+            test_form_professor_tem_fieldset_e_legend_para_areas). Sem
+            `checkbox-sm`: a classe `checkbox` "nua" do DaisyUI já renderiza
+            a 48px (`--size-selector`, static/css/entrada.css), acima do
+            alvo de toque mínimo de 44px — `checkbox-sm` derrubaria esse
+            tamanho.
+          {% endcomment %}
+          <fieldset class="flex flex-col gap-3">
+            <legend class="font-medium text-base-content">Áreas de atuação</legend>
+            <p id="ajuda-areas" class="text-sm text-base-content/70">
+              Tabela de Áreas do Conhecimento do CNPq/CAPES para Ciência da Computação.
+              Marque as subáreas em que você atua.
+            </p>
+            <div class="flex flex-col gap-3">
+              {% for area in areas_agrupadas %}
+                <div class="overflow-hidden rounded-box border border-base-300">
+                  <p class="border-b border-base-300 bg-base-200/60 px-3 py-2 font-semibold text-base-content">
+                    {{ forloop.counter }}. {{ area.nome }}
+                  </p>
+                  <div class="flex flex-col divide-y divide-base-300">
+                    {% for subarea in area.subareas.all %}
+                      <div class="flex items-center gap-4 p-3">
+                        <input type="checkbox" name="areas" value="{{ subarea.pk }}"
+                               id="area-{{ subarea.pk }}"
+                               class="checkbox checkbox-primary flex-none"
+                               {% if subarea.pk in areas_selecionadas %}checked{% endif %}>
+                        <label for="area-{{ subarea.pk }}"
+                               class="min-w-0 flex-1 cursor-pointer text-sm text-base-content">
+                          {{ subarea.nome }}
+                        </label>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </fieldset>
+        {% endif %}
+
+        <div class="flex gap-3">
+          <button type="submit" class="btn btn-primary flex-1">Salvar</button>
+          {% comment %}
+            Link de verdade, não `@click="editando = false"`: cancelar
+            precisa DESCARTAR qualquer mudança já digitada (inclusive um
+            arquivo já escolhido no campo de foto, que nenhum JavaScript
+            limpa de um `<input type="file">` sem resetar o formulário
+            inteiro) — um recarregamento simples faz isso de graça.
+          {% endcomment %}
+          <a href="{% url 'contas:perfil' %}" class="btn btn-ghost flex-1">Cancelar</a>
+        </div>
+      </form>
+    </div>
   </article>
 {% endblock %}

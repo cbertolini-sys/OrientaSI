@@ -121,11 +121,33 @@ class Area(models.Model):
 
     nome = models.CharField("nome", max_length=120, unique=True)
     descricao = models.TextField("descrição", blank=True)
+    # Terminologia CNPq/CAPES real (corrigida a pedido do usuário — a
+    # primeira versão desta hierarquia invertia os nomes): a tabela tem 4
+    # ÁREAS (Teoria da Computação, Matemática da Computação, Metodologia e
+    # Técnicas da Computação, Sistemas de Computação), cada uma com uma ou
+    # mais SUBÁREAS (16 ao todo — ver a migração de dados). Uma linha de
+    # `Area` que É uma subárea aponta pra sua área via este campo; uma linha
+    # que É uma área (de topo) deixa `area=None`. `related_name="subareas"`
+    # é o que permite `area.subareas.all()` a partir de uma área de topo.
+    area = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subareas",
+        verbose_name="área",
+        help_text="Área à qual esta subárea pertence (vazio para uma área em si).",
+    )
+    # `default=1000`: mantém as 20 áreas do CNPq/CAPES (ordem 1-20, ver a
+    # migração de dados) sempre à frente de qualquer área futura criada pela
+    # coordenação via /admin/ sem `ordem` explícita — estas caem no fim da
+    # lista, ordenadas por nome entre si (empate no `Meta.ordering` abaixo).
+    ordem = models.PositiveSmallIntegerField("ordem de exibição", default=1000)
 
     class Meta:
         verbose_name = "área"
         verbose_name_plural = "áreas"
-        ordering = ["nome"]
+        ordering = ["ordem", "nome"]
 
     def __str__(self):
         return self.nome

@@ -4,10 +4,11 @@ import secrets
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from apps.contas import permissions
-from apps.contas.models import Convite, Usuario
+from apps.contas.models import Area, Convite, Usuario
 
 MSG_SOMENTE_COORDENACAO = "Somente a coordenação envia convites."
 MENSAGEM_CONVITE_INVALIDO = "Convite inválido, expirado ou já utilizado."
@@ -47,6 +48,29 @@ def coordenadores():
     travaria no teto sem saída, e a única saída seria o admin.
     """
     return Usuario.objects.filter(is_coordenador=True)
+
+
+def areas_agrupadas_por_area():
+    """As 4 ÁREAS do CNPq/CAPES, cada uma com suas SUBÁREAS já pré-carregadas,
+    na ordem de exibição (`Area.ordem`) — usado pelo formulário de perfil do
+    professor (`templates/contas/perfil.html`) pra mostrar a Tabela de Áreas
+    do Conhecimento com a hierarquia visível e na ordem exata da lista
+    original (área, depois suas subáreas, depois a próxima área), não a
+    ordem alfabética que `ModelMultipleChoiceField.queryset` sozinho
+    produziria.
+
+    Devolve as áreas de topo (`area=None`) com as subáreas de cada uma já
+    pré-carregadas (`related_name="subareas"`, ver `Area.area` em
+    `models.py`). Uma área futura criada pela coordenação via `/admin/` sem
+    área-pai vira seu próprio grupo, sem subárea abaixo — ainda aparece,
+    mesmo sem ser marcável (só as subáreas são, ver `FormularioPerfilProfessor.areas`).
+    """
+    subareas = Area.objects.order_by("ordem", "nome")
+    return (
+        Area.objects.filter(area__isnull=True)
+        .order_by("ordem", "nome")
+        .prefetch_related(Prefetch("subareas", queryset=subareas))
+    )
 
 
 def candidatos_a_coordenacao():
@@ -170,23 +194,44 @@ def _aceitar_convite_atomico(token, dados):
 
 
 @transaction.atomic
-def atualiza_perfil(usuario, telefone, areas=None, foto=None):
-    """Atualiza os dados que a própria pessoa mantém sobre si.
+def atualiza_perfil(
+    usuario,
+    *,
+    nome_completo,
+    email,
+    cpf,
+    telefone,
+    areas=None,
+    foto=None,
+    matricula=None,
+    siape=None,
+):
+    """Atualiza os dados que a própria pessoa mantém sobre si — identidade
+    (nome/e-mail/CPF) e contato para qualquer papel, mais o campo exclusivo
+    de quem tem `PerfilAluno` (matrícula) ou `PerfilProfessor` (SIAPE +
+    áreas de atuação). Pedido explícito do usuário: "editar todos os campos
+    quando entro como professor ou coordenador ou aluno" — coordenador não
+    tem perfil próprio, é um `PerfilProfessor` com `is_coordenador=True`,
+    então cai no mesmo ramo de professor.
 
-    `areas` só é aplicado a quem **tem** `PerfilProfessor` — a checagem é
-    `hasattr(usuario, "perfil_professor")`, não `usuario.papel ==
-    Usuario.PROFESSOR`: o papel `PROFESSOR` é o padrão de
-    `Usuario.objects.create_user`/`create_superuser`
+    `matricula`/`areas`/`siape` só são aplicados a quem **tem** o perfil
+    correspondente — a checagem é `hasattr(usuario, "perfil_aluno"/
+    "perfil_professor")`, não `usuario.papel`: o papel padrão de
+    `Usuario.objects.create_user`/`create_superuser` é `PROFESSOR`
     (`GerenciadorUsuario`), mas nada cria `PerfilProfessor` automaticamente,
     e `usuario.perfil_professor` levanta `RelatedObjectDoesNotExist` para
     quem tem o papel mas não o perfil (o superusuário criado por
-    `createsuperuser`, por exemplo). Passar `areas` para quem não tem
-    `PerfilProfessor` é silenciosamente ignorado, não é um erro: a view só
-    envia `areas` a quem `FormularioPerfilProfessor` atende, e essa escolha
-    de formulário já usa a mesma condição de `hasattr`.
+    `createsuperuser`, por exemplo). Passar um desses pra quem não tem o
+    perfil correspondente é silenciosamente ignorado, não é um erro: a view
+    só envia cada um a quem o formulário certo (`FormularioPerfilAluno`/
+    `FormularioPerfilProfessor`) atende, e essa escolha de formulário já usa
+    a mesma condição de `hasattr`.
     """
+    usuario.nome_completo = nome_completo
+    usuario.email = email
+    usuario.cpf = cpf or None
     usuario.telefone = telefone
-    campos = ["telefone"]
+    campos = ["nome_completo", "email", "cpf", "telefone"]
     if foto:
         usuario.foto = foto
         campos.append("foto")
@@ -194,6 +239,12 @@ def atualiza_perfil(usuario, telefone, areas=None, foto=None):
 
     if areas is not None and hasattr(usuario, "perfil_professor"):
         usuario.perfil_professor.areas.set(areas)
+    if siape is not None and hasattr(usuario, "perfil_professor"):
+        usuario.perfil_professor.siape = siape
+        usuario.perfil_professor.save(update_fields=["siape"])
+    if matricula is not None and hasattr(usuario, "perfil_aluno"):
+        usuario.perfil_aluno.matricula = matricula
+        usuario.perfil_aluno.save(update_fields=["matricula"])
     return usuario
 
 

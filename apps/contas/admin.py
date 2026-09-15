@@ -66,7 +66,8 @@ class UsuarioAdmin(UserAdmin):
 
 @admin.register(Area)
 class AreaAdmin(admin.ModelAdmin):
-    list_display = ["nome"]
+    list_display = ["nome", "area", "ordem"]
+    list_filter = ["area"]
     search_fields = ["nome"]
 
 
