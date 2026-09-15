@@ -32,7 +32,7 @@
   <script src="{% static 'js/alpine-focus.min.js' %}" defer></script>
   <script src="{% static 'js/alpine.min.js' %}" defer></script>
 </head>
-<body class="min-h-screen bg-base-200 font-corpo text-base-content">
+<body class="flex min-h-screen flex-col bg-base-200 font-corpo text-base-content">
 
   {% comment %}
     Primeiro elemento focável da página. Deslocado para fora da viewport
@@ -324,7 +324,17 @@
     tabindex=-1 não é enfeite: sem ele, Safari e Chrome rolam até a âncora mas
     não movem o foco, e a pessoa continua tabulando dentro do cabeçalho.
   {% endcomment %}
-  <main id="conteudo" tabindex="-1" class="mx-auto max-w-5xl px-4 py-8">
+  {% comment %}
+    `flex-1`: achado do usuário — em páginas curtas (Catálogo sem
+    resultados, Calendário/Mural de temas vazios), o rodapé "ficava solto"
+    no meio da tela em vez de grudado embaixo, porque `<body>` não era flex
+    e nada aqui crescia pra preencher o `min-h-screen` do body. Com `<body>`
+    virando `flex flex-col` (acima) e este `<main>` crescendo (`flex-1`), o
+    rodapé sempre fica na borda inferior — da viewport em página curta, do
+    conteúdo em página longa — igual já acontecia por acaso na página
+    inicial (ela tem conteúdo o bastante pra preencher a tela sozinha).
+  {% endcomment %}
+  <main id="conteudo" tabindex="-1" class="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
     {% block conteudo %}{% endblock %}
   </main>
 
