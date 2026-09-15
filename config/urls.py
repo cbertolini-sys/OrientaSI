@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
 from django.views.generic import TemplateView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from apps.contas.forms import FormularioDefinirNovaSenha, FormularioLogin, FormularioRecuperarSenha
 from config.saude import saude
@@ -51,6 +52,12 @@ urlpatterns = [
     path("", include("apps.documentos.urls")),
     path("", include("apps.publico.urls")),
     path("api/v1/", include("apps.publico.api_urls")),
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path(
+        "api/docs/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
 ]
 
 if settings.DEBUG:

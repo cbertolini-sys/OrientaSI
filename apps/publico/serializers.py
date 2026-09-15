@@ -14,7 +14,7 @@ class CatalogoSerializer(serializers.Serializer):
     orientador = serializers.CharField(source="orientador.nome_completo")
     pdf_url = serializers.SerializerMethodField()
 
-    def get_pdf_url(self, projeto):
+    def get_pdf_url(self, projeto) -> str:
         return projeto.submissao.pdf.url
 
 
@@ -28,5 +28,5 @@ class CalendarioSerializer(serializers.Serializer):
     data_hora = serializers.DateTimeField()
     local = serializers.CharField()
 
-    def get_titulo(self, banca):
+    def get_titulo(self, banca) -> str | None:
         return banca.projeto.tema.titulo if banca.projeto.tema else None
