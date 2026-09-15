@@ -211,11 +211,14 @@ def test_painel_lista_coordenadores_e_candidatos_a_promocao(client):
 
 
 @pytest.mark.django_db
-def test_painel_nao_lista_professor_inativo_como_candidato(client):
-    """Achado da revisão 1: sem filtrar `is_active`, um professor desativado
-    apareceria como promovível — uma linha que fecha antes de a lacuna
-    existir de verdade (hoje não há tela de desativação, mas o campo já
-    existe no model)."""
+def test_painel_nao_oferece_promover_para_professor_inativo(client):
+    """Achado da revisão 1, ainda válido depois da refatoração em duas
+    colunas (o usuário pediu "Professores" como lista única, dobrando as
+    antigas seções "Coordenadores"/"Promover a coordenador(a)"): o professor
+    desativado agora APARECE na lista — é um professor de verdade, e a
+    coordenação precisa vê-lo para agir sobre a conta — mas sem o botão
+    "Promover a coordenador(a)", que levaria a uma ação que o serviço já
+    recusa (`test_promover_recusa_alvo_com_conta_desativada`)."""
     coordenadora = cria_professor(0, coordenador=True)
     inativo = cria_professor(1)
     inativo.is_active = False
@@ -224,7 +227,8 @@ def test_painel_nao_lista_professor_inativo_como_candidato(client):
 
     html = client.get(reverse("contas:painel")).content.decode()
 
-    assert inativo.nome_completo not in html
+    assert inativo.nome_completo in html
+    assert f"Promover a coordenador(a): {inativo.nome_completo}" not in html
 
 
 @pytest.mark.django_db
@@ -248,7 +252,7 @@ def test_painel_lista_coordenador_inativo_marcado_como_tal(client):
     html = client.get(reverse("contas:painel")).content.decode()
 
     assert outra.nome_completo in html
-    assert "conta desativada" in html
+    assert "Conta desativada" in html
 
 
 @pytest.mark.django_db
@@ -567,3 +571,108 @@ def test_reenviar_via_painel_com_convite_inexistente_da_404(client):
     coordenadora = cria_professor(0, coordenador=True)
     client.force_login(coordenadora)
     assert client.post(reverse("contas:reenviar"), {"convite_id": 999999}).status_code == 404
+
+
+# --- Painel em duas colunas: "Professores" e "Alunos" (refatoração --------
+# --- posterior, pedido explícito do usuário) -------------------------------
+
+
+def _cria_aluno(indice, nome=None):
+    """Fábrica de aluno para os testes de `alunos_sem_tcc_ii_concluido`
+    abaixo. Faixa de CPF própria (200000050+), livre da faixa 200000000-4
+    que `_gera_cpf`/`cria_professor_gerado`, acima, já usam neste arquivo."""
+    from apps.contas.models import PerfilAluno
+
+    usuario = Usuario.objects.create_user(
+        email=f"aluno-painel-{indice}@ufsm.br",
+        password="x",
+        nome_completo=nome or f"Aluno Painel {indice}",
+        papel=Usuario.ALUNO,
+        cpf=_gera_cpf(50 + indice),
+    )
+    PerfilAluno.objects.create(usuario=usuario, matricula=f"2026PAINEL{indice:02d}")
+    return usuario
+
+
+def _cria_orientador(indice):
+    from apps.contas.models import PerfilProfessor
+
+    orientador = cria_professor_gerado(90 + indice, nome=f"Orientador Painel {indice}")
+    PerfilProfessor.objects.create(usuario=orientador, siape=f"PAINEL{indice:03d}")
+    return orientador
+
+
+def _cria_projeto(aluno, etapa, status, orientador):
+    from apps.projetos.models import Projeto
+
+    return Projeto.objects.create(
+        aluno=aluno, orientador=orientador, etapa=etapa, status=status, ano=2026, periodo=1
+    )
+
+
+@pytest.mark.django_db
+def test_professores_para_painel_inclui_inativo_e_exclui_aluno():
+    coordenadora = cria_professor(0, coordenador=True)
+    comum = cria_professor(1)
+    comum.is_active = False
+    comum.save(update_fields=["is_active"])
+    aluno = _cria_aluno(0)
+
+    professores = list(services.professores_para_painel())
+
+    assert coordenadora in professores
+    assert comum in professores
+    assert aluno not in professores
+
+
+@pytest.mark.django_db
+def test_alunos_sem_tcc_ii_concluido_exclui_quem_concluiu():
+    """Mutação obrigatória (CLAUDE.md, disciplina de testes): a diferença
+    entre "concluiu" e "não concluiu" é o único ponto que este teste prova —
+    remover o `exclude(...)` de `alunos_sem_tcc_ii_concluido` faz este teste
+    reprovar (verificado nesta revisão)."""
+    from apps.projetos.models import Projeto
+
+    orientador = _cria_orientador(0)
+    concluiu = _cria_aluno(1, "Aluno Concluiu TCC II")
+    _cria_projeto(concluiu, Projeto.TCC_II, Projeto.CONCLUIDO, orientador)
+
+    em_andamento = _cria_aluno(2, "Aluno TCC II Em Andamento")
+    _cria_projeto(em_andamento, Projeto.TCC_II, Projeto.EM_ANDAMENTO, orientador)
+
+    sem_projeto_nenhum = _cria_aluno(3, "Aluno Sem Projeto")
+
+    pendentes = list(services.alunos_sem_tcc_ii_concluido())
+
+    assert concluiu not in pendentes
+    assert em_andamento in pendentes
+    assert sem_projeto_nenhum in pendentes
+
+
+@pytest.mark.django_db
+def test_painel_lista_professores_e_alunos_pendentes(client):
+    coordenadora = cria_professor(0, coordenador=True)
+    aluno = _cria_aluno(4, "Aluno Pendente Painel")
+    client.force_login(coordenadora)
+
+    html = client.get(reverse("contas:painel")).content.decode()
+
+    assert "Professores" in html
+    assert "Alunos" in html
+    assert coordenadora.nome_completo in html
+    assert aluno.nome_completo in html
+
+
+@pytest.mark.django_db
+def test_painel_nao_lista_aluno_que_concluiu_tcc_ii(client):
+    from apps.projetos.models import Projeto
+
+    coordenadora = cria_professor(0, coordenador=True)
+    orientador = _cria_orientador(1)
+    concluiu = _cria_aluno(5, "Aluno Concluiu Painel")
+    _cria_projeto(concluiu, Projeto.TCC_II, Projeto.CONCLUIDO, orientador)
+    client.force_login(coordenadora)
+
+    html = client.get(reverse("contas:painel")).content.decode()
+
+    assert concluiu.nome_completo not in html

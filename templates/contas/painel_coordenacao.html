@@ -5,153 +5,215 @@
 {% block conteudo %}
   <h1 class="font-display text-2xl font-bold text-primary">Painel da coordenação</h1>
 
-  <section aria-labelledby="titulo-convidar" class="mt-6 rounded-box bg-base-100 p-6 shadow-sm">
-    <h2 id="titulo-convidar" class="font-display text-xl font-semibold">Convidar</h2>
-    <form method="post" class="mt-4 max-w-md space-y-4" novalidate>
-      {% csrf_token %}
-
-      {% if formulario.errors %}
+  {% comment %}
+    Duas colunas (pedido explícito do usuário, refatoração posterior):
+    esquerda com as três listas de acompanhamento (Professores, Alunos,
+    Convites enviados), direita só com o formulário de Convidar — a única
+    ação que não é sobre uma pessoa já existente no sistema. Empilha numa
+    coluna só abaixo de `lg` (mobile first); `lg:items-start` evita que a
+    coluna mais curta (Convidar) estique para acompanhar a altura da mais
+    longa.
+  {% endcomment %}
+  {% comment %}
+    `min-w-0` nos dois filhos diretos do grid: item de grid nasce com
+    `min-width: auto` por padrão (mesma armadilha do flexbox) — sem isso,
+    uma linha de conteúdo que não quebra (e-mail longo, por exemplo) força o
+    item a crescer além da trilha da coluna, e a página inteira ganha
+    rolagem horizontal a 360px (achado desta revisão,
+    tests/test_responsivo.py::test_sem_rolagem_horizontal_em_360px).
+  {% endcomment %}
+  <div class="mt-6 grid gap-6 lg:grid-cols-[3fr_2fr] lg:items-start">
+    <div class="flex min-w-0 flex-col gap-6">
+      <section aria-labelledby="titulo-professores"
+               class="rounded-box bg-base-100 p-6 shadow-sm">
+        <h2 id="titulo-professores" class="font-display text-xl font-semibold">Professores</h2>
         {% comment %}
-          Mesmo padrão de aceitar_convite.html/perfil.html (T7/T10):
-          tabindex="-1" + autofocus move o foco do teclado para o resumo do
-          erro depois de um POST inválido (a página recarrega inteira, não
-          há HTMX aqui), em vez de deixar o foco voltar ao topo do documento
-          sem nenhum sinal. `formulario.errors` (não `non_field_errors`):
-          o único erro possível aqui (e-mail já cadastrado, convite ativo
-          duplicado) é anexado ao campo "email" via `add_error("email",
-          ...)`, então `non_field_errors` fica sempre vazio.
+          Substitui as antigas seções "Coordenadores (X de Y)" e "Promover a
+          coordenador(a)": a mesma lista de professores agora carrega as duas
+          ações, uma por linha — `pessoa.is_coordenador` decide entre
+          "Revogar coordenação" e "Promover a coordenador(a)" (a segunda só
+          aparece se `pessoa.pk` estiver em `candidatos_promocao_ids`, que
+          exclui quem `services.promover_a_coordenador` recusaria de
+          qualquer jeito — conta desativada, por exemplo — para não oferecer
+          uma ação fadada ao erro).
+
+          A contagem "Coordenadores (X de Y ...)" continua aqui, como
+          subtítulo, não mais como `<h2>` própria — o prefixo exato
+          "Coordenadores (X de " é a mesma string que
+          test_contagem_exibida_no_painel_e_a_mesma_que_o_servico_aplica já
+          conferia, então a regressão original (a tela discordando do que o
+          serviço aplica) continua coberta. "vagas ocupadas" foi acrescentado
+          nesta revisão (achado do usuário: com só 3 professores cadastrados
+          e 2 coordenadores, "Coordenadores (2 de 4)" lia-se como "2 de 4
+          professores", quando o "4" é o TETO de vagas de coordenação
+          — `LIMITE_COORDENADORES` —, não a contagem de professores).
+
+          Lista SEM filtrar `is_active` (mesma razão de `coordenadores()`,
+          `services.py`): a coordenação precisa ver e agir sobre uma conta
+          de professor desativada, não que ela simplesmente suma da tela.
+
+          Linha reformulada nesta revisão (achado do usuário: "os botões
+          estão muito grandes e falta legibilidade nesta coluna") — nome e
+          e-mail em linhas separadas (era um `<span>` só, "Nome — email",
+          mais difícil de escanear), status como `.badge` (era `<em>` solta,
+          contraste bom mas sem nenhum relevo visual) em vez de texto corrido,
+          e os botões de ação em `btn-sm`: a classe `.btn` "nua" do DaisyUI
+          mede bem acima dos 44px mínimos de toque nesta coluna estreita
+          (~3fr de um grid de 5 colunas) — `.btn-sm` continua acima do
+          mínimo, porque a regra `min-height: 2.75rem` de
+          static/css/entrada.css se aplica a QUALQUER `button`/`summary`,
+          independente do modificador de tamanho do DaisyUI.
         {% endcomment %}
-        <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
-          <p>Corrija os campos indicados abaixo antes de continuar.</p>
-          {% for erro in formulario.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
-        </div>
-      {% endif %}
+        <p class="mt-1 text-sm text-base-content/70">
+          Coordenadores ({{ total_coordenadores }} de {{ limite }} vagas ocupadas)
+        </p>
+        <ul class="mt-4 space-y-3">
+          {% for pessoa in professores %}
+            <li class="flex flex-wrap items-center justify-between gap-3 border-b
+                        border-base-300 pb-3 last:border-b-0">
+              <div class="min-w-0">
+                <p class="font-medium text-base-content">{{ pessoa.nome_completo }}</p>
+                <p class="text-sm text-base-content/70">{{ pessoa.email }}</p>
+                {% if pessoa.is_coordenador or not pessoa.is_active %}
+                  <p class="mt-1 flex flex-wrap gap-1">
+                    {% if pessoa.is_coordenador %}
+                      <span class="badge badge-primary badge-sm">Coordenador(a)</span>
+                    {% endif %}
+                    {% if not pessoa.is_active %}
+                      <span class="badge badge-neutral badge-sm">Conta desativada</span>
+                    {% endif %}
+                  </p>
+                {% endif %}
+              </div>
+              {% if pessoa.is_coordenador %}
+                {% comment %}
+                  <details>/<summary>: disclosure nativo, sem JavaScript —
+                  funciona por teclado e leitores de tela anunciam o estado
+                  aberto/fechado sozinhos. Clicar de novo no <summary> fecha
+                  a confirmação, cancelando a ação.
+                {% endcomment %}
+                <details class="flex-none">
+                  <summary class="btn btn-error btn-sm"
+                            aria-label="Revogar coordenação de {{ pessoa.nome_completo }}">
+                    Revogar coordenação
+                  </summary>
+                  <div class="mt-2 max-w-sm rounded-box bg-base-200 p-3">
+                    <p>
+                      Confirma revogar a coordenação de
+                      <strong>{{ pessoa.nome_completo }}</strong>? A pessoa perde o acesso à
+                      coordenação imediatamente. Para cancelar, clique de novo em
+                      "Revogar coordenação".
+                    </p>
+                    <form method="post" action="{% url 'contas:revogar' %}" class="mt-3">
+                      {% csrf_token %}
+                      <input type="hidden" name="usuario_id" value="{{ pessoa.pk }}">
+                      <button type="submit" class="btn btn-error btn-sm w-full"
+                              aria-label="Confirmar revogação da coordenação de {{ pessoa.nome_completo }}">
+                        Confirmar revogação
+                      </button>
+                    </form>
+                  </div>
+                </details>
+              {% elif pessoa.pk in candidatos_promocao_ids %}
+                <details class="flex-none">
+                  {% comment %}
+                    O aria-label começa com o texto visível do <summary>
+                    ("Promover a coordenador(a)"), sem reordenar — WCAG 2.5.3
+                    (Label in Name) exige que o nome acessível CONTENHA o
+                    rótulo visível.
+                  {% endcomment %}
+                  <summary class="btn btn-primary btn-sm"
+                            aria-label="Promover a coordenador(a): {{ pessoa.nome_completo }}">
+                    Promover a coordenador(a)
+                  </summary>
+                  <div class="mt-2 max-w-sm rounded-box bg-base-200 p-3">
+                    <p>
+                      Confirma promover <strong>{{ pessoa.nome_completo }}</strong> a
+                      coordenador(a)? A pessoa passa a acessar este painel. Para cancelar,
+                      clique de novo em "Promover a coordenador(a)".
+                    </p>
+                    <form method="post" action="{% url 'contas:promover' %}" class="mt-3">
+                      {% csrf_token %}
+                      <input type="hidden" name="usuario_id" value="{{ pessoa.pk }}">
+                      <button type="submit" class="btn btn-primary btn-sm w-full"
+                              aria-label="Confirmar promoção de {{ pessoa.nome_completo }} a coordenador(a)">
+                        Confirmar promoção
+                      </button>
+                    </form>
+                  </div>
+                </details>
+              {% endif %}
+            </li>
+          {% empty %}
+            <li>Nenhum professor cadastrado.</li>
+          {% endfor %}
+        </ul>
+      </section>
 
-      {% for campo in formulario %}
-        {% include "contas/_campo.html" with campo=campo %}
-      {% endfor %}
+      <section aria-labelledby="titulo-alunos" class="rounded-box bg-base-100 p-6 shadow-sm">
+        <h2 id="titulo-alunos" class="font-display text-xl font-semibold">Alunos</h2>
+        {% comment %}
+          Pedido explícito do usuário: alunos que AINDA NÃO concluíram o TCC
+          II — assim que concluem, saem da lista (`services.
+          alunos_sem_tcc_ii_concluido`, que exclui quem tem um `Projeto` de
+          TCC_II com status exato `Concluído`). Um TCC II em andamento,
+          reprovado ou cancelado mantém o aluno aqui, e um aluno que ainda
+          nem começou também — os dois casos ainda "não concluíram".
+        {% endcomment %}
+        <p class="mt-1 text-sm text-base-content/70">Ainda não concluíram o TCC II.</p>
+        <ul class="mt-4 space-y-3">
+          {% for pessoa in alunos %}
+            <li class="flex flex-wrap items-center justify-between gap-3 border-b
+                        border-base-300 pb-3 last:border-b-0">
+              <span>
+                {{ pessoa.nome_completo }} — {{ pessoa.email }}
+                {% if pessoa.perfil_aluno %}
+                  <span class="block text-sm text-base-content/70">
+                    Matrícula {{ pessoa.perfil_aluno.matricula }}
+                  </span>
+                {% endif %}
+              </span>
+            </li>
+          {% empty %}
+            <li>Nenhum aluno pendente de conclusão do TCC II.</li>
+          {% endfor %}
+        </ul>
+      </section>
 
-      <button type="submit" class="btn btn-primary w-full">Enviar convite</button>
-    </form>
-  </section>
+      <section aria-labelledby="titulo-convites" class="rounded-box bg-base-100 p-6 shadow-sm">
+        <h2 id="titulo-convites" class="font-display text-xl font-semibold">Convites enviados</h2>
+        {% include "contas/_lista_convites.html" %}
+      </section>
+    </div>
 
-  <section aria-labelledby="titulo-coordenadores"
-           class="mt-6 rounded-box bg-base-100 p-6 shadow-sm">
-    <h2 id="titulo-coordenadores" class="font-display text-xl font-semibold">
-      Coordenadores ({{ coordenadores|length }} de {{ limite }})
-    </h2>
-    {% comment %}
-      A lista vem de `services.coordenadores()` e inclui coordenadores com a
-      conta DESATIVADA, marcados como tal (achado da revisão final). Coordenador
-      inativo ocupa vaga — a decisão e o porquê estão na docstring daquela
-      função —, então esconder essas linhas deixaria a contagem do título
-      ("X de 4") discordando da contagem que o serviço aplica, que foi
-      exatamente o defeito corrigido, e tornaria impossível liberar pela tela
-      a vaga ocupada por uma conta desativada.
-    {% endcomment %}
-    <ul class="mt-4 space-y-3">
-      {% for pessoa in coordenadores %}
-        <li class="flex flex-wrap items-center justify-between gap-3 border-b
-                    border-base-300 pb-3 last:border-b-0">
-          <span>
-            {{ pessoa.nome_completo }} — {{ pessoa.email }}
-            {% if not pessoa.is_active %}
-              <em>(conta desativada; ainda ocupa uma das {{ limite }} vagas)</em>
-            {% endif %}
-          </span>
+    <section aria-labelledby="titulo-convidar" class="min-w-0 rounded-box bg-base-100 p-6 shadow-sm">
+      <h2 id="titulo-convidar" class="font-display text-xl font-semibold">Convidar</h2>
+      <form method="post" class="mt-4 space-y-4" novalidate>
+        {% csrf_token %}
+
+        {% if formulario.errors %}
           {% comment %}
-            <details>/<summary> é um disclosure nativo, sem JavaScript:
-            funciona por teclado (Tab alcança o <summary>, Enter/Espaço
-            abre e fecha) e leitores de tela anunciam o estado
-            aberto/fechado sozinhos, sem nenhum aria-expanded manual. É a
-            "confirmação acessível" pedida para promover/revogar — clicar
-            de novo no próprio <summary> fecha a confirmação, cancelando a
-            ação sem precisar de um botão "Cancelar" à parte.
-
-            `summary` recebeu a classe `.btn` do DaisyUI (mesmo tratamento
-            visual dos outros botões do projeto) e entrou na regra de alvo
-            de toque de 44px em static/css/entrada.css (achado desta
-            tarefa: o elemento já era medido por SELETOR_INTERATIVOS/
-            tests/test_toque.py, mas a regra CSS ainda não o cobria).
+            Mesmo padrão de aceitar_convite.html/perfil.html (T7/T10):
+            tabindex="-1" + autofocus move o foco do teclado para o resumo do
+            erro depois de um POST inválido (a página recarrega inteira, não
+            há HTMX aqui), em vez de deixar o foco voltar ao topo do documento
+            sem nenhum sinal. `formulario.errors` (não `non_field_errors`):
+            o único erro possível aqui (e-mail já cadastrado, convite ativo
+            duplicado) é anexado ao campo "email" via `add_error("email",
+            ...)`, então `non_field_errors` fica sempre vazio.
           {% endcomment %}
-          <details>
-            <summary class="btn btn-error"
-                      aria-label="Revogar coordenação de {{ pessoa.nome_completo }}">
-              Revogar coordenação
-            </summary>
-            <div class="mt-2 max-w-sm rounded-box bg-base-200 p-3">
-              <p>
-                Confirma revogar a coordenação de
-                <strong>{{ pessoa.nome_completo }}</strong>? A pessoa perde o acesso à
-                coordenação imediatamente. Para cancelar, clique de novo em
-                "Revogar coordenação".
-              </p>
-              <form method="post" action="{% url 'contas:revogar' %}" class="mt-3">
-                {% csrf_token %}
-                <input type="hidden" name="usuario_id" value="{{ pessoa.pk }}">
-                <button type="submit" class="btn btn-error w-full"
-                        aria-label="Confirmar revogação da coordenação de {{ pessoa.nome_completo }}">
-                  Confirmar revogação
-                </button>
-              </form>
-            </div>
-          </details>
-        </li>
-      {% empty %}
-        <li>Nenhum coordenador cadastrado.</li>
-      {% endfor %}
-    </ul>
-  </section>
+          <div id="resumo-erros" role="alert" tabindex="-1" autofocus class="alert alert-error">
+            <p>Corrija os campos indicados abaixo antes de continuar.</p>
+            {% for erro in formulario.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+          </div>
+        {% endif %}
 
-  <section aria-labelledby="titulo-promover" class="mt-6 rounded-box bg-base-100 p-6 shadow-sm">
-    <h2 id="titulo-promover" class="font-display text-xl font-semibold">
-      Promover a coordenador(a)
-    </h2>
-    <ul class="mt-4 space-y-3">
-      {% for pessoa in candidatos_promocao %}
-        <li class="flex flex-wrap items-center justify-between gap-3 border-b
-                    border-base-300 pb-3 last:border-b-0">
-          <span>{{ pessoa.nome_completo }} — {{ pessoa.email }}</span>
-          <details>
-            {% comment %}
-              O aria-label começa com o texto visível do <summary> ("Promover
-              a coordenador(a)"), sem reordenar — WCAG 2.5.3 (Label in Name)
-              exige que o nome acessível CONTENHA o rótulo visível, e
-              antepor o nome da pessoa ("Promover Fulano a coordenador(a)")
-              quebraria essa contenção, mesmo soando mais natural em
-              português. Os dois pontos formam um separador comum de
-              rótulo:valor ("Editar aluno: João"), preservando o prefixo
-              exato.
-            {% endcomment %}
-            <summary class="btn btn-primary"
-                      aria-label="Promover a coordenador(a): {{ pessoa.nome_completo }}">
-              Promover a coordenador(a)
-            </summary>
-            <div class="mt-2 max-w-sm rounded-box bg-base-200 p-3">
-              <p>
-                Confirma promover <strong>{{ pessoa.nome_completo }}</strong> a
-                coordenador(a)? A pessoa passa a acessar este painel. Para cancelar,
-                clique de novo em "Promover a coordenador(a)".
-              </p>
-              <form method="post" action="{% url 'contas:promover' %}" class="mt-3">
-                {% csrf_token %}
-                <input type="hidden" name="usuario_id" value="{{ pessoa.pk }}">
-                <button type="submit" class="btn btn-primary w-full"
-                        aria-label="Confirmar promoção de {{ pessoa.nome_completo }} a coordenador(a)">
-                  Confirmar promoção
-                </button>
-              </form>
-            </div>
-          </details>
-        </li>
-      {% empty %}
-        <li>Nenhum professor disponível para promoção no momento.</li>
-      {% endfor %}
-    </ul>
-  </section>
+        {% for campo in formulario %}
+          {% include "contas/_campo.html" with campo=campo %}
+        {% endfor %}
 
-  <section aria-labelledby="titulo-convites" class="mt-6 rounded-box bg-base-100 p-6 shadow-sm">
-    <h2 id="titulo-convites" class="font-display text-xl font-semibold">Convites enviados</h2>
-    {% include "contas/_lista_convites.html" %}
-  </section>
+        <button type="submit" class="btn btn-primary w-full">Enviar convite</button>
+      </form>
+    </section>
+  </div>
 {% endblock %}

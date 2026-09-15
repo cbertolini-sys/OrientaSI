@@ -147,6 +147,18 @@ def painel(request):
     do último coordenador, validação de convite) vive em `services`; esta
     view só orquestra formulário, chamada ao serviço e mensagem de
     resultado.
+
+    Layout em duas colunas (pedido explícito do usuário, refatoração
+    posterior): à esquerda, "Professores" (dobra as antigas seções
+    "Coordenadores"/"Promover a coordenador(a)" numa lista só — cada linha
+    decide sozinha, por `is_coordenador`, se oferece "Revogar" ou
+    "Promover"), "Alunos" (quem ainda não concluiu o TCC II) e "Convites
+    enviados"; à direita, "Convidar". `candidatos_promocao_ids` continua
+    vindo de `services.candidatos_a_coordenacao()` — só ele decide se o
+    botão "Promover" aparece numa linha de não-coordenador, pra não oferecer
+    uma ação fadada à recusa do serviço (professor inativo, por exemplo) —
+    mesmo raciocínio de `services.reenviar_convite`/"Reenviar convite" não
+    aparecer pra um convite já usado.
     """
     permissions.garante(
         permissions.pode_convidar(request.user), "Esta área é exclusiva da coordenação."
@@ -166,13 +178,14 @@ def painel(request):
             messages.success(request, "Convite enviado.")
             return redirect("contas:painel")
 
+    coordenadores = services.coordenadores()
     return render(
         request,
         "contas/painel_coordenacao.html",
         {
             "formulario": formulario,
             "convites": Convite.objects.select_related("criado_por")[:50],
-            # As duas listas vêm do SERVIÇO, não de um filtro escrito aqui
+            # As listas vêm do SERVIÇO, não de um filtro escrito aqui
             # (achado da revisão final): quem conta como coordenador e quem
             # pode ser promovido é regra de negócio (CLAUDE.md, regra 4), e
             # enquanto a view tinha a sua própria versão do filtro, a tela
@@ -181,8 +194,12 @@ def painel(request):
             # `Usuario.Meta.ordering = ["nome_completo"]` já ordena; sem
             # order_by explícito aqui de propósito, para não duplicar o que
             # o model já garante.
-            "coordenadores": services.coordenadores(),
-            "candidatos_promocao": services.candidatos_a_coordenacao()[:50],
+            "professores": services.professores_para_painel(),
+            "candidatos_promocao_ids": set(
+                services.candidatos_a_coordenacao().values_list("pk", flat=True)
+            ),
+            "total_coordenadores": coordenadores.count(),
+            "alunos": services.alunos_sem_tcc_ii_concluido(),
             "limite": services.LIMITE_COORDENADORES,
         },
     )

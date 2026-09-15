@@ -50,6 +50,56 @@ def coordenadores():
     return Usuario.objects.filter(is_coordenador=True)
 
 
+def professores_para_painel():
+    """Todos os professores com `PerfilProfessor`, para a coluna
+    "Professores" do painel da coordenação (pedido explícito do usuário,
+    refatoração do painel em duas colunas) — dobra as antigas seções
+    "Coordenadores"/"Promover a coordenador(a)" numa lista só: cada linha
+    carrega `is_coordenador` (campo do próprio `Usuario`), e o template
+    decide ali mesmo se mostra "Promover" ou "Revogar" — as duas ações
+    continuam batendo nos mesmos `promover`/`revogar` (`views.py`) e na
+    mesma trava de `LIMITE_COORDENADORES` (`promover_a_coordenador`,
+    abaixo), só a apresentação mudou.
+
+    `papel=PROFESSOR` sozinho, mesmo filtro de `candidatos_a_coordenacao()`
+    logo abaixo — não exige `PerfilProfessor` existir: nem toda conta
+    `papel=PROFESSOR` tem um (um superusuário criado por `createsuperuser`,
+    por exemplo, ou a semeadura inicial do sistema), e a linha da tela usa
+    só nome/e-mail/`is_coordenador`/`is_active`, nada que dependa do
+    perfil. Não filtra por `is_active`, mesmo motivo de `coordenadores()`
+    acima: uma conta desativada continua aparecendo, porque senão a
+    coordenação não teria como vê-la ou agir sobre ela pela tela."""
+    return Usuario.objects.filter(papel=Usuario.PROFESSOR)
+
+
+def alunos_sem_tcc_ii_concluido():
+    """Alunos que ainda não concluíram o TCC II, para a coluna "Alunos" do
+    painel da coordenação (pedido explícito do usuário: "uma vez o aluno
+    concluído o TCC II ele sai dessa lista"). "Concluído" é o status EXATO
+    `Projeto.CONCLUIDO` do TCC_II — um TCC_II `Em Andamento`, `Reprovado` ou
+    `Cancelado` mantém o aluno na lista, porque ele continua sem ter
+    terminado o curso; um aluno sem nenhum TCC_II ainda (nem começou o TCC
+    I) também continua na lista, pelo mesmo motivo.
+
+    Import de `Projeto` LOCAL, não no topo do arquivo: `contas` é a app
+    fundação do projeto (CLAUDE.md — "todo projeto já dependerá de
+    contas"), então um import de módulo em `apps.projetos` no topo deste
+    arquivo inverteria essa direção de dependência. Mesmo raciocínio do
+    import local de `apps.contas.tasks` em `convidar`, acima — só que ali
+    era pra adiar um import pesado (Celery), aqui é pra não apontar essa
+    app fundação para uma app que depende dela."""
+    from apps.projetos.models import Projeto
+
+    concluiram_tcc_ii = Projeto.objects.filter(
+        etapa=Projeto.TCC_II, status=Projeto.CONCLUIDO
+    ).values("aluno_id")
+    return (
+        Usuario.objects.filter(papel=Usuario.ALUNO)
+        .exclude(pk__in=concluiram_tcc_ii)
+        .select_related("perfil_aluno")
+    )
+
+
 def areas_agrupadas_por_area():
     """As 4 ÁREAS do CNPq/CAPES, cada uma com suas SUBÁREAS já pré-carregadas,
     na ordem de exibição (`Area.ordem`) — usado pelo formulário de perfil do
