@@ -2,16 +2,47 @@
 
 {% block titulo %} — Início{% endblock %}
 
+{% block topo %}
+  <section class="border-b border-base-300 bg-base-100">
+    <div class="mx-auto max-w-5xl px-4 py-16">
+      <h1 class="font-display text-4xl font-bold text-primary">Sistema de Gestão de TCC</h1>
+      <p class="mt-4 max-w-prose text-base-content/80">
+        O OrientaSI acompanha o trabalho de conclusão de curso do início ao depósito
+        final: temas, orientação, bancas, atas e o catálogo público dos trabalhos
+        concluídos.
+      </p>
+      <div class="mt-6 flex flex-wrap gap-3">
+        <a href="{% url 'login' %}" class="btn btn-primary">Entrar</a>
+        <a href="{% url 'publico:catalogo' %}" class="btn btn-outline btn-primary">
+          Ver catálogo de TCCs
+        </a>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
 {% block conteudo %}
-  <article class="rounded-box bg-base-100 p-8 shadow-sm">
-    <h1 class="font-display text-3xl font-bold text-primary">
-      Sistema de Gestão de TCC
-    </h1>
-    <p class="mt-4 max-w-prose">
-      O OrientaSI acompanha o trabalho de conclusão de curso do início ao depósito
-      final: temas, orientação, bancas, atas e o catálogo público dos trabalhos
-      concluídos.
-    </p>
-    <a href="{% url 'login' %}" class="btn btn-primary mt-6">Entrar</a>
-  </article>
+  <div class="grid gap-4 sm:grid-cols-3">
+    <div class="rounded-box border border-base-300 bg-base-100 p-6">
+      <h2 class="font-display text-lg font-bold text-primary">Mural de temas</h2>
+      <p class="mt-2 text-sm text-base-content/80">
+        Professores publicam temas de TCC e alunos se candidatam a até três
+        opções, em ordem de preferência.
+      </p>
+    </div>
+    <div class="rounded-box border border-base-300 bg-base-100 p-6">
+      <h2 class="font-display text-lg font-bold text-primary">Bancas e atas</h2>
+      <p class="mt-2 text-sm text-base-content/80">
+        Agendamento de banca, registro do resultado e geração automática da
+        ata de defesa, do TCC I ao TCC II.
+      </p>
+    </div>
+    <div class="rounded-box border border-base-300 bg-base-100 p-6">
+      <h2 class="font-display text-lg font-bold text-primary">Catálogo público</h2>
+      <p class="mt-2 text-sm text-base-content/80">
+        Os trabalhos concluídos ficam disponíveis para download no
+        <a href="{% url 'publico:catalogo' %}" class="link">catálogo público</a>.
+      </p>
+    </div>
+  </div>
 {% endblock %}
