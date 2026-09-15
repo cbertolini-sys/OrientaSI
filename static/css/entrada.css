@@ -11,8 +11,11 @@
   color-scheme: light;
 
   --color-base-100: #ffffff;
-  --color-base-200: #f5f8fb;
-  --color-base-300: #e1e6ec;
+  /* Leve tom azulado em vez de cinza neutro — a mesma família do
+     `--color-primary`/`--color-secondary`, só muito clareada, pra o fundo
+     da página conversar com o resto da paleta em vez de destoar. */
+  --color-base-200: #eef3fa;
+  --color-base-300: #dde6f1;
   --color-base-content: #16202e;
 
   --color-primary: #21376b;
@@ -45,13 +48,45 @@
   --size-field: 0.275rem;
   --size-selector: 0.5rem;
 
-  --radius-box: 0.75rem;
+  --radius-box: 1rem;
   --radius-field: 0.5rem;
 }
 
 @theme {
   --font-display: "Jakarta", system-ui, sans-serif;
   --font-corpo: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+/* Um só lugar "ousado" na tela: o degradê (marinho → quase-preto, com um halo
+   ciano) fica exclusivo do heroi da página inicial — mesma fórmula do heroi
+   do IntegraSI (`.heroi` em static/css/integrasi.css de lá, também
+   `linear-gradient(160deg, marinho, marinho-fundo, quase-preto)` com um halo
+   radial ciano). Cabeçalho e rodapé são planos de propósito (ver `.fundo-rodape`
+   abaixo): o degradê espalhado pelos três — cabeçalho, menu lateral e rodapé —
+   foi o que pesou a versão anterior deste redesenho.
+
+   `--azul-meia-noite` também é o fundo sólido do rodapé, pela mesma razão do
+   heroi: escuro o bastante pra `ufsm-brasao.svg` (desenhado com branco,
+   `.cls-1{fill:#fff}`, como uma das cores do brasão) aparecer de verdade —
+   sobre `bg-base-100` branco essa parte do brasão some. */
+:root {
+  --azul-profundo: #0e1b33;
+  --azul-meia-noite: #17294e;
+
+  --degrade-heroi: linear-gradient(165deg, var(--color-primary) 0%, var(--azul-meia-noite) 55%, var(--azul-profundo) 100%);
+
+  --sombra-suave: 0 1px 2px rgba(14, 27, 51, 0.06), 0 8px 24px -12px rgba(14, 27, 51, 0.18);
+  --sombra-elevada: 0 4px 10px rgba(14, 27, 51, 0.08), 0 20px 40px -16px rgba(14, 27, 51, 0.28);
+}
+
+/* Classes utilitárias próprias para os tokens acima — nomes que não colidem
+   com nenhuma classe do Tailwind/DaisyUI, pra não repetir o problema de
+   especificidade (.section vs elemento) já registrado no CLAUDE.md. */
+@layer components {
+  .fundo-degrade-heroi { background: var(--degrade-heroi); }
+  .fundo-rodape { background: var(--azul-meia-noite); }
+  .sombra-suave { box-shadow: var(--sombra-suave); }
+  .sombra-elevada { box-shadow: var(--sombra-elevada); }
 }
 
 /* Fontes vendorizadas em static/fonts/ (sem CDN, ver restricoes-globais.md).

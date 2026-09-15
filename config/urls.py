@@ -3,14 +3,14 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
-from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from apps.contas.forms import FormularioDefinirNovaSenha, FormularioLogin, FormularioRecuperarSenha
+from apps.publico.views import inicio
 from config.saude import saude
 
 urlpatterns = [
-    path("", TemplateView.as_view(template_name="inicio.html"), name="inicio"),
+    path("", inicio, name="inicio"),
     path("admin/", admin.site.urls),
     path("saude/", saude, name="saude"),
     # Rotas de autenticação (T9). Registradas explicitamente (em vez de

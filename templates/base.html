@@ -5,6 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#21376b">
   <title>OrientaSI{% block titulo %}{% endblock %}</title>
+  {% comment %}
+    Mesmo arquivo do cabeçalho (orientasi-marca-cabecalho.png, símbolo +
+    "OrientaSI"), não um ícone quadrado à parte — o IntegraSI recorta um
+    `integrasi-icone.png` próprio pra isto; aqui é o mesmo lockup do
+    cabeçalho, então a aba do navegador mostra a arte inteira reduzida
+    (fundo transparente), não um quadrado perfeito.
+
+    `?v=2` em toda referência a este arquivo (aqui, no cabeçalho e no
+    rodapé, abaixo): o servidor de arquivos estáticos do Django não manda
+    `Cache-Control`/`Expires` (só `Last-Modified`), então o navegador pode
+    continuar servindo os bytes antigos do PNG da memória sem revalidar —
+    foi o que aconteceu depois do recorte mais justo desta arte (a pessoa
+    via o logo de antes, mesmo com o arquivo certo no servidor). Mudar a
+    URL (via query string) força o navegador a buscar de novo; sem
+    `ManifestStaticFilesStorage` configurado, o número é manual — subir
+    pra `?v=3` na próxima vez que este arquivo mudar.
+  {% endcomment %}
+  <link rel="icon" type="image/png" href="{% static 'img/orientasi-marca-cabecalho.png' %}?v=2">
+  <link rel="apple-touch-icon" href="{% static 'img/orientasi-marca-cabecalho.png' %}?v=2">
   <link rel="stylesheet" href="{% static 'css/orientasi.css' %}">
   <script src="{% static 'js/htmx.min.js' %}" defer></script>
   {% comment %}
@@ -33,149 +52,232 @@
     Pular para o conteúdo
   </a>
 
-  <header class="border-b border-base-300 bg-base-100">
-    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-3">
-      <div class="flex flex-wrap items-center gap-4">
-        <a href="{% url 'inicio' %}" class="flex items-center">
+  {% comment %}
+    Terceira volta do cabeçalho: agora seguindo o IntegraSI de perto de
+    propósito (`templates/base.html`/`static/css/integrasi.css` de lá,
+    `.barra`/`.marcas-barra`/`.instituicao`/`.menu`/`.menu-pessoa`), pedido
+    explícito do usuário — inclusive o selo da UFSM de volta ao cabeçalho
+    (tinha saído numa volta anterior; o rodapé continua com o brasão
+    completo, ver comentário mais abaixo). Marca + selo institucional à
+    esquerda, poucos links soltos + um único `<details>` reunindo o que é
+    específico do papel da pessoa logada à direita, com um avatar de
+    iniciais no lugar de um nome solto.
+
+    `<details>`/`<summary>` em vez de Alpine: abre, fecha e navega por
+    teclado sem uma linha de script (Espaço/Enter no `<summary>` já
+    alterna), e continua funcionando se o JS falhar — o mesmo motivo que já
+    valia para `templates/contas/painel_coordenacao.html`, e o mesmo do
+    IntegraSI (`.menu-pessoa`, lá).
+  {% endcomment %}
+  <header class="sticky top-0 z-20 border-b border-base-300 bg-base-100">
+    <div class="mx-auto flex min-h-[4.25rem] max-w-5xl flex-wrap items-center justify-between gap-5 px-4 py-3 sm:px-6">
+      <div class="flex min-w-0 items-center gap-4">
+        <a href="{% url 'inicio' %}" class="flex min-h-11 items-center">
           {% comment %}
-            orientasi-marca.png original tem 1408x768 (1,6MB); orientasi-marca-cabecalho.png
-            é a mesma arte redimensionada para 264x144 (3x a largura exibida, para telas de
-            alta densidade), gerada com Pillow. O original permanece intacto para uso em
-            documentos e outras telas que precisem de resolução maior.
+            orientasi-marca-cabecalho.png é só o símbolo + "OrientaSI"
+            (recortado de orientasi-marca.png, sem o subtítulo "Sistema de
+            Gestão de TCC / Curso de Sistemas de Informação" nem o filete —
+            pedido explícito de logo "limpo" no cabeçalho). Recorte justo
+            (sem sobra de espaço em branco ao redor da arte): um recorte
+            anterior, com mais margem, deixava "OrientaSI" pequeno demais
+            pra ler no cabeçalho — achado do usuário. Fundo transparente:
+            legível tanto sobre o branco do cabeçalho quanto sobre o
+            cartão branco do rodapé (abaixo).
           {% endcomment %}
-          <img src="{% static 'img/orientasi-marca-cabecalho.png' %}" alt="OrientaSI, Sistema de Gestão de TCC"
-               width="264" height="144" class="h-12 w-auto">
+          <img src="{% static 'img/orientasi-marca-cabecalho.png' %}?v=2"
+               alt="OrientaSI, Sistema de Gestão de TCC"
+               width="982" height="273" class="h-10 w-auto sm:h-11">
         </a>
         {% comment %}
-          Identidade institucional ao lado da marca do sistema, mesmo padrão
-          do IntegraSI: o escudo (não o brasão inteiro — a palavra "UFSM" sob
-          o escudo do brasão é branca, feita para fundo escuro, e sumiria
-          nesta barra clara) com o nome da instituição em HTML ao lado.
-          Escondido abaixo de `sm` (640px): numa tela estreita, logo do
-          sistema + nome da pessoa + botão já preenchem a largura disponível,
-          e a instituição continua identificável pelo rodapé.
+          O selo institucional: escudo + nome, separados da marca do
+          sistema por um filete — duas instituições distintas, emendá-las
+          leria como uma marca composta (mesmo raciocínio do IntegraSI,
+          `.instituicao`). O nome por extenso some abaixo de `md` (768px):
+          numa tela estreita ele empurraria o menu pra uma segunda linha
+          logo abaixo do próprio cabeçalho `sticky`. `aria-label` no link:
+          sem o nome visível abaixo de `md`, e com `alt=""` na imagem (o
+          nome ao lado já descreve o escudo, texto duplicado seria ruído
+          pra quem usa leitor de tela), o link ficava sem nome acessível
+          nenhum nessas larguras (achado do axe-core, regra `link-name`,
+          wcag2a/4.1.2).
         {% endcomment %}
         <a href="https://www.ufsm.br/unidades-universitarias/frederico-westphalen"
-           class="hidden items-center gap-2 border-l border-base-300 py-2 pl-4 sm:flex"
+           class="flex min-h-11 min-w-0 items-center gap-2.5 border-l border-base-300 pl-4 text-base-content/70 hover:text-secondary"
+           aria-label="UFSM, Campus Frederico Westphalen"
            rel="noopener noreferrer" target="_blank">
-          <img src="{% static 'img/ufsm-escudo.svg' %}" alt="" width="32" height="32" class="h-8 w-8">
-          <span class="text-sm leading-tight text-base-content/80">
-            <strong class="block font-display text-base-content">UFSM</strong>
-            Campus Frederico Westphalen
+          <img src="{% static 'img/ufsm-escudo.svg' %}" alt="" width="32" height="32" class="h-8 w-8 flex-none">
+          <span class="hidden min-w-0 leading-tight md:block">
+            <strong class="block text-[0.8125rem] font-bold text-primary">UFSM</strong>
+            <span class="block truncate text-[0.6875rem]">Campus Frederico Westphalen</span>
           </span>
         </a>
       </div>
+
       {% comment %}
-        T9 preenche o essencial (entrar/sair). T11 acrescenta "Painel da
-        coordenação", visível só para quem tem `is_coordenador` — sem ele, a
-        tela só seria alcançável digitando a URL na barra de endereços, o
-        mesmo problema que a T10 corrigiu para "Meu perfil".
-
-        Os links das TELAS do Bloco B (mural, meus temas, minhas
-        orientações, minha candidatura, painel de orientações) só chegam
-        aqui na T12 (acréscimo de escopo, tarefa-12-brief.md) — nenhuma
-        tarefa do plano original deste bloco tocava `base.html`, apesar do
-        que este comentário dizia até aqui ("as Tarefas 10-11 acrescentam os
-        links de cada perfil"): só o link de coordenador (T11) foi
-        acrescentado de fato; os de aluno e professor ficaram alcançáveis só
-        por URL digitada até esta tarefa fechar a lacuna.
-
-        Redesenho da identidade visual: a lista plana de botões (um por
-        papel) virou um menu único — `<details>`/`<summary>`, mesmo
-        disclosure nativo sem JavaScript já usado em
-        `templates/contas/painel_coordenacao.html` (funciona por teclado e
-        leitor de tela sem nenhum `aria-expanded` manual). Catálogo/
-        Calendário continuam soltos, fora do menu: são públicos, sem relação
-        com QUEM está logado. Isso também fecha, de vez, o risco de estouro
-        de 360px que o comentário original desta tarefa já previa: um
-        coordenador que também é professor tinha seis botões soltos no
-        cabeçalho; agora tem um botão só, que abre a lista.
+        `justify-end`: com `flex-wrap`, cada linha quebrada é alinhada por
+        conta própria — sem isto, o avatar (o item que mais quebra sozinho
+        pra uma segunda linha em telas estreitas) ficava colado na ESQUERDA
+        dessa linha, e `.dropdown-end` (que ancora `.dropdown-content` pela
+        borda direita do próprio `<summary>`, não da viewport) abria o menu
+        pela metade fora da tela. `justify-end` empurra cada linha — a
+        última incluída — pra direita, mantendo o gatilho onde
+        `.dropdown-end` espera que ele esteja.
+      {% endcomment %}
+      {% comment %}
+        `<nav aria-label="Principal">` sem nenhum outro atributo, de
+        propósito: `tests/test_navegacao.py::_extrai_navegacao` procura o
+        literal `<nav aria-label="Principal">` (com o `>` colado) pra
+        isolar este bloco do resto da página — qualquer atributo extra
+        nesta tag (como as classes de layout) quebraria essa busca. As
+        classes de layout ficam no `<div>` logo abaixo.
       {% endcomment %}
       <nav aria-label="Principal">
-        {% block navegacao %}
-          <ul class="flex flex-wrap items-center gap-2">
-            <li><a href="{% url 'publico:catalogo' %}" class="btn btn-ghost">Catálogo</a></li>
-            <li><a href="{% url 'publico:calendario' %}" class="btn btn-ghost">Calendário</a></li>
-            {% if user.is_authenticated %}
-              <li>
-                <details class="dropdown dropdown-end">
-                  <summary class="btn btn-ghost">
-                    <span class="flex flex-col items-start leading-tight normal-case">
-                      <strong title="{{ user.nome_completo }}">{{ user.nome_completo }}</strong>
-                      <span class="text-xs font-normal text-base-content/70">
-                        {{ user.get_papel_display }}
-                      </span>
-                    </span>
-                  </summary>
-                  <ul class="menu dropdown-content z-10 mt-2 w-64 rounded-box border
-                              border-base-300 bg-base-100 p-2 shadow-lg">
-                    {% if user.is_coordenador %}
-                      <li><a href="{% url 'contas:painel' %}">Painel da coordenação</a></li>
-                      <li><a href="{% url 'projetos:painel_orientacoes' %}">Painel de orientações</a></li>
-                    {% endif %}
-                    <li><a href="{% url 'projetos:mural' %}">Mural de temas</a></li>
-                    {% comment %}
-                      `user.perfil_professor`/`user.perfil_aluno`: acesso
-                      reverso de OneToOne que levanta
-                      `RelatedObjectDoesNotExist` (subclasse de
-                      `ObjectDoesNotExist`) para quem não tem o perfil — o
-                      Django marca essa família de exceções como
-                      `silent_variable_failure`, então a resolução de
-                      variável do template a converte em um valor falso, em
-                      vez de derrubar a página com 500. É o mesmo fato que
-                      `permissions.pode_criar_tema`/`pode_montar_candidatura`
-                      já verificam com `hasattr()` do lado do Python — aqui,
-                      do lado do template, o comportamento padrão do motor já
-                      resolve sem precisar de um filtro/tag customizado. Um
-                      coordenador promovido de professor
-                      (`apps/contas/services.py::promover_a_coordenador` não
-                      remove `PerfilProfessor`) continua vendo "Meus temas"/
-                      "Minhas orientações" — correto, porque ele continua
-                      PODENDO entrar nessas telas.
-                    {% endcomment %}
-                    {% if user.perfil_professor %}
-                      <li><a href="{% url 'projetos:meus_temas' %}">Meus temas</a></li>
-                      <li><a href="{% url 'projetos:orientacoes' %}">Minhas orientações</a></li>
-                    {% endif %}
-                    {% if user.perfil_aluno %}
-                      <li><a href="{% url 'projetos:candidatura' %}">Minha candidatura</a></li>
-                      <li><a href="{% url 'projetos:meu_tcc' %}">Meu TCC</a></li>
-                    {% endif %}
-                    {% comment %}
-                      SUGRAD (Bloco E): `papel` é um campo direto de
-                      `Usuario`, sem `RelatedObjectDoesNotExist` a evitar
-                      aqui — mesmo raciocínio de `user.is_coordenador`,
-                      acima, não o dos perfis `perfil_professor`/
-                      `perfil_aluno`.
-                    {% endcomment %}
-                    {% if user.papel == "SUGRAD" %}
-                      <li><a href="{% url 'documentos:painel' %}">Painel SUGRAD</a></li>
-                    {% endif %}
-                    <li class="mt-1 border-t border-base-300 pt-1">
-                      <a href="{% url 'contas:perfil' %}">Meu perfil</a>
-                    </li>
-                    <li>
-                      <form method="post" action="{% url 'logout' %}">
-                        {% csrf_token %}
-                        <button type="submit" class="w-full text-left">Sair</button>
-                      </form>
-                    </li>
-                  </ul>
-                </details>
-              </li>
-            {% else %}
-              <li><a href="{% url 'login' %}" class="btn btn-primary">Entrar</a></li>
-            {% endif %}
-          </ul>
-        {% endblock %}
+       <div class="flex flex-wrap items-center justify-end gap-x-5 gap-y-2 text-sm font-medium">
+        {% comment %}
+          `inline-flex min-h-11 items-center`: a regra global de alvo de
+          toque de entrada.css só cobre `button`/`a.btn`/campos/`summary` —
+          um `<a>` solto como este, fora de um parágrafo de prosa, fica de
+          fora e mede só a altura da linha de texto (~20px), abaixo do
+          mínimo de 44px (achado do test_toque.py).
+        {% endcomment %}
+        <a href="{% url 'publico:catalogo' %}" class="inline-flex min-h-11 items-center text-base-content hover:text-secondary">Catálogo</a>
+        <a href="{% url 'publico:calendario' %}" class="inline-flex min-h-11 items-center text-base-content hover:text-secondary">Calendário</a>
+
+        {% if user.is_authenticated %}
+          <a href="{% url 'projetos:mural' %}" class="inline-flex min-h-11 items-center text-base-content hover:text-secondary">Mural de temas</a>
+
+          {% comment %}
+            O gatilho: um avatar de iniciais (degradê azul→ciano, mesmo
+            gesto do heroi) + nome/papel + seta — mesma composição do
+            `.menu-pessoa` do IntegraSI. `group` em `<details>` +
+            `group-open:` na seta e no fundo do `<summary>` reproduzem o
+            `.menu-pessoa[open] > summary`/`.menu-pessoa[open] .seta` de
+            lá sem JavaScript: `open:` sozinho (a variante do Tailwind pro
+            atributo `[open]`) não bastava aqui porque o atributo `open`
+            fica no `<details>`, não no `<summary>` — `open:` num elemento
+            que nunca tem `[open]` nele mesmo não dispara nunca.
+          {% endcomment %}
+          <details class="dropdown dropdown-end group">
+            {% comment %}
+              `aria-label`: abaixo de `sm` o nome/papel somem (só o avatar
+              fica, e ele é `aria-hidden` — as iniciais são decoração, não
+              texto de verdade) e a seta também é `aria-hidden` — sem isto o
+              `<summary>` fica sem nome acessível nenhum abaixo de 640px
+              (achado do axe-core, regra `summary-name`, wcag2a/4.1.2).
+            {% endcomment %}
+            <summary aria-label="Menu de {{ user.nome_completo }}"
+                     class="flex min-h-11 cursor-pointer list-none items-center gap-2.5 rounded-full border border-transparent px-2 py-1 transition hover:border-base-300 hover:bg-secondary/10 group-open:border-base-300 group-open:bg-secondary/10">
+              <span class="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-gradient-to-br from-secondary to-accent font-display text-xs font-bold text-white"
+                    aria-hidden="true">
+                {{ user.nome_completo|first|upper }}
+              </span>
+              <span class="hidden flex-col items-start leading-tight sm:flex">
+                <strong class="max-w-[10rem] truncate text-sm text-base-content" title="{{ user.nome_completo }}">
+                  {{ user.nome_completo }}
+                </strong>
+                <span class="text-xs text-base-content/70">{{ user.get_papel_display }}</span>
+              </span>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                   class="h-3.5 w-3.5 flex-none text-base-content/50 transition-transform group-open:rotate-180" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </summary>
+
+            {% comment %}
+              Cada item é rótulo + descrição de uma linha, mesma composição
+              do `.gaveta-pessoa a`/`.item-gaveta` do IntegraSI (lá, só
+              "Meu perfil"/"Sair" têm as duas linhas; aqui os itens
+              específicos de papel também ganham, pra não misturar itens de
+              uma linha com itens de duas no mesmo menu).
+            {% endcomment %}
+            <div class="dropdown-content sombra-elevada z-30 mt-2 w-64 rounded-box border border-base-300 bg-base-100 p-1.5">
+              {% if user.is_coordenador %}
+                <a href="{% url 'contas:painel' %}" class="flex min-h-11 flex-col justify-center gap-0.5 rounded-lg px-3 py-2 hover:bg-base-200">
+                  <strong class="text-sm font-semibold text-base-content">Painel da coordenação</strong>
+                  <span class="text-xs text-base-content/60">Convites, coordenadores e limite de vagas</span>
+                </a>
+                <a href="{% url 'projetos:painel_orientacoes' %}" class="flex min-h-11 flex-col justify-center gap-0.5 rounded-lg px-3 py-2 hover:bg-base-200">
+                  <strong class="text-sm font-semibold text-base-content">Painel de orientações</strong>
+                  <span class="text-xs text-base-content/60">Trocar orientador e ajustar vagas</span>
+                </a>
+              {% endif %}
+              {% comment %}
+                `user.perfil_professor`/`user.perfil_aluno`: acesso reverso
+                de OneToOne que levanta `RelatedObjectDoesNotExist`
+                (subclasse de `ObjectDoesNotExist`) para quem não tem o
+                perfil — o Django marca essa família de exceções como
+                `silent_variable_failure`, então a resolução de variável do
+                template a converte em um valor falso, em vez de derrubar a
+                página com 500. É o mesmo fato que
+                `permissions.pode_criar_tema`/`pode_montar_candidatura` já
+                verificam com `hasattr()` do lado do Python. Um coordenador
+                promovido de professor
+                (`apps/contas/services.py::promover_a_coordenador` não
+                remove `PerfilProfessor`) continua vendo "Meus temas"/
+                "Minhas orientações" — correto, porque ele continua PODENDO
+                entrar nessas telas.
+              {% endcomment %}
+              {% if user.perfil_professor %}
+                <a href="{% url 'projetos:meus_temas' %}" class="flex min-h-11 flex-col justify-center gap-0.5 rounded-lg px-3 py-2 hover:bg-base-200">
+                  <strong class="text-sm font-semibold text-base-content">Meus temas</strong>
+                  <span class="text-xs text-base-content/60">Publicar e editar temas de TCC</span>
+                </a>
+                <a href="{% url 'projetos:orientacoes' %}" class="flex min-h-11 flex-col justify-center gap-0.5 rounded-lg px-3 py-2 hover:bg-base-200">
+                  <strong class="text-sm font-semibold text-base-content">Minhas orientações</strong>
+                  <span class="text-xs text-base-content/60">Acompanhar quem você orienta</span>
+                </a>
+              {% endif %}
+              {% if user.perfil_aluno %}
+                <a href="{% url 'projetos:candidatura' %}" class="flex min-h-11 flex-col justify-center gap-0.5 rounded-lg px-3 py-2 hover:bg-base-200">
+                  <strong class="text-sm font-semibold text-base-content">Minha candidatura</strong>
+                  <span class="text-xs text-base-content/60">Suas opções de orientador, em ordem</span>
+                </a>
+                <a href="{% url 'projetos:meu_tcc' %}" class="flex min-h-11 flex-col justify-center gap-0.5 rounded-lg px-3 py-2 hover:bg-base-200">
+                  <strong class="text-sm font-semibold text-base-content">Meu TCC</strong>
+                  <span class="text-xs text-base-content/60">Enviar seu trabalho escrito</span>
+                </a>
+              {% endif %}
+              {% comment %}
+                SUGRAD (Bloco E): `papel` é um campo direto de `Usuario`,
+                sem `RelatedObjectDoesNotExist` a evitar aqui — mesmo
+                raciocínio de `user.is_coordenador`, acima, não o dos
+                perfis `perfil_professor`/`perfil_aluno`.
+              {% endcomment %}
+              {% if user.papel == "SUGRAD" %}
+                <a href="{% url 'documentos:painel' %}" class="flex min-h-11 flex-col justify-center gap-0.5 rounded-lg px-3 py-2 hover:bg-base-200">
+                  <strong class="text-sm font-semibold text-base-content">Painel SUGRAD</strong>
+                  <span class="text-xs text-base-content/60">Aprovar ou devolver atas de defesa</span>
+                </a>
+              {% endif %}
+
+              <div class="mt-1 border-t border-base-300 pt-1">
+                <a href="{% url 'contas:perfil' %}" class="flex min-h-11 flex-col justify-center gap-0.5 rounded-lg px-3 py-2 hover:bg-base-200">
+                  <strong class="text-sm font-semibold text-base-content">Meu perfil</strong>
+                  <span class="text-xs text-base-content/60">Ver e corrigir seus dados</span>
+                </a>
+                <form method="post" action="{% url 'logout' %}">
+                  {% csrf_token %}
+                  <button type="submit" class="flex min-h-11 w-full flex-col justify-center gap-0.5 rounded-lg px-3 py-2 text-left hover:bg-base-200">
+                    <strong class="text-sm font-semibold text-base-content">Sair</strong>
+                    <span class="text-xs text-base-content/60">Encerrar a sessão</span>
+                  </button>
+                </form>
+              </div>
+            </div>
+          </details>
+        {% else %}
+          <a href="{% url 'login' %}" class="btn btn-primary btn-sm">Entrar</a>
+        {% endif %}
+       </div>
       </nav>
     </div>
   </header>
 
   {% comment %}
     Vazio em toda tela, exceto `templates/inicio.html` — que usa este bloco
-    pra um cabeçalho de destaque em largura total, fora do contêiner
-    `max-w-5xl` de `<main>` (mesmo padrão do heroi do IntegraSI).
+    pra um destaque de largura total, fora do contêiner `max-w-5xl` de
+    `<main>` (mesmo padrão do IntegraSI).
   {% endcomment %}
   {% block topo %}{% endblock %}
 
@@ -226,38 +328,52 @@
     {% block conteudo %}{% endblock %}
   </main>
 
-  <footer class="border-t border-base-300 bg-base-100">
-    <div class="mx-auto max-w-5xl px-4 py-8">
-      <div class="flex flex-wrap items-center gap-8">
-        <a href="{% url 'inicio' %}">
-          <img src="{% static 'img/orientasi-marca-cabecalho.png' %}" alt="OrientaSI"
-               width="264" height="144" class="h-12 w-auto">
+  {% comment %}
+    Rodapé: pedido explícito de deixar o link/logo do campus só aqui (fora
+    do cabeçalho). Fundo escuro sólido (não degradê — o degradê fica só no
+    heroi da página inicial, o único lugar "ousado" da tela; ver
+    entrada.css) por dois motivos: "mais bonito e legível", e porque
+    `ufsm-brasao.svg` é desenhado com branco (`.cls-1{fill:#fff}`) como uma
+    das cores do brasão — sobre `bg-base-100` branco essa parte do brasão
+    ficava invisível. Mesmo padrão do IntegraSI: a marca do sistema e a do
+    curso (`si-curso.png`, contorno e texto pretos, pensada pra fundo claro)
+    entram num cartão branco; o brasão, já desenhado pra fundo escuro, vai
+    direto no rodapé.
+
+    Logos à esquerda, texto à direita (era um bloco de texto embaixo, com
+    filete e respiro próprios) — deixa o rodapé mais baixo e os logos mais
+    em destaque, pedido explícito. `orientasi-marca.png`, não a versão
+    recortada do cabeçalho: aqui é a marca completa (símbolo + "OrientaSI"
+    + "Sistema de Gestão de TCC" + "Curso de Sistemas de Informação" já
+    dentro da própria arte), então o texto à direita não repete o nome do
+    sistema — só o endereço institucional.
+  {% endcomment %}
+  <footer class="fundo-rodape text-white/75">
+    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-6 px-4 py-6">
+      <div class="flex flex-wrap items-center gap-4">
+        <a href="{% url 'inicio' %}"
+           class="flex items-center rounded-xl bg-white p-2">
+          <img src="{% static 'img/orientasi-marca.png' %}"
+               alt="OrientaSI, Sistema de Gestão de TCC, Curso de Sistemas de Informação"
+               width="1408" height="768" class="h-16 w-auto sm:h-20">
         </a>
-        {% comment %}
-          `px-2` no link, não no `<img>`: o brasão é alto e estreito
-          (viewBox 50x90) — a 64px de altura, a imagem sozinha renderiza uns
-          36px de largura, abaixo do alvo de toque mínimo de 44px (WCAG 2.1
-          AA, achado do `test_toque.py` medindo esta tela). Alargar o link
-          com padding preserva o tamanho visual da imagem.
-        {% endcomment %}
         <a href="https://www.ufsm.br/unidades-universitarias/frederico-westphalen"
            class="px-2" rel="noopener noreferrer" target="_blank">
           <img src="{% static 'img/ufsm-brasao.svg' %}"
                alt="Universidade Federal de Santa Maria, Campus Frederico Westphalen"
-               class="h-16 w-auto">
+               class="h-16 w-auto sm:h-20">
         </a>
         <a href="https://www.ufsm.br/cursos/graduacao/frederico-westphalen/sistemas-de-informacao"
+           class="rounded-xl bg-white p-2"
            rel="noopener noreferrer" target="_blank">
           <img src="{% static 'img/si-curso.png' %}" alt="Página do curso de Sistemas de Informação"
-               class="h-14 w-auto">
+               class="h-12 w-auto sm:h-14">
         </a>
       </div>
-      <div class="mt-6 text-sm text-base-content/70">
-        <p class="font-medium text-base-content">
-          Sistema de Gestão de TCC do Curso de Sistemas de Informação
-        </p>
-        <p class="mt-1">Universidade Federal de Santa Maria &middot; Campus Frederico Westphalen</p>
-      </div>
+      <p class="text-right text-sm">
+        Universidade Federal de Santa Maria<br>
+        Campus Frederico Westphalen
+      </p>
     </div>
   </footer>
 </body>

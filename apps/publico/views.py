@@ -1,7 +1,58 @@
+import calendar
+from datetime import date
+
 from django.shortcuts import render
+from django.utils import timezone
 
 from apps.contas.models import Area
 from apps.publico import services
+
+
+def inicio(request):
+    """Página inicial pública — vitrine com uma amostra real do catálogo e
+    da agenda, os mesmos `services.catalogo_publico`/`calendario_publico`
+    de `/catalogo/`/`/calendario/`, só um recorte menor (pra não duplicar
+    as telas completas). Registrada em `config/urls.py` no lugar do
+    `TemplateView` original — o nome da rota continua `inicio`, então
+    nenhum `{% url 'inicio' %}` espalhado pelos templates muda.
+
+    O calendário aqui é só do mês corrente, sem navegação entre meses —
+    pra isso, `/calendario/` já existe; construir um seletor de mês era
+    escopo maior do que uma vitrine pede.
+    """
+    hoje = timezone.localdate()
+    todas_bancas = services.calendario_publico()
+    dias_com_banca = {
+        b.data_hora.date()
+        for b in todas_bancas
+        if b.data_hora.year == hoje.year and b.data_hora.month == hoje.month
+    }
+    semanas = []
+    for semana in calendar.Calendar(firstweekday=6).monthdayscalendar(hoje.year, hoje.month):
+        linha = []
+        for dia in semana:
+            if dia == 0:
+                linha.append(None)
+            else:
+                data_do_dia = date(hoje.year, hoje.month, dia)
+                linha.append(
+                    {
+                        "numero": dia,
+                        "hoje": data_do_dia == hoje,
+                        "tem_banca": data_do_dia in dias_com_banca,
+                    }
+                )
+        semanas.append(linha)
+    return render(
+        request,
+        "inicio.html",
+        {
+            "projetos_recentes": services.catalogo_publico()[:4],
+            "bancas_proximas": todas_bancas[:5],
+            "mes_atual": hoje,
+            "semanas_do_mes": semanas,
+        },
+    )
 
 
 def catalogo(request):

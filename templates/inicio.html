@@ -3,46 +3,304 @@
 {% block titulo %} — Início{% endblock %}
 
 {% block topo %}
-  <section class="border-b border-base-300 bg-base-100">
-    <div class="mx-auto max-w-5xl px-4 py-16">
-      <h1 class="font-display text-4xl font-bold text-primary">Sistema de Gestão de TCC</h1>
-      <p class="mt-4 max-w-prose text-base-content/80">
-        O OrientaSI acompanha o trabalho de conclusão de curso do início ao depósito
-        final: temas, orientação, bancas, atas e o catálogo público dos trabalhos
-        concluídos.
-      </p>
-      <div class="mt-6 flex flex-wrap gap-3">
-        <a href="{% url 'login' %}" class="btn btn-primary">Entrar</a>
-        <a href="{% url 'publico:catalogo' %}" class="btn btn-outline btn-primary">
-          Ver catálogo de TCCs
-        </a>
+  {% comment %}
+    Degradê (`fundo-degrade-heroi`, entrada.css) reservado pra este único
+    lugar da tela — mesma fórmula do heroi do IntegraSI, halo ciano incluso.
+    O círculo decorativo é só um brilho sutil (cor de acento, opacidade
+    baixa), ecoando o gesto ascendente do símbolo da marca sem repetir a
+    imagem.
+
+    Os três cartões (Mural de temas/Bancas e atas/Catálogo público)
+    voltaram — terceira volta, pedido explícito do usuário — agora como um
+    carrossel dentro da própria faixa do título, ao lado do texto, em vez
+    de soltos numa grade abaixo (onde duplicavam o que a vitrine de dados
+    reais, mais abaixo, já mostra ao vivo). `x-data`/`x-show` do Alpine, um
+    slide por vez: `aria-roledescription="carrossel"` no contêiner e
+    `role="group" aria-roledescription="slide"` em cada cartão seguem o
+    mesmo padrão do carrossel do IntegraSI (`templates/catalogo/lista.html`
+    de lá, `data-carrossel`).
+
+    Troca automática (`x-init`) só entra se `prefers-reduced-motion` não
+    estiver ativo, e pausa ao passar o mouse ou focar qualquer controle
+    dentro do carrossel (WCAG 2.2.2, Pause/Stop/Hide — conteúdo que se move
+    sozinho por mais de 5s precisa de como pausar). As setas e os pontos
+    também pausam ao serem usados: uma vez que a pessoa interage, a
+    rotação automática para de atropelar a escolha dela.
+  {% endcomment %}
+  <section class="fundo-degrade-heroi relative overflow-hidden text-white">
+    <div class="pointer-events-none absolute -top-24 -right-24 h-80 w-80 rounded-full bg-accent/20 blur-3xl" aria-hidden="true"></div>
+    <div class="relative mx-auto grid max-w-5xl gap-10 px-4 py-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:py-20">
+      <div>
+        <h1 class="font-display text-4xl font-bold sm:text-5xl">Sistema de Gestão de TCC</h1>
+        {% comment %}
+          Sem botões "Entrar"/"Ver catálogo de TCCs" aqui, de propósito:
+          pedido explícito de deixar "Entrar" só no cabeçalho (o catálogo
+          já tem link próprio no cabeçalho e no carrossel ao lado —
+          repetir os dois botões aqui era redundante).
+        {% endcomment %}
+        <p class="mt-4 max-w-prose text-white/80">
+          O OrientaSI acompanha o trabalho de conclusão de curso do início ao depósito
+          final: temas, orientação, bancas, atas e o catálogo público dos trabalhos
+          concluídos.
+        </p>
+      </div>
+
+      <div x-data="{
+             atual: 0,
+             total: 3,
+             pausado: false,
+             avancar() { this.atual = (this.atual + 1) % this.total },
+             voltar() { this.atual = (this.atual + this.total - 1) % this.total },
+           }"
+           x-init="if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+             setInterval(() => { if (!pausado) avancar() }, 5000)
+           }"
+           @mouseenter="pausado = true" @mouseleave="pausado = false"
+           @focusin="pausado = true" @focusout="pausado = false"
+           role="region" aria-roledescription="carrossel" aria-label="Recursos do OrientaSI">
+        {% comment %}
+          `absolute inset-0` nos três slides, dentro de um `relative`: antes
+          os slides ficavam em fluxo normal (um `<div>` atrás do outro), e a
+          troca de `display:none`→`block` de um pro outro criava um instante
+          sem nenhum dos dois — ou os dois ao mesmo tempo — fazendo o
+          cartão inteiro (e a página, por sombra/tamanho) piscar. Empilhados
+          uns sobre os outros no MESMO lugar, o esmaecido de um e o
+          aparecimento do outro se sobrepõem sem mexer no layout ao redor —
+          o "pisca" some porque não sobra vão nenhum entre as duas
+          transições. `duration.500ms`, mais lento que antes (300ms), pra
+          suavizar ainda mais.
+
+          Cada slide virou um cartão cheio da cor (não só uma faixa fina no
+          topo), com ícone e o par bg/texto já auditado em entrada.css —
+          `text-accent-content` no terceiro porque branco sobre o ciano
+          institucional reprova contraste AA (mesmo motivo de
+          `--color-warning-institucional`). O círculo desfocado en cada
+          canto ecoa o halo do próprio heroi, só que contido dentro do
+          cartão.
+        {% endcomment %}
+        <div class="sombra-elevada relative min-h-56 overflow-hidden rounded-box">
+          <div class="absolute inset-0 flex flex-col justify-center gap-3 overflow-hidden bg-primary p-6"
+               x-show="atual === 0" x-transition.opacity.duration.500ms
+               role="group" aria-roledescription="slide" aria-label="1 de 3">
+            <div class="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" aria-hidden="true"></div>
+            <div class="relative flex h-12 w-12 items-center justify-center rounded-full bg-white/15" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 text-primary-content">
+                <rect x="6" y="4" width="12" height="16" rx="2"></rect>
+                <path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"></path>
+                <line x1="9" y1="10" x2="15" y2="10"></line>
+                <line x1="9" y1="14" x2="15" y2="14"></line>
+                <line x1="9" y1="18" x2="13" y2="18"></line>
+              </svg>
+            </div>
+            <h2 class="relative font-display text-lg font-bold text-primary-content">Mural de temas</h2>
+            <p class="relative text-sm text-primary-content/85">
+              Professores publicam temas de TCC e alunos se candidatam a até três
+              opções, em ordem de preferência.
+            </p>
+          </div>
+
+          <div class="absolute inset-0 flex flex-col justify-center gap-3 overflow-hidden bg-secondary p-6"
+               x-cloak x-show="atual === 1" x-transition.opacity.duration.500ms
+               role="group" aria-roledescription="slide" aria-label="2 de 3">
+            <div class="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" aria-hidden="true"></div>
+            <div class="relative flex h-12 w-12 items-center justify-center rounded-full bg-white/15" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 text-secondary-content">
+                <rect x="3" y="5" width="18" height="16" rx="2"></rect>
+                <line x1="16" y1="3" x2="16" y2="7"></line>
+                <line x1="8" y1="3" x2="8" y2="7"></line>
+                <line x1="3" y1="11" x2="21" y2="11"></line>
+                <path d="m9 16 2 2 4-4"></path>
+              </svg>
+            </div>
+            <h2 class="relative font-display text-lg font-bold text-secondary-content">Bancas e atas</h2>
+            <p class="relative text-sm text-secondary-content/85">
+              Agendamento de banca, registro do resultado e geração automática da
+              ata de defesa, do TCC I ao TCC II.
+            </p>
+          </div>
+
+          <div class="absolute inset-0 flex flex-col justify-center gap-3 overflow-hidden bg-accent p-6"
+               x-cloak x-show="atual === 2" x-transition.opacity.duration.500ms
+               role="group" aria-roledescription="slide" aria-label="3 de 3">
+            <div class="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-primary/10 blur-2xl" aria-hidden="true"></div>
+            <div class="relative flex h-12 w-12 items-center justify-center rounded-full bg-accent-content/10" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 text-accent-content">
+                <path d="M12 7c-1.5-1.2-3.6-2-6-2a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1c2.4 0 4.5.8 6 2 1.5-1.2 3.6-2 6-2a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1c-2.4 0-4.5.8-6 2Z"></path>
+                <line x1="12" y1="7" x2="12" y2="21"></line>
+              </svg>
+            </div>
+            <h2 class="relative font-display text-lg font-bold text-accent-content">Catálogo público</h2>
+            <p class="relative text-sm text-accent-content/85">
+              Os trabalhos concluídos ficam disponíveis para download no
+              <a href="{% url 'publico:catalogo' %}" class="font-semibold underline underline-offset-2">catálogo público</a>.
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-4 flex items-center justify-center gap-2">
+          <button type="button" @click="pausado = true; voltar()"
+                  class="flex h-11 w-11 flex-none items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
+                  aria-label="Recurso anterior">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+
+          {% comment %}
+            O ponto visível (`span`, 0.5rem) fica bem menor que o alvo de
+            toque real: o `<button>` em volta já garante 44x44px pela regra
+            global de entrada.css — encolher o BOTÃO pra do tamanho do
+            ponto reprovaria alvo de toque; encolher só o ponto visual
+            dentro de um botão maior é o padrão comum de carrossel
+            acessível.
+          {% endcomment %}
+          <button type="button" @click="pausado = true; atual = 0" :aria-current="atual === 0"
+                  class="flex h-11 w-11 flex-none items-center justify-center" aria-label="Ir para o recurso 1 de 3">
+            <span class="h-2 w-2 rounded-full transition" :class="atual === 0 ? 'bg-white' : 'bg-white/40'"></span>
+          </button>
+          <button type="button" @click="pausado = true; atual = 1" :aria-current="atual === 1"
+                  class="flex h-11 w-11 flex-none items-center justify-center" aria-label="Ir para o recurso 2 de 3">
+            <span class="h-2 w-2 rounded-full transition" :class="atual === 1 ? 'bg-white' : 'bg-white/40'"></span>
+          </button>
+          <button type="button" @click="pausado = true; atual = 2" :aria-current="atual === 2"
+                  class="flex h-11 w-11 flex-none items-center justify-center" aria-label="Ir para o recurso 3 de 3">
+            <span class="h-2 w-2 rounded-full transition" :class="atual === 2 ? 'bg-white' : 'bg-white/40'"></span>
+          </button>
+
+          <button type="button" @click="pausado = true; avancar()"
+                  class="flex h-11 w-11 flex-none items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
+                  aria-label="Próximo recurso">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   </section>
 {% endblock %}
 
 {% block conteudo %}
-  <div class="grid gap-4 sm:grid-cols-3">
-    <div class="rounded-box border border-base-300 bg-base-100 p-6">
-      <h2 class="font-display text-lg font-bold text-primary">Mural de temas</h2>
-      <p class="mt-2 text-sm text-base-content/80">
-        Professores publicam temas de TCC e alunos se candidatam a até três
-        opções, em ordem de preferência.
-      </p>
+  {% comment %}
+    Vitrine com dados reais: `projetos_recentes`/`bancas_proximas`/
+    `semanas_do_mes` vêm de `apps/publico/views.py::inicio`, que só
+    recorta `services.catalogo_publico()`/`calendario_publico()` — a mesma
+    regra de elegibilidade de `/catalogo/`/`/calendario/`, nenhuma nova
+    aqui (Bloco G). Duas colunas: TCCs publicados à esquerda, agenda de
+    apresentações à direita, no espírito de referência trazido pelo
+    usuário — um cartão de calendário do mês + lista das próximas datas.
+  {% endcomment %}
+  <div class="grid gap-8 lg:grid-cols-[1.3fr_1fr]">
+    <div>
+      <h2 class="font-display text-2xl font-bold text-primary">TCCs Publicados</h2>
+      <div class="mt-4 space-y-4">
+        {% for projeto in projetos_recentes %}
+          <div class="sombra-suave flex gap-4 rounded-box border border-base-300 bg-base-100 p-4 transition hover:-translate-y-1 hover:shadow-lg">
+            <div class="flex h-12 w-12 flex-none items-center justify-center rounded-xl {% cycle 'bg-primary/10 text-primary' 'bg-secondary/10 text-secondary' 'bg-accent/10 text-accent' %}"
+                 aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6">
+                <path d="M22 10 12 5 2 10l10 5 10-5Z"></path>
+                <path d="M6 12v5c0 1.5 2.5 3 6 3s6-1.5 6-3v-5"></path>
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <p class="font-semibold text-base-content">{{ projeto.tema.titulo }}</p>
+              <p class="mt-1 text-sm text-base-content/70">
+                {{ projeto.tema.descricao|truncatewords:18 }}
+              </p>
+              <p class="mt-2 text-xs text-base-content/70">
+                {{ projeto.aluno.nome_completo }} · Orientador(a): {{ projeto.orientador.nome_completo }}
+              </p>
+            </div>
+          </div>
+        {% empty %}
+          <p class="text-sm text-base-content/70">Nenhum TCC publicado ainda.</p>
+        {% endfor %}
+      </div>
+      <a href="{% url 'publico:catalogo' %}" class="btn btn-outline btn-primary btn-sm mt-5">
+        Ver catálogo completo
+      </a>
     </div>
-    <div class="rounded-box border border-base-300 bg-base-100 p-6">
-      <h2 class="font-display text-lg font-bold text-primary">Bancas e atas</h2>
-      <p class="mt-2 text-sm text-base-content/80">
-        Agendamento de banca, registro do resultado e geração automática da
-        ata de defesa, do TCC I ao TCC II.
+
+    <div class="sombra-elevada h-fit rounded-box border border-base-300 bg-base-100 p-5">
+      <h2 class="font-display text-lg font-bold text-primary">Próximas Apresentações</h2>
+      {% comment %}
+        `|capfirst`, não a classe `capitalize` do CSS: `text-transform:
+        capitalize` maiuscularia TODA palavra, incluindo o "de" — "Setembro
+        De 2026" em vez de "Setembro de 2026".
+      {% endcomment %}
+      <p class="mt-1 text-sm text-base-content/70">
+        {{ mes_atual|date:"F"|capfirst }} de {{ mes_atual|date:"Y" }}
       </p>
-    </div>
-    <div class="rounded-box border border-base-300 bg-base-100 p-6">
-      <h2 class="font-display text-lg font-bold text-primary">Catálogo público</h2>
-      <p class="mt-2 text-sm text-base-content/80">
-        Os trabalhos concluídos ficam disponíveis para download no
-        <a href="{% url 'publico:catalogo' %}" class="link">catálogo público</a>.
-      </p>
+
+      {% comment %}
+        Grade do mês corrente, sem navegação (ver docstring da view) — dias
+        com banca marcada ganham um preenchimento suave de acento; hoje
+        ganha o preenchimento sólido do marinho, sempre por cima da marca
+        de banca se as duas coincidirem.
+      {% endcomment %}
+      <div class="mt-4 grid grid-cols-7 gap-y-1 text-center text-xs">
+        <span class="text-base-content/70">Dom</span>
+        <span class="text-base-content/70">Seg</span>
+        <span class="text-base-content/70">Ter</span>
+        <span class="text-base-content/70">Qua</span>
+        <span class="text-base-content/70">Qui</span>
+        <span class="text-base-content/70">Sex</span>
+        <span class="text-base-content/70">Sáb</span>
+        {% for semana in semanas_do_mes %}
+          {% for dia in semana %}
+            {% if dia %}
+              {% comment %}
+                `text-secondary`, não `text-accent`, sobre `bg-accent/20`:
+                o ciano institucional como COR DE TEXTO sobre o próprio
+                tom claro de fundo reprova contraste AA (tons próximos
+                demais) — mesmo raciocínio de `--color-warning-institucional`
+                em entrada.css, ciano só serve pra superfície/indicador
+                aqui, nunca pra texto.
+              {% endcomment %}
+              <span class="mx-auto flex h-7 w-7 items-center justify-center rounded-full
+                           {% if dia.hoje %}bg-primary font-bold text-primary-content
+                           {% elif dia.tem_banca %}bg-accent/20 font-semibold text-secondary
+                           {% else %}text-base-content/70{% endif %}">
+                {{ dia.numero }}
+              </span>
+            {% else %}
+              <span aria-hidden="true"></span>
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+      </div>
+
+      <div class="mt-5 space-y-3 border-t border-base-300 pt-4">
+        {% for banca in bancas_proximas %}
+          <div class="flex items-start gap-3">
+            <div class="flex w-12 flex-none flex-col items-center rounded-lg bg-base-200 py-1.5">
+              <span class="text-[10px] font-semibold uppercase text-base-content/70">{{ banca.data_hora|date:"M" }}</span>
+              <span class="text-base font-bold text-primary">{{ banca.data_hora|date:"d" }}</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-base-content" title="{{ banca.projeto.aluno.nome_completo }}">
+                {{ banca.projeto.aluno.nome_completo }}
+              </p>
+              <p class="truncate text-xs text-base-content/70">
+                {{ banca.data_hora|date:"H:i" }} · {{ banca.local }}
+              </p>
+            </div>
+          </div>
+        {% empty %}
+          <p class="text-sm text-base-content/70">Nenhuma apresentação agendada.</p>
+        {% endfor %}
+      </div>
+
+      <a href="{% url 'publico:calendario' %}" class="btn btn-outline btn-primary btn-sm mt-5 w-full">
+        Ver agenda completa
+      </a>
     </div>
   </div>
 {% endblock %}

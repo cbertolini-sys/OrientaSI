@@ -16,12 +16,20 @@ que faltava.
 Renderiza `/` (a `TemplateView` pública de `config/urls.py`, que estende
 `base.html` e não exige autenticação) para cada uma das cinco personas do
 brief da rodada de correção, e afirma presença/ausência de cada `href` do
-bloco `navegacao` — pelo atributo COMPLETO (`href="/temas/"`, não só
-`/temas/`), porque `/temas/` é uma substring de `/temas/meus/` e `/painel/`
-é uma substring de `/painel/orientacoes/`: checar a substring sem as aspas
-daria falso positivo para "mural" sempre que só "meus temas" estivesse
-presente, e para "painel da coordenação" sempre que só "painel de
+menu de navegação do cabeçalho — pelo atributo COMPLETO (`href="/temas/"`,
+não só `/temas/`), porque `/temas/` é uma substring de `/temas/meus/` e
+`/painel/` é uma substring de `/painel/orientacoes/`: checar a substring
+sem as aspas daria falso positivo para "mural" sempre que só "meus temas"
+estivesse presente, e para "painel da coordenação" sempre que só "painel de
 orientações" estivesse presente.
+
+Segunda volta da identidade visual: o menu lateral (`.drawer` do DaisyUI) da
+primeira volta foi embora — voltou a ser uma barra única no cabeçalho, com
+os links específicos de papel dentro do `<details class="dropdown">` do
+avatar, no mesmo espírito do IntegraSI. `<nav aria-label="Principal">`
+continua existindo em toda página (inclusive `/`, que nunca teve nada
+diferente das outras desta vez), só que agora é a barra de cima, não uma
+coluna lateral.
 """
 
 import pytest
@@ -45,7 +53,7 @@ def _gera_cpf(indice):
     return base + str(d1) + str(d2)
 
 
-# Os hrefs exatos que o bloco `navegacao` de base.html pode emitir, com as
+# Os hrefs exatos que o menu de navegação de base.html pode emitir, com as
 # aspas — ver a docstring do módulo sobre por que a substring sem aspas não
 # discrimina "/temas/" de "/temas/meus/" nem "/painel/" de
 # "/painel/orientacoes/".
@@ -73,17 +81,17 @@ TODOS_OS_HREFS_AUTENTICADOS = [
 
 def _extrai_navegacao(html):
     """Isola o conteúdo de `<nav aria-label="Principal">...</nav>` (o bloco
-    `{% block navegacao %}` de base.html) do resto da página.
+    de navegação do cabeçalho, base.html) do resto da página.
 
     Necessário porque `templates/inicio.html` (a página usada aqui, "/") tem
     seu PRÓPRIO botão "Entrar" no corpo do conteúdo
-    (`<a href="{% url 'login' %}" class="btn btn-primary mt-6">Entrar</a>`),
-    fora da navegação e sem nenhuma condição de autenticação — sem isolar a
-    `<nav>`, o teste do persona anônimo passaria por acidente (o único hrefs
-    que ele checa É o de login) mas os quatro testes autenticados
-    reprovariam a checagem de AUSÊNCIA de `href="/contas/login/"`, porque
-    esse href está no corpo da página, não na navegação, e continua lá
-    também para quem está logado.
+    (`<a href="{% url 'login' %}" class="btn ...">Entrar</a>`), fora da
+    navegação e sem nenhuma condição de autenticação — sem isolar a `<nav>`,
+    o teste do persona anônimo passaria por acidente (o único href que ele
+    checa É o de login) mas os quatro testes autenticados reprovariam a
+    checagem de AUSÊNCIA de `href="/contas/login/"`, porque esse href está
+    no corpo da página, não na navegação, e continua lá também para quem
+    está logado.
     """
     inicio = html.index('<nav aria-label="Principal">')
     fim = html.index("</nav>", inicio)
