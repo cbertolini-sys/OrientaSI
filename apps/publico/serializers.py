@@ -16,3 +16,17 @@ class CatalogoSerializer(serializers.Serializer):
 
     def get_pdf_url(self, projeto):
         return projeto.submissao.pdf.url
+
+
+class CalendarioSerializer(serializers.Serializer):
+    """Serializa uma `Banca` agendada futura (Bloco H, spec §3)."""
+
+    id = serializers.IntegerField()
+    aluno = serializers.CharField(source="projeto.aluno.nome_completo")
+    titulo = serializers.SerializerMethodField()
+    orientador = serializers.CharField(source="projeto.orientador.nome_completo")
+    data_hora = serializers.DateTimeField()
+    local = serializers.CharField()
+
+    def get_titulo(self, banca):
+        return banca.projeto.tema.titulo if banca.projeto.tema else None
