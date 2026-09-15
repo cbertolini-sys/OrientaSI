@@ -56,9 +56,9 @@ Todos os comandos devem rodar via container Docker:
   atas fica para o Bloco E).
 * **Geração de PDF:** WeasyPrint (Atas e documentos oficiais; uso real chega com
   o Bloco E, a dependência de sistema já é validada na Fase 1 — `tests/test_pdf.py`).
-* **Documentação API:** Django REST Framework (DRF) + `drf-spectacular` — decisão
-  registrada para o **Bloco H**. Nenhum dos dois está em `requirements.txt` hoje;
-  não há API nesta fase.
+* **API:** Django REST Framework (DRF) + `drf-spectacular`, implementados no
+  **Bloco H** — `/api/v1/catalogo/`, `/api/v1/calendario/` (só leitura),
+  documentação OpenAPI/Swagger em `/api/schema/`/`/api/docs/`.
 * **Armazenamento:** Mídia (`.pdf`, `.docx`, fotos) via `django-storages` usando
   S3 / MinIO local.
 * **Testes de Acessibilidade:** Playwright integrado com `axe-core`.
@@ -129,7 +129,11 @@ Todos os comandos devem rodar via container Docker:
   não cria nada além (fim de linha, sem "TCC III").
 * `apps/publico`: catálogo (`/catalogo/`) e calendário (`/calendario/`)
   públicos, sem login e sem models próprios — `services.py` só consulta
-  `Projeto`/`Banca` dos apps donos (Bloco G, implementado).
+  `Projeto`/`Banca` dos apps donos (Bloco G, implementado). API REST só
+  leitura sobre os mesmos dados (`/api/v1/catalogo/`,
+  `/api/v1/calendario/`, DRF, `ReadOnlyModelViewSet` + serializers
+  explícitos), documentada via `drf-spectacular` em `/api/schema/`
+  (OpenAPI) e `/api/docs/` (Swagger UI) — Bloco H, implementado.
 
 Todo identificador de código (apps, modelos, campos, funções, variáveis) é em
 português. Interface, mensagens de erro, comentários e commits também.
@@ -321,7 +325,15 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   escolhido pelo professor — um tema seu — na manual). Reabre o Bloco C:
   `enviar_submissao` aceita reenvio também em `Aprovado com Ressalvas`
   quando `etapa=TCC_II`, pra depositar a versão corrigida pós-banca.
-* **H** — API DRF (`djangorestframework` + `drf-spectacular` entram aqui)
+* **H — API DRF (concluído)**: `djangorestframework` + `drf-spectacular`
+  instalados. `/api/v1/catalogo/` e `/api/v1/calendario/` — só leitura,
+  sem autenticação, `ReadOnlyModelViewSet` (list + retrieve) sobre
+  `services.catalogo_publico`/`calendario_publico` (Bloco G, nenhuma
+  regra de elegibilidade reimplementada). Serializers explícitos, não
+  `ModelSerializer` — nenhum campo novo do model vaza sem decisão
+  própria. Paginado (20/página). `/api/schema/` (schema OpenAPI) e
+  `/api/docs/` (Swagger UI) — nenhuma das duas entra nas cinco suítes
+  transversais de acessibilidade (UI de terceiro, `drf-spectacular`).
 
 Antes de assumir que uma regra de negócio, modelo ou tela já existe, confira a
 qual bloco ela pertence e se aquele bloco já foi implementado.
