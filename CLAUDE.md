@@ -103,7 +103,14 @@ Todos os comandos devem rodar via container Docker:
   orientador, `anterior` — self-FK — apontando para o TCC I, sem checar
   limite de vagas) ou por `criar_tcc_ii_manual` (professor cria do zero para
   um aluno sem TCC I no sistema, casca fina sobre `criar_projeto_sob_limite`,
-  checando limite). `coorientador`/`coorientador_externo` no `Projeto` são
+  checando limite). O TCC I também ganhou um caminho manual espelhado,
+  `criar_tcc_i_manual` — exceção nova à regra inegociável nº 8 (ver acima),
+  pra quando o aluno já tem orientador definido fora da cascata de
+  candidatura. As duas funções manuais (TCC I e TCC II) são acionadas pela
+  MESMA tela, "Criar nova orientação" em `/orientacoes/`
+  (`views.criar_orientacao_manual_view`, `FormularioCriarOrientacaoManual`),
+  que deixa o professor escolher a etapa. `coorientador`/`coorientador_externo`
+  no `Projeto` são
   só informativos, e mutuamente exclusivos (`CheckConstraint`
   `projeto_coorientador_nao_duplo`). Para o TCC II, `aprovar_projeto` exige
   todos os `ItemCorrecao` concluídos e um `TermoPublicacao` assinado
@@ -212,6 +219,18 @@ português. Interface, mensagens de erro, comentários e commits também.
    sistema não tem de onde tirar uma métrica de desempenho, então essa é
    também a única alternativa viável.
 
+   **Exceção documentada (pedido explícito do usuário, tela "Minhas
+   orientações"):** um professor também pode abrir uma orientação de TCC I
+   **manualmente**, fora dessa cascata — `services.criar_tcc_i_manual`,
+   espelhando exatamente `criar_tcc_ii_manual` (Bloco F), acionado por
+   "Criar nova orientação" em `/orientacoes/`. É para quando o aluno já tem
+   orientador definido por fora do sistema (equivalência, transferência) e
+   não faz sentido forçar uma candidatura que já tem desfecho conhecido.
+   Continua sob a MESMA trava de vaga e o MESMO `UniqueConstraint`
+   `"projeto_ativo_unico_por_aluno_e_etapa"` de `criar_projeto_sob_limite`
+   — esta exceção muda só a **entrada** (quem inicia o registro), nunca as
+   garantias de vaga/unicidade em vigor para qualquer TCC I.
+
 ---
 
 ## 🔄 Ciclo de Vida e Status do TCC
@@ -315,7 +334,12 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   assinado pelo aluno (`/meu-tcc/`) antes de aprovar; aprovar a ata de um
   TCC I dispara a criação automática do TCC II, aprovar a de um TCC II
   termina o ciclo (sem "TCC III"). Notificação por e-mail ao aluno na
-  criação do TCC II e a cada item de correção novo.
+  criação do TCC II e a cada item de correção novo. **Acréscimo posterior,
+  pedido explícito do usuário:** `criar_tcc_i_manual`, espelhando
+  `criar_tcc_ii_manual` — exceção nova à regra inegociável nº 8 (ver acima)
+  — e a tela unificada "Criar nova orientação" em `/orientacoes/`
+  (`views.criar_orientacao_manual_view`), que deixa o professor escolher
+  TCC I ou TCC II antes de preencher aluno/tema.
 * **G — catálogo e calendário públicos (concluído)**: `apps/publico`, sem
   models próprios — `/catalogo/` (TCCs `Concluído` do TCC_II com termo
   assinado, Título/Resumo vindos de `Projeto.tema`, filtro por área do

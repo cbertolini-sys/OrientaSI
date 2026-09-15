@@ -50,5 +50,9 @@ urlpatterns = [
         views.reenviar_ata_view,
         name="reenviar_ata",
     ),
-    path("temas/tcc-ii/criar/", views.criar_tcc_ii_manual_view, name="criar_tcc_ii_manual"),
+    path(
+        "orientacoes/criar/",
+        views.criar_orientacao_manual_view,
+        name="criar_orientacao_manual",
+    ),
 ]

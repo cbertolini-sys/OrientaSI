@@ -305,3 +305,30 @@ def enviar_tcc_ii_criado(self, projeto_id):
         )
     except Exception as erro:  # noqa: BLE001 — repetimos qualquer falha de entrega
         raise self.retry(exc=erro, countdown=60 * 2**self.request.retries) from erro
+
+
+@shared_task(bind=True, max_retries=3)
+def enviar_tcc_i_criado(self, projeto_id):
+    """Avisa o aluno de que o TCC I foi criado manualmente pelo professor —
+    espelha `enviar_tcc_ii_criado` acima, para o caminho novo de
+    `services.criar_tcc_i_manual` (exceção à regra inegociável nº 8,
+    CLAUDE.md). O caminho normal de TCC I (`aceitar_opcao`, cascata de
+    candidatura) não envia este e-mail — o aluno já sabe que se candidatou e
+    foi aceito; este aqui existe pro caminho manual, onde a criação é
+    iniciativa do professor e o aluno precisa ser avisado."""
+    from apps.projetos.models import Projeto
+
+    projeto = Projeto.objects.select_related("aluno", "orientador").get(pk=projeto_id)
+    corpo = render_to_string(
+        "email/tcc_i_criado.txt",
+        {"aluno": projeto.aluno, "orientador": projeto.orientador, "link": _link_login()},
+    )
+    try:
+        send_mail(
+            subject="OrientaSI — seu TCC I foi criado",
+            message=corpo,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[projeto.aluno.email],
+        )
+    except Exception as erro:  # noqa: BLE001 — repetimos qualquer falha de entrega
+        raise self.retry(exc=erro, countdown=60 * 2**self.request.retries) from erro

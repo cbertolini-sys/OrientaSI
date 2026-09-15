@@ -9,7 +9,7 @@ from apps.projetos import permissions, services
 from apps.projetos.forms import (
     FormularioCandidatura,
     FormularioConcederLimite,
-    FormularioCriarTccII,
+    FormularioCriarOrientacaoManual,
     FormularioFiltroMural,
     FormularioRecusaOpcao,
     FormularioSubmissao,
@@ -708,22 +708,38 @@ def reenviar_ata_view(request, ata_id):
 
 
 @login_required
-def criar_tcc_ii_manual_view(request):
-    """Professor cria um TCC II manualmente (Bloco F, spec §7). Portão de
+def criar_orientacao_manual_view(request):
+    """Professor cria uma orientação manualmente — TCC I ou TCC II, a
+    escolha do formulário (`FormularioCriarOrientacaoManual.etapa`). Era só
+    TCC II (Bloco F, spec §7); a exceção nova à regra inegociável nº 8
+    (CLAUDE.md, "Alocação Contínua, Não por Desempenho") abriu o mesmo
+    caminho pro TCC I — pra quando o aluno já tem orientador definido por
+    fora da cascata de candidatura (equivalência, transferência). Portão de
     PAPEL primeiro (`pode_criar_tema`, mesmo reaproveitamento de
     `orientacoes`/`meus_temas` — ela só pergunta "é professor?"), antes de
     tocar `perfil_professor`. `tema` (Bloco G) vem do formulário, já
-    restrito aos temas do próprio `professor` (`FormularioCriarTccII`)."""
+    restrito aos temas do próprio `professor`
+    (`FormularioCriarOrientacaoManual`).
+
+    O dicionário `_CRIA_POR_ETAPA` despacha pro serviço certo
+    (`services.criar_tcc_i_manual`/`criar_tcc_ii_manual`) — as duas funções
+    têm a MESMA assinatura (`aluno, professor, tema, por`) de propósito,
+    então o dispatch não precisa de nenhum `if`/`elif` por etapa aqui."""
     permissions.garante(
-        permissions.pode_criar_tema(request.user), "Somente professores criam TCC II."
+        permissions.pode_criar_tema(request.user), "Somente professores criam uma orientação."
     )
     professor = request.user.perfil_professor
+    cria_por_etapa = {
+        Projeto.TCC_I: services.criar_tcc_i_manual,
+        Projeto.TCC_II: services.criar_tcc_ii_manual,
+    }
 
     if request.method == "POST":
-        formulario = FormularioCriarTccII(request.POST, professor=professor)
+        formulario = FormularioCriarOrientacaoManual(request.POST, professor=professor)
         if formulario.is_valid():
+            criar = cria_por_etapa[formulario.cleaned_data["etapa"]]
             try:
-                services.criar_tcc_ii_manual(
+                criar(
                     formulario.cleaned_data["aluno"],
                     professor,
                     formulario.cleaned_data["tema"],
@@ -732,9 +748,9 @@ def criar_tcc_ii_manual_view(request):
             except ValidationError as erro:
                 formulario.add_error(None, erro.messages[0])
             else:
-                messages.success(request, "TCC II criado.")
+                messages.success(request, "Orientação criada.")
                 return redirect("projetos:orientacoes")
     else:
-        formulario = FormularioCriarTccII(professor=professor)
+        formulario = FormularioCriarOrientacaoManual(professor=professor)
 
-    return render(request, "projetos/criar_tcc_ii.html", {"formulario": formulario})
+    return render(request, "projetos/criar_orientacao.html", {"formulario": formulario})

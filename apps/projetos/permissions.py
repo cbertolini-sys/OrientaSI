@@ -143,13 +143,15 @@ def pode_assinar_termo(usuario, projeto):
     return bool(usuario and usuario.is_authenticated and usuario == projeto.aluno)
 
 
-def pode_criar_tcc_ii_manual(usuario, professor):
-    """`usuario` é exatamente `professor` (Bloco F, spec §6) — combina o
-    portão de papel (`hasattr perfil_professor`, mesmo de `pode_criar_tema`)
-    com a posse numa função só: ao contrário de `pode_criar_tema`/
-    `pode_criar_tema_para` (duas funções, porque duas telas fazem perguntas
-    diferentes), aqui só existe um ponto de entrada — a view sempre passa
-    `request.user.perfil_professor` como `professor`."""
+def pode_criar_orientacao_manual(usuario, professor):
+    """`usuario` é exatamente `professor` (Bloco F, spec §6 — e a exceção à
+    regra inegociável nº 8 documentada no CLAUDE.md, que estende esta mesma
+    checagem para o TCC I manual). Combina o portão de papel
+    (`hasattr perfil_professor`, mesmo de `pode_criar_tema`) com a posse numa
+    função só: ao contrário de `pode_criar_tema`/`pode_criar_tema_para`
+    (duas funções, porque duas telas fazem perguntas diferentes), aqui só
+    existe um ponto de entrada — a view sempre passa
+    `request.user.perfil_professor` como `professor`, pra TCC I e TCC II."""
     return bool(
         usuario
         and usuario.is_authenticated

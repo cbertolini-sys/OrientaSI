@@ -268,19 +268,34 @@ class FormularioSubmissao(MisturaAcessibilidadeFormulario, forms.Form):
     )
 
 
-class FormularioCriarTccII(MisturaAcessibilidadeFormulario, forms.Form):
-    """Criação manual do TCC II, pra comprovar equivalência externa (Bloco
-    F, spec §7). `aluno` lista TODO `PerfilAluno` — sem pré-filtrar quem já
-    tem TCC II ativo: `criar_projeto_sob_limite` já recusa com mensagem
-    clara via `UniqueConstraint` (`IntegrityError` traduzido, Bloco B),
-    então filtrar aqui seria duplicar essa proteção sem necessidade. `tema`
-    nasce com queryset vazio, mesmo padrão de `FormularioTema.area`: a view
-    passa `professor=` no construtor, e só então o campo lista os temas
-    DESSE professor (Bloco G, spec §2) — sem essa restrição por instância,
-    o professor poderia escolher o tema de outro (a checagem de posse em
-    `services.criar_tcc_ii_manual` recusaria, mas o formulário já evita
-    oferecer a opção errada)."""
+class FormularioCriarOrientacaoManual(MisturaAcessibilidadeFormulario, forms.Form):
+    """Criação manual de uma orientação (TCC I ou TCC II), fora do fluxo
+    normal de cada etapa (candidatura+aceite pro TCC I, `criar_projeto_sob_
+    limite` continua sendo quem decide se há vaga nos dois casos) — pra
+    quando o aluno já tem orientador definido por fora do sistema
+    (equivalência, transferência). Era só TCC II (Bloco F, spec §7); a
+    exceção nova à regra inegociável nº 8 (CLAUDE.md) estendeu o mesmo
+    formulário pro TCC I, com o campo `etapa` abaixo escolhendo qual dos
+    dois `views.criar_orientacao_manual_view` chama
+    (`services.criar_tcc_i_manual`/`criar_tcc_ii_manual`).
 
+    `aluno` lista TODO `PerfilAluno` — sem pré-filtrar quem já tem uma
+    orientação ativa na etapa escolhida: `criar_projeto_sob_limite` já
+    recusa com mensagem clara via `UniqueConstraint` (`IntegrityError`
+    traduzido, Bloco B), então filtrar aqui seria duplicar essa proteção
+    sem necessidade. `tema` nasce com queryset vazio, mesmo padrão de
+    `FormularioTema.area`: a view passa `professor=` no construtor, e só
+    então o campo lista os temas DESSE professor (Bloco G, spec §2) — sem
+    essa restrição por instância, o professor poderia escolher o tema de
+    outro (a checagem de posse em `services.criar_tcc_i_manual`/
+    `criar_tcc_ii_manual` recusaria, mas o formulário já evita oferecer a
+    opção errada)."""
+
+    etapa = forms.ChoiceField(
+        label="Etapa",
+        choices=Projeto.ETAPAS,
+        widget=forms.Select(attrs={"class": "select w-full"}),
+    )
     aluno = forms.ModelChoiceField(
         label="Aluno",
         queryset=PerfilAluno.objects.select_related("usuario").order_by("usuario__nome_completo"),

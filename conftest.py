@@ -978,17 +978,20 @@ def cria_sugrad_com_ata_pendente_para_rotas():
     return sugrad
 
 
-def cria_professor_para_criar_tcc_ii_para_rotas():
-    """Fábrica de `/temas/tcc-ii/criar/` (Bloco F): só precisa de um
-    professor com `PerfilProfessor` — a tela não depende de nenhum aluno
-    pré-existente (o `<select>` lista todo `PerfilAluno`, e a suíte não
-    precisa que a lista tenha itens pra medir a tela)."""
+def cria_professor_para_criar_orientacao_para_rotas():
+    """Fábrica de `/orientacoes/criar/` (Bloco F; rota renomeada de
+    `/temas/tcc-ii/criar/` no acréscimo posterior que uniu TCC I/TCC II na
+    mesma tela — pedido explícito do usuário, exceção à regra inegociável
+    nº 8 do CLAUDE.md): só precisa de um professor com `PerfilProfessor` —
+    a tela não depende de nenhum aluno pré-existente (o `<select>` lista
+    todo `PerfilAluno`, e a suíte não precisa que a lista tenha itens pra
+    medir a tela)."""
     from apps.contas.models import PerfilProfessor, Usuario
 
     usuario = Usuario.objects.create_user(
-        email="professor-criar-tccii-das-rotas@ufsm.br",
+        email="professor-criar-orientacao-das-rotas@ufsm.br",
         password="x",
-        nome_completo="Professor Criar TCC II das Rotas",
+        nome_completo="Professor Criar Orientação das Rotas",
         cpf=_gera_cpf_das_rotas(37),
     )
     PerfilProfessor.objects.create(usuario=usuario, siape="1000025")
@@ -1293,10 +1296,10 @@ ROTAS = [
         h1="Painel SUGRAD",
     ),
     Rota(
-        "/temas/tcc-ii/criar/",
+        "/orientacoes/criar/",
         "form",
-        fabrica_usuario=cria_professor_para_criar_tcc_ii_para_rotas,
-        h1="Criar TCC II",
+        fabrica_usuario=cria_professor_para_criar_orientacao_para_rotas,
+        h1="Criar nova orientação",
     ),
     Rota(
         lambda usuario: f"/bancas/{usuario.projeto_id_para_rota}/correcoes/",

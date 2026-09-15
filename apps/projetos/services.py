@@ -1398,8 +1398,12 @@ def criar_tcc_ii_manual(aluno, professor, tema, por):
     obrigatório e precisa ser um dos próprios temas de `professor` (Bloco
     G, spec §2) — fonte de Título/Resumo no catálogo público; a checagem de
     posse é feita aqui, não só no formulário, porque o formulário não é o
-    único chamador possível desta função."""
-    if not permissions.pode_criar_tcc_ii_manual(por, professor):
+    único chamador possível desta função.
+
+    Ver `criar_tcc_i_manual`, logo abaixo: mesma forma, mesma permissão
+    (`pode_criar_orientacao_manual`), só a etapa muda — as duas nascem da
+    mesma tela ("Criar nova orientação", `views.criar_orientacao_manual_view`)."""
+    if not permissions.pode_criar_orientacao_manual(por, professor):
         raise PermissionDenied("Somente o próprio professor cria um TCC II em seu nome.")
     if tema.professor_id != professor.id:
         raise PermissionDenied("O tema precisa ser um dos seus próprios temas.")
@@ -1409,6 +1413,39 @@ def criar_tcc_ii_manual(aluno, professor, tema, por):
     from apps.projetos.tasks import enviar_tcc_ii_criado
 
     transaction.on_commit(lambda: enviar_tcc_ii_criado.delay(tcc_ii.id))
+
+    return tcc_ii
+
+
+def criar_tcc_i_manual(aluno, professor, tema, por):
+    """Cria um TCC I do zero, fora da cascata de candidatura (aluno com
+    orientador já definido por fora do sistema — equivalência,
+    transferência). Casca fina sobre `criar_projeto_sob_limite`, espelhando
+    exatamente `criar_tcc_ii_manual` acima (mesma permissão, mesma checagem
+    de posse do tema, mesma trava de vaga), só com `etapa=Projeto.TCC_I`.
+
+    **Exceção nova à regra inegociável nº 8 do CLAUDE.md** ("Alocação
+    Contínua, Não por Desempenho" — normalmente um TCC I só nasce da
+    cascata de candidatura do aluno + aceite do professor,
+    `aceitar_opcao` acima). Esta função é a válvula de escape documentada
+    para quando essa cascata não se aplica: o aluno já tem orientador
+    definido fora do sistema, e o professor só precisa abrir o registro. A
+    checagem de vaga (`criar_projeto_sob_limite`) e o `UniqueConstraint`
+    "projeto_ativo_unico_por_aluno_e_etapa" continuam valendo do mesmo
+    jeito — esta função não abre uma segunda orientação de TCC I ativa para
+    o mesmo aluno, só um caminho alternativo de ENTRADA para a primeira."""
+    if not permissions.pode_criar_orientacao_manual(por, professor):
+        raise PermissionDenied("Somente o próprio professor cria um TCC I em seu nome.")
+    if tema.professor_id != professor.id:
+        raise PermissionDenied("O tema precisa ser um dos seus próprios temas.")
+
+    tcc_i = criar_projeto_sob_limite(aluno, professor, tema=tema, etapa=Projeto.TCC_I)
+
+    from apps.projetos.tasks import enviar_tcc_i_criado
+
+    transaction.on_commit(lambda: enviar_tcc_i_criado.delay(tcc_i.id))
+
+    return tcc_i
 
     return tcc_ii
 

@@ -4,7 +4,19 @@
 
 {% block conteudo %}
   <article class="mx-auto max-w-3xl rounded-box bg-base-100 p-6 shadow-sm">
-    <h1 class="font-display text-2xl font-bold text-primary">Minhas orientações</h1>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h1 class="font-display text-2xl font-bold text-primary">Minhas orientações</h1>
+      {% comment %}
+        Único ponto de entrada da UI pra `criar_orientacao_manual_view`
+        (antes só TCC II, `/temas/tcc-ii/criar/`, sem nenhum link em lugar
+        nenhum — achado desta revisão). "Criar nova orientação" porque a
+        tela deixa escolher a etapa (TCC I ou TCC II) dentro do formulário,
+        não um botão por etapa.
+      {% endcomment %}
+      <a href="{% url 'projetos:criar_orientacao_manual' %}" class="btn btn-outline btn-sm">
+        Criar nova orientação
+      </a>
+    </div>
 
     <section class="mt-6">
       <h2 class="font-display text-xl font-bold text-primary">Manifestações pendentes</h2>

@@ -234,12 +234,100 @@ def test_criar_tcc_ii_manual_view_redireciona(client):
     tema = _tema(30, orientador)
     client.force_login(orientador.usuario)
     resposta = client.post(
-        "/temas/tcc-ii/criar/", {"aluno": aluno.perfil_aluno.pk, "tema": tema.pk}
+        "/orientacoes/criar/",
+        {"etapa": Projeto.TCC_II, "aluno": aluno.perfil_aluno.pk, "tema": tema.pk},
     )
     assert resposta.status_code == 302
     assert Projeto.objects.filter(
         aluno=aluno, etapa=Projeto.TCC_II, orientador=orientador.usuario, tema=tema
     ).exists()
+
+
+# TCC I manual (exceção nova à regra inegociável nº 8, CLAUDE.md) — mesma
+# bateria de `criar_tcc_ii_manual` acima, provando que `criar_tcc_i_manual`
+# espelha exatamente o mesmo comportamento, só com `etapa=Projeto.TCC_I`.
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_cria_orientacao():
+    orientador = _professor(80, "Orientador Manual TCC I")
+    aluno = _aluno(81, "Aluno Manual TCC I")
+    tema = _tema(80, orientador)
+    tcc_i = services.criar_tcc_i_manual(aluno.perfil_aluno, orientador, tema, por=orientador.usuario)
+    assert tcc_i.etapa == Projeto.TCC_I
+    assert tcc_i.orientador_id == orientador.usuario_id
+    assert tcc_i.tema_id == tema.id
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_recusa_quem_nao_e_o_professor():
+    orientador = _professor(82, "Orientador Manual TCC I Dois")
+    outro = _professor(83, "Outro Professor Manual TCC I")
+    aluno = _aluno(84, "Aluno Manual TCC I Dois")
+    tema = _tema(82, orientador)
+    with pytest.raises(PermissionDenied):
+        services.criar_tcc_i_manual(aluno.perfil_aluno, orientador, tema, por=outro.usuario)
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_recusa_tema_de_outro_professor():
+    orientador = _professor(85, "Orientador Manual TCC I Tema Alheio")
+    outro_professor = _professor(86, "Outro Professor TCC I Tema Alheio")
+    aluno = _aluno(87, "Aluno Manual TCC I Tema Alheio")
+    tema_alheio = _tema(85, outro_professor)
+    with pytest.raises(PermissionDenied):
+        services.criar_tcc_i_manual(
+            aluno.perfil_aluno, orientador, tema_alheio, por=orientador.usuario
+        )
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_recusa_professor_no_limite():
+    from apps.comum.semestre import semestre_vigente
+
+    orientador = _professor(88, "Orientador Manual TCC I Limite")
+    tema = _tema(88, orientador)
+    ano, periodo = semestre_vigente()
+    for indice in (89, 90, 91):
+        Projeto.objects.create(
+            aluno=_aluno(indice, f"Aluno Limite Manual TCC I {indice}"),
+            orientador=orientador.usuario,
+            etapa=Projeto.TCC_I,
+            status=Projeto.EM_ANDAMENTO,
+            ano=ano,
+            periodo=periodo,
+        )
+    aluno_novo = _aluno(92, "Aluno Manual TCC I Recusado")
+    with pytest.raises(ValidationError):
+        services.criar_tcc_i_manual(aluno_novo.perfil_aluno, orientador, tema, por=orientador.usuario)
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_view_redireciona(client):
+    orientador = _professor(93, "Orientador Manual TCC I View")
+    aluno = _aluno(94, "Aluno Manual TCC I View")
+    tema = _tema(93, orientador)
+    client.force_login(orientador.usuario)
+    resposta = client.post(
+        "/orientacoes/criar/",
+        {"etapa": Projeto.TCC_I, "aluno": aluno.perfil_aluno.pk, "tema": tema.pk},
+    )
+    assert resposta.status_code == 302
+    assert Projeto.objects.filter(
+        aluno=aluno, etapa=Projeto.TCC_I, orientador=orientador.usuario, tema=tema
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_notifica_aluno(settings, django_capture_on_commit_callbacks):
+    from django.core import mail
+
+    orientador = _professor(95, "Orientador Notif Manual TCC I")
+    aluno = _aluno(96, "Aluno Notif Manual TCC I")
+    tema = _tema(95, orientador)
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    with django_capture_on_commit_callbacks(execute=True):
+        services.criar_tcc_i_manual(aluno.perfil_aluno, orientador, tema, por=orientador.usuario)
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [aluno.email]
 
 
 @pytest.mark.django_db
