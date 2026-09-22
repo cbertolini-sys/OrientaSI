@@ -123,6 +123,27 @@ def areas_agrupadas_por_area():
     )
 
 
+# Quantos convites recentes o painel mostra (achado L13 da auditoria,
+# 2026-09-22): antes, `views.painel` fazia essa consulta direto — o único
+# dos cinco blocos do painel não vindo do serviço, com um "50" solto sem
+# nome, sem `settings`, e sem ordenação explícita (dependia só de
+# `Convite.Meta.ordering`, correto mas implícito).
+LIMITE_CONVITES_NO_PAINEL = 50
+
+
+def convites_recentes():
+    """Os `LIMITE_CONVITES_NO_PAINEL` convites mais recentes, para a lista
+    de "Convites enviados" do painel da coordenação — mesmo padrão das
+    outras quatro listas da tela (`coordenadores`/`professores_para_painel`/
+    `alunos_sem_tcc_ii_concluido`/`candidatos_a_coordenacao`), todas
+    servidas pela camada de serviço, não filtradas ad-hoc em `views.py`
+    (CLAUDE.md, regra 4)."""
+    return (
+        Convite.objects.select_related("criado_por")
+        .order_by("-criado_em")[:LIMITE_CONVITES_NO_PAINEL]
+    )
+
+
 def candidatos_a_coordenacao():
     """Professores que podem ser promovidos hoje — o complemento exato do que
     `promover_a_coordenador` aceita como alvo.
@@ -244,7 +265,7 @@ def _aceitar_convite_atomico(token, dados):
 
 
 @transaction.atomic
-def atualiza_perfil(
+def _atualiza_perfil_atomico(
     usuario,
     *,
     nome_completo,
@@ -296,6 +317,26 @@ def atualiza_perfil(
         usuario.perfil_aluno.matricula = matricula
         usuario.perfil_aluno.save(update_fields=["matricula"])
     return usuario
+
+
+def atualiza_perfil(usuario, **kwargs):
+    """Casca fina sobre `_atualiza_perfil_atomico` que só existe para
+    converter um `IntegrityError` de corrida (achado M6 da auditoria,
+    2026-09-22) numa `ValidationError` — mesmo padrão de
+    `aceitar_convite`/`_aceitar_convite_atomico`, acima, que existe
+    exatamente para isto. Antes, `views.perfil` chamava o equivalente desta
+    função direto, sem nenhum `try/except`: duas requisições simultâneas do
+    mesmo CPF/e-mail/matrícula/SIAPE (`clean_*` dos formulários passa nas
+    duas, a colisão só aparece no `UniqueConstraint` do banco) faziam a
+    segunda estourar um `IntegrityError` cru — 500 em vez de erro de
+    formulário, a mesma corrida que o fluxo de convite já tratava."""
+    try:
+        return _atualiza_perfil_atomico(usuario, **kwargs)
+    except IntegrityError as erro:
+        raise ValidationError(
+            "Não foi possível salvar: um dos dados informados (e-mail, CPF, "
+            "matrícula ou SIAPE) já está em uso por outra conta."
+        ) from erro
 
 
 def aceitar_convite(token, dados):
@@ -408,18 +449,46 @@ def revogar_coordenacao(usuario, por):
     A segunda transação enxerga a contagem já reduzida e decide corretamente.
     Reproduzido contra o PostgreSQL do projeto (revisão 1): sob a mesma
     sobreposição real que furou `promover_a_coordenador`, esta trava se manteve.
+
+    `is_active=True` no piso (achado H2 da auditoria, 2026-09-22): a
+    contagem usada aqui era a MESMA de `coordenadores()` — todo
+    `is_coordenador=True`, ativo ou não —, correta como TETO (ver a
+    docstring de `coordenadores()`: um coordenador desativado
+    deliberadamente ocupa vaga), mas errada como PISO. Um coordenador
+    desativado não consegue autenticar (`ModelBackend.get_user` aplica
+    `user_can_authenticate` a cada request), então contá-lo como "ainda
+    consegue coordenar" é falso: um superusuário desativando um coordenador
+    B pelo admin, seguido de A se autorrevogando, passava pela trava antiga
+    (2 coordenadores contados) e deixava o sistema com UM coordenador
+    "restante" que não consegue logar — o painel inteiro ficava
+    inalcançável, exatamente o que esta trava existe para impedir. A
+    concorrência continua protegida: o `SELECT ... FOR UPDATE` abaixo trava
+    as linhas ATIVAS, e uma revogação concorrente que muda `is_coordenador`
+    para `False` continua sendo removida do resultado pelo EvalPlanQual —
+    o raciocínio do parágrafo anterior não depende de `is_active` estar ou
+    não na condição.
     """
     permissions.garante(permissions.pode_promover(por), "Somente a coordenação revoga.")
 
     if not usuario.is_coordenador:
         raise ValidationError(f"{usuario.nome_completo} não é coordenador(a).")
 
-    atuais = list(Usuario.objects.select_for_update().filter(is_coordenador=True))
-    if len(atuais) <= 1:
-        raise ValidationError(
-            "Este é o último coordenador do sistema. Nomeie outro antes de revogar "
-            "esta coordenação."
+    # A trava do piso só faz sentido quando `usuario` está ATIVO: revogar a
+    # coordenação de alguém já desativado não reduz em nada a capacidade
+    # OPERANTE do sistema (essa conta já não conseguia coordenar nada), então
+    # nunca deveria ser bloqueado por "último coordenador" — mesmo que o
+    # sistema já tenha só um coordenador ativo sobrando. Sem este `if`, um
+    # sistema com 1 coordenador ativo e vários desativados ficaria incapaz de
+    # sequer LIMPAR o `is_coordenador` de uma conta desativada.
+    if usuario.is_active:
+        atuais = list(
+            Usuario.objects.select_for_update().filter(is_coordenador=True, is_active=True)
         )
+        if len(atuais) <= 1:
+            raise ValidationError(
+                "Este é o último coordenador do sistema. Nomeie outro antes de revogar "
+                "esta coordenação."
+            )
 
     usuario.is_coordenador = False
     usuario.is_staff = False

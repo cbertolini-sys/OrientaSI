@@ -232,7 +232,15 @@ class FormularioRecuperarSenha(MisturaAcessibilidadeFormulario, PasswordResetFor
         super().__init__(*args, **kwargs)
         self.fields["email"].label = "E-mail"
 
-    def send_mail(self, *args, **kwargs):
+    def send_mail(
+        self,
+        subject_template_name,
+        email_template_name,
+        context,
+        from_email,
+        to_email,
+        html_email_template_name=None,
+    ):
         """Enfileira a tarefa em vez de falar SMTP dentro da requisição.
 
         A spec §6 lista `enviar_recuperacao_senha(usuario_id)` como uma das
@@ -247,14 +255,21 @@ class FormularioRecuperarSenha(MisturaAcessibilidadeFormulario, PasswordResetFor
         não-enumeração inteira: a resposta HTTP é idêntica nos dois casos
         (`apps/contas/tests/test_autenticacao.py`).
 
-        Os argumentos do Django são ignorados de propósito: o único dado que a
-        tarefa precisa é o id do usuário (`contexto["user"]`), e o assunto, o
+        Assinatura explícita, não `*args, **kwargs` (achado L14 da
+        auditoria, 2026-09-22): a versão antiga lia `kwargs.get("context")
+        or args[2]` — `PasswordResetForm.save()` sempre chama por posição,
+        então `kwargs.get("context")` nunca era satisfeito na prática, e
+        `args[2]` dependia da ordem exata dos parâmetros do Django não
+        mudar entre versões. Uma reordenação futura viraria `IndexError`
+        dentro do fluxo de recuperação de senha, sem teste nenhum
+        cobrindo essa mudança de assinatura. Os demais argumentos
+        continuam ignorados de propósito: o único dado que a tarefa
+        precisa é o id do usuário (`context["user"]`), e o assunto, o
         corpo e o token são montados no worker (`apps/contas/tasks.py`).
         """
         from apps.contas.tasks import enviar_recuperacao_senha
 
-        contexto = kwargs.get("context") or args[2]
-        enviar_recuperacao_senha.delay(contexto["user"].pk)
+        enviar_recuperacao_senha.delay(context["user"].pk)
 
 
 class FormularioDefinirNovaSenha(MisturaAcessibilidadeFormulario, SetPasswordForm):

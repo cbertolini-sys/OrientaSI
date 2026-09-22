@@ -171,6 +171,30 @@ def test_criar_tcc_ii_automatico_nao_checa_limite_de_vagas(projeto_tcc_i):
 
 
 @pytest.mark.django_db
+def test_criar_tcc_ii_automatico_converte_integrityerror_em_validationerror(projeto_tcc_i):
+    """ACHADO residual da revisão de código da correção C3/H5 (2026-09-22):
+    H5 (`criar_tcc_ii_manual` recusa aluno com TCC I ativo) e o
+    `select_for_update` novo em `aprovar_ata` fecham os vetores CONHECIDOS
+    de colisão contra `projeto_ativo_unico_por_aluno_e_etapa`, mas esta
+    função é chamada automaticamente — sem passar por formulário nenhum —
+    e merece sua própria tradução de `IntegrityError`, não só depender das
+    duas travas de entrada. Reproduz a colisão diretamente: um TCC II ativo
+    já existe para o aluno quando `criar_tcc_ii_automatico` roda. Prova por
+    mutação: remover o `try/except` desta função faz este teste reprovar
+    com `IntegrityError` cru em vez de `ValidationError`."""
+    Projeto.objects.create(
+        aluno=projeto_tcc_i.aluno,
+        orientador=projeto_tcc_i.orientador,
+        etapa=Projeto.TCC_II,
+        status=Projeto.EM_ANDAMENTO,
+        ano=2026,
+        periodo=1,
+    )
+    with pytest.raises(ValidationError):
+        services.criar_tcc_ii_automatico(projeto_tcc_i)
+
+
+@pytest.mark.django_db
 def test_criar_tcc_ii_manual_cria_sem_anterior():
     orientador = _professor(20, "Orientador Manual")
     aluno = _aluno(21, "Aluno Manual")
@@ -230,6 +254,33 @@ def test_criar_tcc_ii_manual_recusa_professor_no_limite():
 
 
 @pytest.mark.django_db
+def test_criar_tcc_ii_manual_recusa_aluno_com_tcc_i_ativo():
+    """ACHADO H5/C3 da auditoria (2026-09-22): a docstring sempre disse "sem
+    TCC I anterior no sistema", mas nada checava isso — um professor
+    conseguia criar manualmente um TCC II para um aluno que já tinha um TCC
+    I `EM_ANDAMENTO`. Semanas depois, quando a SUGRAD aprovasse a ata desse
+    TCC I, `criar_tcc_ii_automatico` batia num `IntegrityError` (dois TCC
+    II ativos para o mesmo aluno) — a ata ficava aprovada e o TCC I
+    concluído SEM nenhum TCC II (achado C3). Prova por mutação: remover a
+    checagem de `projeto_ativo_do_aluno` de `criar_tcc_ii_manual` faz este
+    teste reprovar (o TCC II duplicado seria criado em vez de recusado)."""
+    orientador = _professor(70, "Orientador Manual TCC I Ativo")
+    aluno = _aluno(71, "Aluno Manual Com TCC I")
+    tema = _tema(70, orientador)
+    Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador.usuario,
+        etapa=Projeto.TCC_I,
+        status=Projeto.EM_ANDAMENTO,
+        ano=2026,
+        periodo=1,
+    )
+    with pytest.raises(ValidationError):
+        services.criar_tcc_ii_manual(aluno.perfil_aluno, orientador, tema, por=orientador.usuario)
+    assert not Projeto.objects.filter(aluno=aluno, etapa=Projeto.TCC_II).exists()
+
+
+@pytest.mark.django_db
 def test_criar_tcc_ii_manual_view_redireciona(client):
     orientador = _professor(30, "Orientador Manual View")
     aluno = _aluno(31, "Aluno Manual View")
@@ -259,6 +310,97 @@ def test_criar_tcc_i_manual_cria_orientacao():
     assert tcc_i.etapa == Projeto.TCC_I
     assert tcc_i.orientador_id == orientador.usuario_id
     assert tcc_i.tema_id == tema.id
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_encerra_candidatura_em_curso_do_aluno():
+    """ACHADO M11 da auditoria (2026-09-22): antes, `criar_tcc_i_manual`
+    criava o `Projeto` e não tocava em `Candidatura` nenhuma — um aluno com
+    uma opção `ENVIADA` a OUTRO professor, aguardando resposta, ficava com
+    as duas coisas vivas ao mesmo tempo. A cascata continuava avançando por
+    prazo e notificando o professor da fila sobre um aluno que já tinha
+    orientador. Prova por mutação: remover o bloco que cancela a
+    candidatura em `criar_tcc_i_manual` faz este teste reprovar (a
+    candidatura continuaria `EM_CURSO`)."""
+    from apps.projetos.models import Candidatura, OpcaoCandidatura
+
+    professor_da_fila = _professor(103, "Professor Da Fila")
+    orientador_manual = _professor(104, "Orientador Manual Equivalencia")
+    aluno = _aluno(105, "Aluno Com Candidatura E TCC I Manual")
+    tema_manual = _tema(103, orientador_manual)
+
+    candidatura = services.registrar_candidatura(
+        aluno.perfil_aluno, [(professor_da_fila, None)]
+    )
+    assert candidatura.status == Candidatura.EM_CURSO
+
+    services.criar_tcc_i_manual(
+        aluno.perfil_aluno, orientador_manual, tema_manual, por=orientador_manual.usuario
+    )
+
+    candidatura.refresh_from_db()
+    assert candidatura.status == Candidatura.CANCELADA
+    opcao = candidatura.opcoes.get(ordem=1)
+    assert opcao.situacao == OpcaoCandidatura.CANCELADA
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_sem_candidatura_em_curso_nao_quebra():
+    """Contraprova: um aluno SEM candidatura nenhuma continua funcionando
+    normalmente (o `.first()` da busca por `EM_CURSO` retorna `None`, e a
+    função segue direto para `criar_projeto_sob_limite`)."""
+    orientador = _professor(106, "Orientador Manual Sem Candidatura")
+    aluno = _aluno(107, "Aluno Sem Candidatura Manual")
+    tema = _tema(106, orientador)
+    tcc_i = services.criar_tcc_i_manual(
+        aluno.perfil_aluno, orientador, tema, por=orientador.usuario
+    )
+    assert tcc_i.pk is not None
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_recusa_aluno_desativado():
+    """ACHADO L6 da auditoria (2026-09-22): defesa em profundidade — o
+    fluxo normal (convite) nunca produz um `PerfilAluno` desativado
+    selecionável, mas `FormularioCriarOrientacaoManual.aluno` lista TODO
+    `PerfilAluno` sem filtrar `is_active`, e nada impedia criar uma
+    orientação para uma conta que não consegue nem logar."""
+    orientador = _professor(108, "Orientador Manual Aluno Inativo")
+    aluno = _aluno(109, "Aluno Manual Inativo")
+    aluno.is_active = False
+    aluno.save(update_fields=["is_active"])
+    tema = _tema(108, orientador)
+    with pytest.raises(ValidationError):
+        services.criar_tcc_i_manual(aluno.perfil_aluno, orientador, tema, por=orientador.usuario)
+
+
+@pytest.mark.django_db
+def test_criar_tcc_i_manual_recusa_professor_como_proprio_aluno():
+    """ACHADO L6: defesa em profundidade contra `aluno == professor` —
+    só alcançável se o mesmo `Usuario` tiver os dois perfis (admin/shell),
+    já que o fluxo normal de convite nunca produz essa combinação.
+
+    `papel=ALUNO` de propósito (em vez do papel padrão `PROFESSOR` de
+    `_professor`): se o `Usuario` de teste tivesse `papel=PROFESSOR`, a
+    checagem de papel (mais abaixo em
+    `_garante_aluno_valido_para_orientacao_manual`) já rejeitaria sozinha, e
+    este teste continuaria passando mesmo se a checagem de auto-orientação
+    fosse removida por engano — a "checagem vizinha mascara a ausência da
+    nova" que a Disciplina de Testes do CLAUDE.md pede para evitar."""
+    from apps.contas.models import PerfilAluno, PerfilProfessor
+
+    usuario = Usuario.objects.create_user(
+        email="pessoa.dupla.perfil@ufsm.br",
+        password="x",
+        nome_completo="Pessoa Com Dois Perfis",
+        papel=Usuario.ALUNO,
+        cpf=_cpf(111),
+    )
+    PerfilAluno.objects.create(usuario=usuario, matricula="2026AUTOALUNO1")
+    professor = PerfilProfessor.objects.create(usuario=usuario, siape="AUTOALUNO1")
+    tema = _tema(110, professor)
+    with pytest.raises(ValidationError):
+        services.criar_tcc_i_manual(usuario.perfil_aluno, professor, tema, por=usuario)
 
 
 @pytest.mark.django_db
@@ -367,6 +509,66 @@ def test_assinar_termo_publicacao_recusa_quem_nao_e_o_aluno():
     )
     with pytest.raises(PermissionDenied):
         services.assinar_termo_publicacao(projeto, por=outro)
+
+
+@pytest.mark.django_db
+def test_assinar_termo_publicacao_recusa_tcc_i():
+    """ACHADO H6 da auditoria (2026-09-22): a regra "só existe no TCC II"
+    vivia só em `views.meu_tcc` (calculada para desenhar o botão, nunca
+    consultada antes de chamar o serviço)."""
+    orientador = _professor(97, "Orientador Termo TCC I")
+    aluno = _aluno(98, "Aluno Termo TCC I")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador.usuario,
+        etapa=Projeto.TCC_I,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=1,
+    )
+    with pytest.raises(ValidationError):
+        services.assinar_termo_publicacao(projeto, por=aluno)
+    assert not TermoPublicacao.objects.filter(projeto=projeto).exists()
+
+
+@pytest.mark.django_db
+def test_assinar_termo_publicacao_recusa_fora_de_aprovado_com_ressalvas():
+    """ACHADO H6: um aluno de TCC II ainda `Em Andamento` (antes da banca)
+    não deveria conseguir assinar o termo prematuramente — isso satisfaria
+    o gate de `aprovar_projeto` sem o aluno ter visto as ressalvas."""
+    orientador = _professor(99, "Orientador Termo Cedo")
+    aluno = _aluno(100, "Aluno Termo Cedo")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador.usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.EM_ANDAMENTO,
+        ano=2026,
+        periodo=1,
+    )
+    with pytest.raises(ValidationError):
+        services.assinar_termo_publicacao(projeto, por=aluno)
+
+
+@pytest.mark.django_db
+def test_assinar_termo_publicacao_recusa_reenvio():
+    """ACHADO H6: antes, um reenvio do formulário batia direto no
+    `OneToOneField` de `TermoPublicacao.projeto` — `IntegrityError` cru,
+    500 (`views.meu_tcc` não tinha `try/except` nesse POST)."""
+    orientador = _professor(101, "Orientador Termo Duplo")
+    aluno = _aluno(102, "Aluno Termo Duplo")
+    projeto = Projeto.objects.create(
+        aluno=aluno,
+        orientador=orientador.usuario,
+        etapa=Projeto.TCC_II,
+        status=Projeto.APROVADO_COM_RESSALVAS,
+        ano=2026,
+        periodo=1,
+    )
+    services.assinar_termo_publicacao(projeto, por=aluno)
+    with pytest.raises(ValidationError):
+        services.assinar_termo_publicacao(projeto, por=aluno)
+    assert TermoPublicacao.objects.filter(projeto=projeto).count() == 1
 
 
 @pytest.fixture

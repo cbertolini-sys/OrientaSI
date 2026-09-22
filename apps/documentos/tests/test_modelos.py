@@ -2,6 +2,7 @@
 `OneToOneField` entre elas."""
 
 import pytest
+from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.bancas.models import Banca
@@ -64,6 +65,20 @@ def test_ata_criada_com_revisao_pendente(projeto_aprovado):
     assert revisao.status == RevisaoSUGRAD.PENDENTE
     assert revisao.comentario == ""
     assert revisao.decidida_em is None
+
+
+@pytest.mark.django_db
+def test_ata_numero_e_unico(projeto_aprovado):
+    """ACHADO M1 da auditoria (2026-09-22): antes não havia NENHUMA trava
+    de banco contra dois documentos oficiais com o mesmo número — a
+    colisão sob concorrência (custo aceito, spec §4.1) ou sob deleção pelo
+    admin (`count()` não é monotônico) era gravada em silêncio. Prova por
+    mutação: reverter `Ata.numero` para `unique=False` faz este teste
+    reprovar (a segunda criação teria sucesso em vez de levantar)."""
+    projeto, banca = projeto_aprovado
+    Ata.objects.create(projeto=projeto, banca=banca, numero="003/2026")
+    with pytest.raises(IntegrityError):
+        Ata.objects.create(projeto=projeto, banca=banca, numero="003/2026")
 
 
 @pytest.mark.django_db

@@ -299,7 +299,21 @@ else:
     }
 
 REST_FRAMEWORK = {
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    # `IsAuthenticated` por padrão (achado M13 da auditoria, 2026-09-22):
+    # era `AllowAny` globalmente — inofensivo hoje, porque os dois únicos
+    # endpoints (catálogo/calendário, Bloco H) já declaram `AllowAny`
+    # EXPLICITAMENTE em `apps/publico/api_views.py` (não herdam o default).
+    # Mas um default fail-OPEN é o lado errado para um sistema que guarda
+    # CPF, matrícula e TCCs ainda não publicados: o primeiro endpoint
+    # autenticado de um bloco futuro nasceria mundialmente legível a menos
+    # que quem o escrevesse lembrasse de travar. `apps/publico/tests/
+    # test_api_catalogo.py`/`test_api_calendario.py`/`test_api_docs.py`
+    # (não `tests/test_producao.py`, que não toca a API) confirmam que os
+    # dois endpoints públicos e a raiz do router (`/api/v1/`, que HERDA
+    # este default — precisou de `AllowAny` explícito em
+    # `apps/publico/api_urls.py`, achado da re-auditoria) continuam
+    # respondendo 200 sem login.
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_RENDERER_CLASSES": [

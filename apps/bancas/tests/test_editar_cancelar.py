@@ -137,3 +137,20 @@ def test_cancelar_banca_recusa_fora_de_agendada(banca_agendada, orientador):
     banca_agendada.save()
     with pytest.raises(ValidationError):
         services.cancelar_banca(banca_agendada, por=orientador.usuario)
+
+
+@pytest.mark.django_db
+def test_cancelar_banca_recusa_quando_projeto_nao_esta_aguardando_defesa(
+    banca_agendada, orientador
+):
+    """ACHADO M4 da auditoria (2026-09-22): a reversão de
+    `Projeto.status` para `EM_ANDAMENTO` era incondicional — inferia o
+    estado do projeto a partir do estado da banca em vez de checá-lo. Este
+    teste força a assimetria diretamente para provar que a checagem nova é
+    quem barra."""
+    banca_agendada.projeto.status = Projeto.EM_ANDAMENTO
+    banca_agendada.projeto.save(update_fields=["status"])
+    with pytest.raises(ValidationError):
+        services.cancelar_banca(banca_agendada, por=orientador.usuario)
+    banca_agendada.refresh_from_db()
+    assert banca_agendada.status == Banca.AGENDADA

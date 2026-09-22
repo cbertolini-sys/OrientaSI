@@ -291,6 +291,25 @@ def test_candidatura_com_projeto_concluido_nao_bloqueia_e_mostra_formulario(
 
 
 @pytest.mark.django_db
+def test_candidatura_com_projeto_cancelado_nao_bloqueia_e_mostra_formulario(
+    client, aluno, tres_professores
+):
+    """ACHADO C4 da auditoria (2026-09-22): `projeto_ativo_do_aluno` excluía
+    só `[CONCLUIDO, REPROVADO]`, desatualizado em relação ao
+    `UniqueConstraint` (que também exclui `CANCELADO` desde a migração
+    0004). Espelha `test_candidatura_com_projeto_concluido_nao_bloqueia_e_mostra_formulario`,
+    acima, para o terceiro status terminal."""
+    projeto = services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+    projeto.status = Projeto.CANCELADO
+    projeto.save(update_fields=["status"])
+    client.force_login(aluno.usuario)
+
+    html = client.get(reverse("projetos:candidatura")).content.decode()
+
+    assert "Enviar candidatura" in html
+
+
+@pytest.mark.django_db
 def test_candidatura_com_projeto_e_candidatura_em_curso_prioriza_o_projeto(
     client, aluno, tres_professores
 ):

@@ -165,6 +165,50 @@ def test_trava_do_ultimo_coordenador_vale_para_auto_revogacao_e_para_outra_pesso
     assert primeira.is_coordenador is True
 
 
+@pytest.mark.django_db
+def test_trava_do_ultimo_coordenador_nao_conta_coordenador_desativado():
+    """ACHADO H2 da auditoria (2026-09-22): a contagem do piso era a mesma
+    de `coordenadores()` (teto/exibição) — TODO `is_coordenador=True`,
+    ativo ou não. Um coordenador desativado não consegue autenticar
+    (`ModelBackend.get_user` aplica `user_can_authenticate`), então contá-lo
+    como "ainda sobra alguém" era falso: com A ativo e B desativado, os dois
+    coordenadores, a trava lia `len(atuais) == 2` e deixava A se
+    autorrevogar — sistema com is_coordenador=True só em B, uma conta que
+    não consegue logar. O painel inteiro ficava inalcançável para sempre
+    (só um superusuário via shell/admin recuperaria). Prova por mutação:
+    remover `is_active=True` do filtro de `revogar_coordenacao` faz este
+    teste reprovar (A conseguiria se autorrevogar)."""
+    ativo = cria_professor(0, coordenador=True)
+    desativado = cria_professor(1, coordenador=True)
+    desativado.is_active = False
+    desativado.save(update_fields=["is_active"])
+
+    with pytest.raises(ValidationError) as erro:
+        services.revogar_coordenacao(ativo, por=ativo)
+
+    assert "outro" in str(erro.value).lower()
+    ativo.refresh_from_db()
+    assert ativo.is_coordenador is True
+
+
+@pytest.mark.django_db
+def test_revogar_coordenacao_de_conta_ja_desativada_nao_e_bloqueada_pelo_piso():
+    """Contraprova de `test_trava_do_ultimo_coordenador_nao_conta_coordenador_desativado`:
+    revogar a coordenação de uma conta JÁ desativada nunca reduz a
+    capacidade operante do sistema (ela já não contava), então não deveria
+    esbarrar na trava do último coordenador — mesmo se ela for a única
+    conta `is_coordenador=True` "ativa" na contagem."""
+    ativo = cria_professor(0, coordenador=True)
+    desativado = cria_professor(1, coordenador=True)
+    desativado.is_active = False
+    desativado.save(update_fields=["is_active"])
+
+    services.revogar_coordenacao(desativado, por=ativo)
+
+    desativado.refresh_from_db()
+    assert desativado.is_coordenador is False
+
+
 # --- Passo 5 do brief: a view do painel -------------------------------------
 
 

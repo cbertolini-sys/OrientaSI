@@ -86,6 +86,33 @@ def test_banca_ativa_unica_por_projeto_permite_cancelada_mais_agendada(
 
 
 @pytest.mark.django_db
+def test_banca_ativa_unica_por_projeto_permite_realizada_mais_agendada(
+    projeto_aguardando_defesa,
+):
+    """ACHADO C1 da auditoria (2026-09-22): a condição antiga da constraint
+    (`~Q(status="CANCELADA")`) também contava uma banca `REALIZADA` como
+    ocupando a vaga única, bloqueando para sempre o reagendamento depois de
+    `reabrir_projeto` (CLAUDE.md, "Ciclo de Vida", item 6). A condição certa
+    trava só contra DUAS `AGENDADA` ao mesmo tempo — `REALIZADA` é
+    histórico, não deve bloquear nada."""
+    Banca.objects.create(
+        projeto=projeto_aguardando_defesa,
+        data_hora=timezone.now(),
+        local="Sala 1",
+        status=Banca.REALIZADA,
+        resultado=Projeto.REPROVADO,
+    )
+    # Não levanta: a realizada não conta para a restrição.
+    nova = Banca.objects.create(
+        projeto=projeto_aguardando_defesa,
+        data_hora=timezone.now(),
+        local="Sala 2",
+        status=Banca.AGENDADA,
+    )
+    assert nova.pk is not None
+
+
+@pytest.mark.django_db
 def test_membro_banca_recusa_professor_e_externo_juntos(projeto_aguardando_defesa):
     banca = Banca.objects.create(
         projeto=projeto_aguardando_defesa,

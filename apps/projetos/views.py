@@ -405,7 +405,7 @@ def candidatura(request):
     caminho completo do defeito que ela fecha). Nesta ordem de prioridade:
 
     1. Aluno já tem `Projeto` ATIVO (`EM_ANDAMENTO`, ou qualquer status que
-       não seja `CONCLUIDO`/`REPROVADO`) em TCC_I: mostra a ORIENTAÇÃO
+       não esteja em `Projeto.STATUS_TERMINAIS`) em TCC_I: mostra a ORIENTAÇÃO
        VIGENTE (orientador, tema se houver) — nunca o formulário de montar.
        Checado ANTES da `Candidatura` `EM_CURSO` (item 2), de propósito: as
        duas checagens não são mutuamente exclusivas por construção — o
@@ -568,8 +568,17 @@ def meu_tcc(request):
         pode_assinar = projeto.status == Projeto.APROVADO_COM_RESSALVAS and not ja_assinou
 
     if request.method == "POST" and request.POST.get("acao") == "assinar_termo":
-        services.assinar_termo_publicacao(projeto, por=request.user)
-        messages.success(request, "Termo de publicação assinado.")
+        # `try/except` (achado H6/H7 da auditoria, 2026-09-22): a checagem
+        # de etapa/status/duplicidade agora mora no serviço (ver
+        # `services.assinar_termo_publicacao`) — um reenvio do formulário,
+        # ou um POST fora da janela certa, levanta `ValidationError` em vez
+        # de deixar o `IntegrityError` do `OneToOneField` subir cru.
+        try:
+            services.assinar_termo_publicacao(projeto, por=request.user)
+        except ValidationError as erro:
+            messages.error(request, erro.messages[0])
+        else:
+            messages.success(request, "Termo de publicação assinado.")
         return redirect("projetos:meu_tcc")
 
     if request.method == "POST":
@@ -732,10 +741,19 @@ def reabrir_projeto_view(request, projeto_id):
     """Reabre um `Projeto` `REPROVADO` — volta a `EM_ANDAMENTO` (Bloco D,
     spec §7). Lookup escopado ao orientador autenticado, mesmo padrão de
     `desativar_tema`: projeto alheio e inexistente respondem os dois com
-    404."""
+    404.
+
+    `try/except` (achado H7 da auditoria, 2026-09-22): um duplo clique
+    chegava a um `ValidationError` (projeto que já não está mais
+    `REPROVADO`) sem tratamento — 500 numa ação que, da primeira vez, já
+    tinha funcionado."""
     projeto = get_object_or_404(Projeto, pk=projeto_id, orientador=request.user)
-    services.reabrir_projeto(projeto, por=request.user)
-    messages.success(request, "Projeto reaberto.")
+    try:
+        services.reabrir_projeto(projeto, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Projeto reaberto.")
     return redirect("projetos:orientacoes")
 
 
@@ -743,10 +761,16 @@ def reabrir_projeto_view(request, projeto_id):
 @require_POST
 def cancelar_projeto_view(request, projeto_id):
     """Cancela definitivamente um `Projeto` `REPROVADO` (Bloco D, spec §7).
-    Mesmo padrão de lookup escopado de `reabrir_projeto_view`."""
+    Mesmo padrão de lookup escopado de `reabrir_projeto_view`.
+
+    `try/except` (achado H7): mesma razão de `reabrir_projeto_view`."""
     projeto = get_object_or_404(Projeto, pk=projeto_id, orientador=request.user)
-    services.cancelar_projeto(projeto, por=request.user)
-    messages.success(request, "Projeto cancelado.")
+    try:
+        services.cancelar_projeto(projeto, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Projeto cancelado.")
     return redirect("projetos:orientacoes")
 
 
@@ -771,13 +795,21 @@ def aprovar_projeto_view(request, projeto_id):
 def reenviar_ata_view(request, ata_id):
     """Reenvia à SUGRAD uma ata devolvida (Bloco E, spec §7). Lookup
     escopado via `projeto__orientador`, mesmo raciocínio de
-    `aprovar_projeto_view`."""
+    `aprovar_projeto_view`.
+
+    `try/except` (achado H7 da auditoria, 2026-09-22): um duplo clique numa
+    ata que já não está mais `DEVOLVIDA` levantava `ValidationError` sem
+    tratamento — 500 numa ação que, da primeira vez, já tinha funcionado."""
     from apps.documentos.models import Ata
     from apps.documentos.services import reenviar_a_sugrad
 
     ata = get_object_or_404(Ata, pk=ata_id, projeto__orientador=request.user)
-    reenviar_a_sugrad(ata, por=request.user)
-    messages.success(request, "Ata reenviada à SUGRAD.")
+    try:
+        reenviar_a_sugrad(ata, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Ata reenviada à SUGRAD.")
     return redirect("projetos:orientacoes")
 
 

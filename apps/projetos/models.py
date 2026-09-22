@@ -12,6 +12,20 @@ from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 # par (ano, período), e período só assume 1 ou 2 (spec §3.4).
 PERIODOS = [(1, "1º"), (2, "2º")]
 
+# Única lista de status TERMINAIS de `Projeto` (achado C4 da auditoria,
+# 2026-09-22). Módulo, não atributo de classe: `Projeto.Meta.constraints`
+# roda dentro de um `class Meta:` ANINHADO, que não enxerga o corpo da
+# classe externa por nome (só o escopo do módulo) — por isso o
+# `UniqueConstraint` original já usava literais soltos, não
+# `Projeto.CONCLUIDO` etc. Um valor de módulo é a única forma de a
+# constraint E as funções de `services.py` (`_possui_projeto_ativo`,
+# `projeto_ativo_do_aluno`) compartilharem a MESMA lista sem duplicar —
+# antes, `services.py` excluía só `CONCLUIDO`/`REPROVADO` (esquecido quando
+# `CANCELADO` foi acrescentado na migração 0004), e um aluno com projeto
+# `CANCELADO` ficava lido como se ainda tivesse uma orientação ativa,
+# travado para sempre — mesmo o banco já permitindo uma nova candidatura.
+STATUS_TERMINAIS_PROJETO = ["CONCLUIDO", "REPROVADO", "CANCELADO"]
+
 
 class Tema(models.Model):
     professor = models.ForeignKey(
@@ -81,6 +95,10 @@ class Projeto(models.Model):
         (REPROVADO, "Reprovado"),
         (CANCELADO, "Cancelado"),
     ]
+    # Exposto como atributo de classe (`Projeto.STATUS_TERMINAIS`) para quem
+    # ler de fora — a fonte real é o valor de módulo `STATUS_TERMINAIS_PROJETO`
+    # acima, ver o comentário lá para o porquê.
+    STATUS_TERMINAIS = STATUS_TERMINAIS_PROJETO
 
     aluno = models.ForeignKey(
         Usuario,
@@ -106,7 +124,12 @@ class Projeto(models.Model):
         verbose_name="tema",
     )
     etapa = models.CharField("etapa", max_length=6, choices=ETAPAS)
-    status = models.CharField("status", max_length=22, choices=STATUS, default=EM_ANDAMENTO)
+    # `max_length=32` (achado L2 da auditoria, 2026-09-22): era 22, ajuste
+    # exato ao maior valor de `STATUS` sem folga — `apps.bancas.services
+    # .registrar_resultado` grava `Banca.resultado` aqui sem tradução, e os
+    # dois campos precisam ficar com o mesmo tamanho (ver o comentário em
+    # `apps.bancas.models.Banca.resultado`).
+    status = models.CharField("status", max_length=32, choices=STATUS, default=EM_ANDAMENTO)
     # Carimbo do semestre em que o projeto NASCEU (spec §3.4): dois inteiros,
     # congelados na criação. O semestre vigente muda a cada consulta a
     # apps.comum.semestre.semestre_vigente(); este par não muda nunca — se o
@@ -150,7 +173,7 @@ class Projeto(models.Model):
             # reiniciando, ou cancelado e recomeçando).
             models.UniqueConstraint(
                 fields=["aluno", "etapa"],
-                condition=~Q(status__in=["CONCLUIDO", "REPROVADO", "CANCELADO"]),
+                condition=~Q(status__in=STATUS_TERMINAIS_PROJETO),
                 name="projeto_ativo_unico_por_aluno_e_etapa",
             ),
             models.CheckConstraint(

@@ -22,10 +22,20 @@ def inicio(request):
     """
     hoje = timezone.localdate()
     todas_bancas = services.calendario_publico()
+    # `timezone.localtime(...)` antes de `.date()`/`.year`/`.month` (achado
+    # da re-auditoria de `apps/publico`, 2026-09-22): `b.data_hora` vem do
+    # ORM em UTC (`USE_TZ=True`) — ler `.date()` direto nele lia a data em
+    # UTC, não em America/Sao_Paulo, contradizendo a lista "Próximas
+    # Apresentações" logo abaixo na mesma página (que usa o filtro de
+    # template `|date:`, que SEMPRE localiza). Uma banca às 21h de Brasília
+    # (UTC−3) virava meia-noite UTC do dia seguinte — a bolinha do
+    # calendário marcava o dia errado, e uma banca no dia 31 às 21h sumia
+    # do mês inteiro (o `month` também lido em UTC).
     dias_com_banca = {
-        b.data_hora.date()
+        timezone.localtime(b.data_hora).date()
         for b in todas_bancas
-        if b.data_hora.year == hoje.year and b.data_hora.month == hoje.month
+        if timezone.localtime(b.data_hora).year == hoje.year
+        and timezone.localtime(b.data_hora).month == hoje.month
     }
     semanas = []
     for semana in calendar.Calendar(firstweekday=6).monthdayscalendar(hoje.year, hoje.month):
@@ -72,7 +82,15 @@ def catalogo(request):
         "publico/catalogo.html",
         {
             "projetos": services.catalogo_publico(area_id=area_id, ano=ano),
-            "areas": Area.objects.order_by("nome"),
+            # `area__isnull=False` (achado da re-auditoria de `apps/publico`,
+            # 2026-09-22): o filtro (`services.catalogo_publico`) casa contra
+            # `PerfilProfessor.areas`, que só aceita SUBÁREAS
+            # (`FormularioPerfilProfessor.areas`, `apps/contas/forms.py`) —
+            # listar as 4 áreas de TOPO aqui oferecia 4 opções que nunca
+            # bateriam com nada, sempre devolvendo "Nenhum TCC publicado
+            # ainda" para quem as escolhesse. Mesmo predicado que o
+            # formulário de perfil já usa.
+            "areas": Area.objects.filter(area__isnull=False).order_by("ordem", "nome"),
             "anos": services.anos_do_catalogo(),
             "area_selecionada": area_id,
             "ano_selecionado": ano,

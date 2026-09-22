@@ -18,10 +18,12 @@ import io
 import re
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from PIL import Image
 
+from apps.contas import services
 from apps.contas.models import Area, PerfilAluno, PerfilProfessor, Usuario
 from apps.contas.validators import _digito
 
@@ -399,6 +401,27 @@ def test_cpf_duplicado_e_recusado(client, professora, aluno):
 
     assert resposta.status_code == 200
     assert "Já existe uma conta cadastrada com este CPF." in resposta.content.decode()
+
+
+@pytest.mark.django_db
+def test_atualiza_perfil_converte_integrityerror_em_validationerror(professora, aluno):
+    """ACHADO M6 da auditoria (2026-09-22): `FormularioPerfil.clean_email`/
+    `clean_cpf` são a checagem AMIGÁVEL, que só protege o caminho
+    sequencial — duas requisições concorrentes passam as duas por ali e só
+    colidem no `UniqueConstraint` do banco, exatamente como o fluxo de
+    convite (`aceitar_convite`) já trata. Chamar `services.atualiza_perfil`
+    DIRETO, pulando o formulário, reproduz essa corrida sem precisar de
+    threads reais — a checagem amigável nunca roda. Prova por mutação:
+    voltar a chamar `_atualiza_perfil_atomico` direto (sem o `try/except`)
+    faz este teste reprovar com `IntegrityError` cru."""
+    with pytest.raises(ValidationError):
+        services.atualiza_perfil(
+            professora,
+            nome_completo=professora.nome_completo,
+            email=aluno.email,
+            cpf=professora.cpf,
+            telefone="",
+        )
 
 
 @pytest.mark.django_db

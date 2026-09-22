@@ -44,10 +44,25 @@ class TemaAdmin(admin.ModelAdmin):
 
 @admin.register(Projeto)
 class ProjetoAdmin(admin.ModelAdmin):
+    """Achado L9 da auditoria (2026-09-22): antes, um staff com acesso a
+    este modelo podia criar um `Projeto` direto (furando `LIMITE_PADRAO_VAGAS`
+    — só `criar_projeto_sob_limite` conta vagas) ou editar `status`/`etapa`
+    livremente (pulando toda a máquina de estados — banca, ata, checklist do
+    TCC II). `has_add_permission=False` e `status`/`etapa` em
+    `readonly_fields` fecham as duas portas: toda criação e toda transição
+    de status passam a exigir a camada de serviço, o mesmo espírito de
+    `TemaAdmin.get_readonly_fields` (que já tranca `Tema.professor` pós-
+    criação). Alcançável hoje só por superusuário — `promover_a_coordenador`
+    não concede permissão de modelo nenhuma —, então é defesa em
+    profundidade, não uma trava contra um coordenador comum."""
+
     list_display = ["aluno", "orientador", "etapa", "status", "ano", "periodo", "criado_em"]
     list_filter = ["etapa", "status", "ano", "periodo"]
     search_fields = ["aluno__nome_completo", "orientador__nome_completo"]
-    readonly_fields = ["criado_em"]
+    readonly_fields = ["criado_em", "etapa", "status"]
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(LimiteOrientacao)
@@ -78,5 +93,15 @@ class OpcaoCandidaturaAdmin(admin.ModelAdmin):
 
 @admin.register(TermoPublicacao)
 class TermoPublicacaoAdmin(admin.ModelAdmin):
+    """`has_add_permission=False` (achado L9 da auditoria, 2026-09-22): sem
+    isto, um staff podia "assinar" o termo de publicação em nome do aluno
+    pelo admin — inclusive de um TCC I, onde o termo nem deveria existir
+    (achado H6). A assinatura é um ato do próprio aluno
+    (`services.assinar_termo_publicacao`); o admin continua podendo
+    CONSULTAR/apagar uma linha existente, só não criar uma nova."""
+
     list_display = ["projeto", "assinado_em"]
     readonly_fields = ["assinado_em"]
+
+    def has_add_permission(self, request):
+        return False

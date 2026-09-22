@@ -180,3 +180,23 @@ def test_catalogo_view_ignora_querystring_invalida_sem_500(client):
 def test_catalogo_view_sem_login_funciona(client):
     resposta = client.get("/catalogo/")
     assert resposta.status_code == 200
+
+
+@pytest.mark.django_db
+def test_catalogo_view_select_de_area_lista_so_subareas(client):
+    """ACHADO da re-auditoria de `apps/publico` (2026-09-22): o `<select>`
+    de área listava TODAS as `Area` — inclusive as 4 de topo do CNPq/CAPES
+    — mas o filtro (`services.catalogo_publico` → `PerfilProfessor.areas`)
+    só casa contra SUBÁREAS, o mesmo predicado que
+    `FormularioPerfilProfessor.areas` já usa. Escolher uma área de topo
+    devolvia "Nenhum TCC publicado ainda" sempre, por construção. Prova
+    por mutação: voltar `views.catalogo` para `Area.objects.order_by("nome")`
+    (sem o filtro) faz este teste reprovar — a área de topo apareceria."""
+    area_de_topo = Area.objects.create(nome="Área De Topo Teste", area=None)
+    Area.objects.create(nome="Subárea Teste", area=area_de_topo)
+
+    resposta = client.get("/catalogo/")
+    conteudo = resposta.content.decode()
+
+    assert "Subárea Teste" in conteudo
+    assert "Área De Topo Teste" not in conteudo

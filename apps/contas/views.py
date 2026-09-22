@@ -90,19 +90,28 @@ def perfil(request):
     if request.method == "POST":
         formulario = Formulario(request.POST, request.FILES, usuario=request.user)
         if formulario.is_valid():
-            services.atualiza_perfil(
-                request.user,
-                nome_completo=formulario.cleaned_data["nome_completo"],
-                email=formulario.cleaned_data["email"],
-                cpf=formulario.cleaned_data["cpf"],
-                telefone=formulario.cleaned_data["telefone"],
-                areas=formulario.cleaned_data.get("areas"),
-                foto=formulario.cleaned_data.get("foto"),
-                matricula=formulario.cleaned_data.get("matricula"),
-                siape=formulario.cleaned_data.get("siape"),
-            )
-            messages.success(request, "Perfil atualizado.")
-            return redirect("contas:perfil")
+            # `try/except` (achado M6 da auditoria, 2026-09-22): duas
+            # gravações concorrentes do mesmo CPF/e-mail/matrícula/SIAPE
+            # passam as duas pelo `clean_*` do formulário e só colidem no
+            # `UniqueConstraint` do banco — sem isto, a segunda estourava
+            # um `IntegrityError` cru (500) em vez de um erro de formulário.
+            try:
+                services.atualiza_perfil(
+                    request.user,
+                    nome_completo=formulario.cleaned_data["nome_completo"],
+                    email=formulario.cleaned_data["email"],
+                    cpf=formulario.cleaned_data["cpf"],
+                    telefone=formulario.cleaned_data["telefone"],
+                    areas=formulario.cleaned_data.get("areas"),
+                    foto=formulario.cleaned_data.get("foto"),
+                    matricula=formulario.cleaned_data.get("matricula"),
+                    siape=formulario.cleaned_data.get("siape"),
+                )
+            except ValidationError as erro:
+                formulario.add_error(None, erro.messages[0])
+            else:
+                messages.success(request, "Perfil atualizado.")
+                return redirect("contas:perfil")
     else:
         inicial = {
             "nome_completo": request.user.nome_completo,
@@ -184,7 +193,7 @@ def painel(request):
         "contas/painel_coordenacao.html",
         {
             "formulario": formulario,
-            "convites": Convite.objects.select_related("criado_por")[:50],
+            "convites": services.convites_recentes(),
             # As listas vêm do SERVIÇO, não de um filtro escrito aqui
             # (achado da revisão final): quem conta como coordenador e quem
             # pode ser promovido é regra de negócio (CLAUDE.md, regra 4), e

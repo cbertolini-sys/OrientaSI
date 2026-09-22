@@ -110,6 +110,49 @@ def test_registrar_resultado_recusa_quem_nao_e_o_orientador(banca_agendada):
 
 
 @pytest.mark.django_db
+def test_registrar_resultado_recusa_valor_fora_da_whitelist(banca_agendada, orientador):
+    """ACHADO M2 da auditoria (2026-09-22): antes, `resultado` era gravado
+    direto em `Projeto.status` sem checagem nenhuma na camada de serviço —
+    só o formulário restringia os valores possíveis (`Banca.resultado` tem
+    `choices`, mas `choices` não é trava de banco). Um chamador de serviço
+    que não passasse pelo formulário conseguia jogar o projeto em qualquer
+    string de até 22 caracteres, inclusive `CONCLUIDO` — pulando a banca, a
+    ata e a SUGRAD inteiras."""
+    with pytest.raises(ValidationError):
+        services.registrar_resultado(
+            banca_agendada,
+            nota=10.0,
+            resultado=Projeto.CONCLUIDO,
+            comentario="",
+            por=orientador.usuario,
+        )
+    banca_agendada.refresh_from_db()
+    assert banca_agendada.status == Banca.AGENDADA
+    banca_agendada.projeto.refresh_from_db()
+    assert banca_agendada.projeto.status == Projeto.AGUARDANDO_DEFESA
+
+
+@pytest.mark.django_db
+def test_registrar_resultado_recusa_quando_projeto_nao_esta_aguardando_defesa(
+    banca_agendada, orientador
+):
+    """ACHADO M2: a função confiava só em `banca.status == AGENDADA` como
+    proxy do status do projeto. Este teste força a assimetria diretamente
+    (sem passar por outro serviço) para provar que a checagem nova é quem
+    barra, não alguma trava vizinha."""
+    banca_agendada.projeto.status = Projeto.EM_ANDAMENTO
+    banca_agendada.projeto.save(update_fields=["status"])
+    with pytest.raises(ValidationError):
+        services.registrar_resultado(
+            banca_agendada,
+            nota=8.0,
+            resultado=Projeto.APROVADO_COM_RESSALVAS,
+            comentario="",
+            por=orientador.usuario,
+        )
+
+
+@pytest.mark.django_db
 def test_registrar_resultado_recusa_duas_vezes(banca_agendada, orientador):
     services.registrar_resultado(
         banca_agendada,

@@ -115,6 +115,22 @@ def test_reenviar_a_sugrad_volta_para_pendente(ata_pendente, sugrad):
 
 
 @pytest.mark.django_db
+def test_reenviar_a_sugrad_limpa_comentario_e_decidida_em_da_devolucao_anterior(
+    ata_pendente, sugrad
+):
+    """ACHADO M5 da auditoria (2026-09-22): `RevisaoSUGRAD` é uma linha só,
+    sem histórico de rodadas — deixar `comentario`/`decidida_em` da
+    devolução anterior pendurados numa revisão que voltou a `PENDENTE` é um
+    dado enganoso (pareceria uma decisão atual). Prova por mutação: remover
+    a limpeza de `services.reenviar_a_sugrad` faz este teste reprovar."""
+    services.devolver_ata(ata_pendente, por=sugrad, comentario="Falta a assinatura do orientador.")
+    services.reenviar_a_sugrad(ata_pendente, por=ata_pendente.projeto.orientador)
+    ata_pendente.revisao.refresh_from_db()
+    assert ata_pendente.revisao.comentario == ""
+    assert ata_pendente.revisao.decidida_em is None
+
+
+@pytest.mark.django_db
 def test_reenviar_a_sugrad_recusa_quem_nao_e_o_orientador(ata_pendente, sugrad):
     services.devolver_ata(ata_pendente, por=sugrad, comentario="Corrija a data.")
     outro = Usuario.objects.create_user(

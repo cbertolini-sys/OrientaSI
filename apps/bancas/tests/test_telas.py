@@ -110,6 +110,27 @@ def test_cancelar_recusa_banca_alheia_com_404(client, cenario):
 
 
 @pytest.mark.django_db
+def test_cancelar_duas_vezes_nao_da_500(client, cenario):
+    """ACHADO H7 da auditoria (2026-09-22): a view não capturava o
+    `ValidationError` de um duplo clique/reenvio — a segunda chamada batia
+    num estado já cancelado e a view deixava o erro subir como 500. Prova
+    por mutação: remover o `try/except` da view faz este teste reprovar
+    com um 500 na segunda chamada."""
+    banca = services.agendar_banca(
+        cenario["projeto"],
+        data_hora=timezone.now(),
+        local="Sala 1",
+        membros=[{"professor": cenario["membro1"]}, {"professor": cenario["membro2"]}],
+        por=cenario["orientador"].usuario,
+    )
+    client.force_login(cenario["orientador"].usuario)
+    primeira = client.post(f"/bancas/{banca.pk}/cancelar/")
+    segunda = client.post(f"/bancas/{banca.pk}/cancelar/")
+    assert primeira.status_code == 302
+    assert segunda.status_code == 302
+
+
+@pytest.mark.django_db
 def test_resultado_post_registra_e_redireciona(client, cenario):
     banca = services.agendar_banca(
         cenario["projeto"],

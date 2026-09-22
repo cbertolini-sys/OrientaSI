@@ -90,6 +90,32 @@ def test_aprovar_ata_view_redireciona(client, ata_pendente, sugrad):
 
 
 @pytest.mark.django_db
+def test_aprovar_ata_view_recusa_get(client, ata_pendente, sugrad):
+    """ACHADO H1 da auditoria (2026-09-22): esta era a ÚNICA view de
+    transição de status do sistema alcançável por GET — sem proteção de
+    CSRF (que o Django não aplica a métodos seguros), um `<img src>` ou um
+    link-prefetcher bastavam para aprovar a ata enquanto a SUGRAD estivesse
+    logada. Prova por mutação: remover `@require_POST` da view faz este
+    teste reprovar (o GET aprovaria a ata em vez de dar 405)."""
+    client.force_login(sugrad)
+    resposta = client.get(f"/painel/sugrad/{ata_pendente.pk}/aprovar/")
+    assert resposta.status_code == 405
+    ata_pendente.projeto.refresh_from_db()
+    assert ata_pendente.projeto.status != Projeto.CONCLUIDO
+
+
+@pytest.mark.django_db
+def test_aprovar_ata_view_duas_vezes_nao_da_500(client, ata_pendente, sugrad):
+    """ACHADO H7: a view não capturava o `ValidationError` de uma revisão
+    que já não está mais `PENDENTE`."""
+    client.force_login(sugrad)
+    primeira = client.post(f"/painel/sugrad/{ata_pendente.pk}/aprovar/")
+    segunda = client.post(f"/painel/sugrad/{ata_pendente.pk}/aprovar/")
+    assert primeira.status_code == 302
+    assert segunda.status_code == 302
+
+
+@pytest.mark.django_db
 def test_devolver_ata_view_exige_comentario(client, ata_pendente, sugrad):
     client.force_login(sugrad)
     resposta = client.post(f"/painel/sugrad/{ata_pendente.pk}/devolver/", {"comentario": ""})
@@ -98,3 +124,14 @@ def test_devolver_ata_view_exige_comentario(client, ata_pendente, sugrad):
     from apps.documentos.models import RevisaoSUGRAD
 
     assert ata_pendente.revisao.status == RevisaoSUGRAD.PENDENTE
+
+
+@pytest.mark.django_db
+def test_devolver_ata_view_recusa_get(client, ata_pendente, sugrad):
+    """ACHADO H1: mesma trava em `devolver_ata_view` — antes só estava
+    "protegida" por acidente (um GET produz um `QueryDict` vazio, que o
+    formulário recusa por comentário em branco, mas isso nunca foi uma
+    decisão de design)."""
+    client.force_login(sugrad)
+    resposta = client.get(f"/painel/sugrad/{ata_pendente.pk}/devolver/")
+    assert resposta.status_code == 405

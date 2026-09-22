@@ -579,9 +579,7 @@ def test_manifestacoes_pendentes_so_lista_as_enviadas_do_professor(
 
 
 @pytest.mark.django_db
-def test_orientandos_atuais_so_lista_projetos_em_andamento_do_professor_no_semestre(
-    tres_professores, aluno
-):
+def test_orientandos_atuais_so_lista_projetos_em_andamento_do_professor(tres_professores, aluno):
     professor = tres_professores[0]
     outro_professor = tres_professores[1]
     projeto = services.criar_projeto_sob_limite(aluno, professor, None, Projeto.TCC_I)
@@ -591,26 +589,40 @@ def test_orientandos_atuais_so_lista_projetos_em_andamento_do_professor_no_semes
     # filtro `status=EM_ANDAMENTO`).
     assert list(services.orientandos_atuais(outro_professor)) == []
 
-    # Nem um projeto de um semestre ANTERIOR (Importante da rodada de
-    # correção 2 — o filtro de `ano`/`periodo` não tinha teste: removê-lo,
-    # mantendo `orientador=`/`status=`, não derrubava nenhum dos 142 testes
-    # de `apps/projetos/`). `Projeto.objects.create` direto, não
-    # `criar_projeto_sob_limite`, porque este cria sempre no semestre
-    # VIGENTE — não há como pedir um projeto de outro semestre por essa
-    # função.
-    Projeto.objects.create(
-        aluno=_cria_aluno(69).usuario,
-        orientador=professor.usuario,
-        etapa=Projeto.TCC_I,
-        status=Projeto.EM_ANDAMENTO,
-        ano=ANO_VIGENTE - 1,
-        periodo=PERIODO_VIGENTE,
-    )
-    assert list(services.orientandos_atuais(professor)) == [projeto]
-
     projeto.status = Projeto.CONCLUIDO
     projeto.save(update_fields=["status"])
     assert list(services.orientandos_atuais(professor)) == []
+
+
+@pytest.mark.django_db
+def test_orientandos_atuais_inclui_projeto_nao_terminal_de_semestre_anterior(
+    tres_professores, aluno
+):
+    """ACHADO M12 da auditoria (2026-09-22), revertendo a decisão original
+    (pinada até aqui por este teste, que agora afirma o OPOSTO de
+    propósito): um projeto NÃO TERMINAL de um semestre anterior — por
+    exemplo, `Reprovado`, e o orientador não teve tempo de reabri-lo antes
+    da virada — não pode sumir de `/orientacoes/`, a ÚNICA tela com os
+    botões de agendar banca, registrar resultado, aprovar e
+    reabrir/cancelar. Sem esta correção, o projeto ficava sem NENHUM
+    caminho de UI para o orientador agir sobre ele. Prova por mutação:
+    devolver o filtro `ano=ano_vigente, periodo=periodo_vigente` a
+    `orientandos_atuais` faz este teste reprovar (o projeto do semestre
+    anterior sumiria da lista)."""
+    professor = tres_professores[0]
+    projeto_vigente = services.criar_projeto_sob_limite(aluno, professor, None, Projeto.TCC_I)
+    projeto_semestre_anterior = Projeto.objects.create(
+        aluno=_cria_aluno(69).usuario,
+        orientador=professor.usuario,
+        etapa=Projeto.TCC_I,
+        status=Projeto.REPROVADO,
+        ano=ANO_VIGENTE - 1,
+        periodo=PERIODO_VIGENTE,
+    )
+
+    resultado = set(services.orientandos_atuais(professor))
+
+    assert resultado == {projeto_vigente, projeto_semestre_anterior}
 
 
 # --------------------------------------------------------------------------
@@ -650,7 +662,7 @@ def test_orientacoes_mostra_estado_vazio_de_orientandos_distinto_do_da_fila(
     html = client.get(reverse("projetos:orientacoes")).content.decode()
 
     assert candidatura_em_curso.aluno.usuario.nome_completo in html  # a manifestação pendente
-    assert "Você ainda não tem orientandos em andamento neste semestre." in html
+    assert "Você ainda não tem orientandos em andamento." in html
 
 
 @pytest.mark.django_db

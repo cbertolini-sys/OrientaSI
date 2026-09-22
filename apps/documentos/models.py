@@ -24,7 +24,17 @@ class Ata(models.Model):
         related_name="atas",
         verbose_name="banca",
     )
-    numero = models.CharField("número", max_length=20)
+    # `unique=True` (achado M1 da auditoria, 2026-09-22): antes não havia
+    # NENHUMA trava contra dois documentos oficiais com o mesmo número —
+    # `services.gerar_ata` calcula `numero` com `count() + 1`, uma condição
+    # de corrida deliberadamente aceita (custo documentado ali: aprovar um
+    # TCC I é uma ação humana de baixa frequência) só sob concorrência REAL.
+    # Sem esta trava, porém, a colisão era gravada em SILÊNCIO — nenhum
+    # `IntegrityError`, nenhum log — e `count()` também não é monotônico:
+    # apagar qualquer `Ata` pelo admin faz a próxima gerada reusar o número
+    # da apagada, sem concorrência nenhuma envolvida. Agora qualquer colisão
+    # vira um erro alto, não um documento legal duplicado silencioso.
+    numero = models.CharField("número", max_length=20, unique=True)
     pdf = models.FileField("PDF", upload_to="atas/")
     gerada_em = models.DateTimeField("gerada em", auto_now_add=True)
 

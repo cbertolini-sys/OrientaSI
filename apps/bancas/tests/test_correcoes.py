@@ -2,7 +2,7 @@
 na Tarefa 4)."""
 
 import pytest
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 
 from apps.bancas import services
 from apps.bancas.models import ItemCorrecao
@@ -70,6 +70,50 @@ def test_criar_item_correcao_recusa_quem_nao_e_o_orientador(projeto_tcc_ii):
 
 
 @pytest.mark.django_db
+def test_criar_item_correcao_recusa_tcc_i(projeto_tcc_ii):
+    """ACHADO H4 da auditoria (2026-09-22): a restrição "checklist só existe
+    para o TCC II" (CLAUDE.md) vivia só num `{% elif %}` de template — o
+    serviço aceitava qualquer etapa. Prova por mutação: comentar a checagem
+    de `_garante_checklist_aplicavel` faz este teste reprovar."""
+    projeto_tcc_ii.etapa = Projeto.TCC_I
+    projeto_tcc_ii.save(update_fields=["etapa"])
+    with pytest.raises(ValidationError):
+        services.criar_item_correcao(
+            projeto_tcc_ii, descricao="x", por=projeto_tcc_ii.orientador
+        )
+    assert not ItemCorrecao.objects.filter(projeto=projeto_tcc_ii).exists()
+
+
+@pytest.mark.django_db
+def test_criar_item_correcao_recusa_fora_de_aprovado_com_ressalvas(projeto_tcc_ii):
+    """ACHADO H4: o mesmo vale para o status — um item criado depois de
+    `Aprovado`/`Concluído`/`Cancelado` nunca é reavaliado por
+    `aprovar_projeto` e só confunde o aluno, que recebe um e-mail acionável
+    sobre um TCC já fechado."""
+    projeto_tcc_ii.status = Projeto.APROVADO
+    projeto_tcc_ii.save(update_fields=["status"])
+    with pytest.raises(ValidationError):
+        services.criar_item_correcao(
+            projeto_tcc_ii, descricao="x", por=projeto_tcc_ii.orientador
+        )
+
+
+@pytest.mark.django_db
+def test_concluir_item_correcao_recusa_fora_de_aprovado_com_ressalvas(projeto_tcc_ii):
+    """ACHADO H4: mesma checagem em `concluir_item_correcao` — um item de um
+    projeto que já saiu do intervalo pós-banca não deveria ser mexível."""
+    item = services.criar_item_correcao(
+        projeto_tcc_ii, descricao="x", por=projeto_tcc_ii.orientador
+    )
+    projeto_tcc_ii.status = Projeto.APROVADO
+    projeto_tcc_ii.save(update_fields=["status"])
+    with pytest.raises(ValidationError):
+        services.concluir_item_correcao(item, por=projeto_tcc_ii.orientador)
+    item.refresh_from_db()
+    assert item.concluido is False
+
+
+@pytest.mark.django_db
 def test_concluir_item_correcao(projeto_tcc_ii):
     item = services.criar_item_correcao(
         projeto_tcc_ii, descricao="Ajustar formatação.", por=projeto_tcc_ii.orientador
@@ -113,6 +157,24 @@ def test_correcoes_view_recusa_projeto_alheio_com_404(client, projeto_tcc_ii):
     client.force_login(outro)
     resposta = client.get(f"/bancas/{projeto_tcc_ii.pk}/correcoes/")
     assert resposta.status_code == 404
+
+
+@pytest.mark.django_db
+def test_concluir_item_view_apos_projeto_sair_de_ressalvas_nao_da_500(client, projeto_tcc_ii):
+    """ACHADO H7 da auditoria (2026-09-22): a view de concluir item não
+    capturava `ValidationError` — depois do guard de H4, um item de um
+    projeto que já saiu de `APROVADO_COM_RESSALVAS` levanta `ValidationError`
+    ao tentar concluir, e isso vazava como 500 em vez de uma mensagem."""
+    item = services.criar_item_correcao(
+        projeto_tcc_ii, descricao="Item que vai ficar obsoleto.", por=projeto_tcc_ii.orientador
+    )
+    projeto_tcc_ii.status = Projeto.APROVADO
+    projeto_tcc_ii.save(update_fields=["status"])
+    client.force_login(projeto_tcc_ii.orientador)
+    resposta = client.post(f"/bancas/correcoes/{item.pk}/concluir/")
+    assert resposta.status_code == 302
+    item.refresh_from_db()
+    assert item.concluido is False
 
 
 @pytest.mark.django_db

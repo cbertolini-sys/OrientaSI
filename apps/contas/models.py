@@ -237,6 +237,21 @@ class Convite(models.Model):
         verbose_name = "convite"
         verbose_name_plural = "convites"
         ordering = ["-criado_em"]
+        # SEM `UniqueConstraint` de e-mail (achado M9 da auditoria,
+        # 2026-09-22 — tentativa revertida nesta mesma correção). A ideia
+        # óbvia — "no máximo um convite `usado_em IS NULL` por e-mail" —
+        # QUEBRA `reenviar_convite`: ele aposenta o convite antigo só com
+        # `expira_em = now()`, sem tocar `usado_em` (de propósito —
+        # `usado_em` significa "alguém aceitou", não "foi substituído"), e
+        # então chama `convidar()` de novo para o MESMO e-mail. Isso deixa
+        # DOIS convites com `usado_em IS NULL` na mesma linha do tempo, por
+        # DESIGN — um `UniqueConstraint` nessa condição quebraria o reenvio
+        # normal, não só a corrida que se queria fechar (confirmado rodando
+        # a suíte: `test_reenviar_invalida_o_convite_anterior` e dois outros
+        # falham). Uma correção de verdade pede um campo dedicado (ex.:
+        # `ativo`) tocado por aceite E por reenvio, distinto de `usado_em`/
+        # `expira_em` — mudança de schema maior que esta rodada de correção,
+        # registrada aqui em vez de aplicada às pressas.
 
     def __str__(self):
         return f"Convite para {self.email} ({self.get_papel_display()})"

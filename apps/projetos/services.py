@@ -157,7 +157,7 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     existe para disputar —, mas não protege o aluno de acabar com DOIS
     `Projeto` ativos na mesma etapa: isso é outro invariante, do
     `UniqueConstraint` "projeto_ativo_unico_por_aluno_e_etapa"
-    (`aluno`+`etapa`, excluindo `CONCLUIDO`/`REPROVADO` —
+    (`aluno`+`etapa`, excluindo `Projeto.STATUS_TERMINAIS` —
     `apps/projetos/models.py::Projeto.Meta`), e nada nesta função lê esse
     estado antes de inserir. Achado real da revisão da T11: um aluno já
     `EM_ANDAMENTO` com um professor consegue registrar uma SEGUNDA
@@ -213,7 +213,18 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
                 ano=ano,
                 periodo=periodo,
             )
-    except IntegrityError:
+    except IntegrityError as erro:
+        # Inspeciona QUAL constraint disparou (achado L5 da auditoria,
+        # 2026-09-22) em vez de traduzir qualquer `IntegrityError` para
+        # "já tem uma orientação em andamento" — mesmo padrão de
+        # `conceder_limite`, acima. Sem isto, um `IntegrityError` de outra
+        # origem (por exemplo `projeto_coorientador_nao_duplo`, se este
+        # INSERT algum dia passar a incluir coorientador) seria mal
+        # atribuído ao aluno com uma mensagem falsa.
+        nome_da_constraint = getattr(getattr(erro, "__cause__", None), "diag", None)
+        nome_da_constraint = getattr(nome_da_constraint, "constraint_name", None)
+        if nome_da_constraint != "projeto_ativo_unico_por_aluno_e_etapa":
+            raise
         etapa_legivel = dict(Projeto.ETAPAS).get(etapa, etapa)
         raise ValidationError(
             f"{aluno.usuario.nome_completo} já tem uma orientação em andamento em "
@@ -496,14 +507,15 @@ def manifestacoes_pendentes(professor):
 
 
 def orientandos_atuais(professor):
-    """Projetos de orientação em andamento de `professor` no semestre
-    vigente — a segunda metade de `/orientacoes/` que o spec §6 pede ("fila
-    de manifestações **e orientandos atuais**") e que nenhuma das treze
-    tarefas do plano original implementava (`grep -n "orientandos"` vazio no
-    plano inteiro — defeito do plano, fechado nesta rodada de correção da T9,
-    ver `tarefa-9-fix-1-brief.md`).
+    """Projetos de orientação em andamento de `professor` — a segunda
+    metade de `/orientacoes/` que o spec §6 pede ("fila de manifestações
+    **e orientandos atuais**") e que nenhuma das treze tarefas do plano
+    original implementava (`grep -n "orientandos"` vazio no plano inteiro —
+    defeito do plano, fechado nesta rodada de correção da T9, ver
+    `tarefa-9-fix-1-brief.md`).
 
-    Filtra por `status__in=[EM_ANDAMENTO, AGUARDANDO_DEFESA, REPROVADO]`
+    Filtra por `status__in=[EM_ANDAMENTO, AGUARDANDO_DEFESA, REPROVADO,
+    APROVADO_COM_RESSALVAS, APROVADO]`
     (Bloco D, spec §3.7 — ampliado do filtro original só `EM_ANDAMENTO` do
     Bloco B): o orientador precisa continuar vendo o projeto em
     `/orientacoes/` para agendar/editar/cancelar a banca, registrar o
@@ -517,17 +529,23 @@ def orientandos_atuais(professor):
     lacunas deste bloco (ver, por exemplo, a de `editar_tema`, acima, sobre
     tema editado depois de já ter candidatura).
 
-    Sem `ano`/`periodo` como parâmetro, ao contrário de `vagas_ocupadas`:
-    esta função sempre olha o semestre VIGENTE (`semestre_vigente()`) — a
-    tela não tem motivo para mostrar orientandos de semestres passados, e
-    não expõe esse filtro ao professor.
+    SEM filtro de `ano`/`periodo` (achado M12 da auditoria, 2026-09-22,
+    revertendo a decisão original de olhar só o semestre VIGENTE): um
+    projeto NÃO TERMINAL — por definição, ainda precisa de alguma ação do
+    orientador — não pode desaparecer desta tela só porque o calendário
+    virou. `/orientacoes/` é a ÚNICA tela que oferece agendar banca, editar
+    banca, registrar resultado, aprovar e reabrir/cancelar; sem o filtro de
+    semestre, um projeto `Reprovado` que o orientador não teve tempo de
+    reabrir antes de 1º de agosto (`MES_INICIO_PERIODO_2`) ficava com
+    `/orientacoes/` sem NENHUM botão de ação para ele — o aluno continuava
+    vendo `/meu-tcc/` (que nunca filtrou semestre), mas o orientador perdia
+    todo caminho de UI para agir, e só recuperava sabendo a URL de cor. O
+    `status__in` acima continua sendo o único filtro que importa: um
+    projeto TERMINAL nunca aparece aqui, seja de que semestre for.
     """
-    ano, periodo = semestre_vigente()
     return (
         Projeto.objects.filter(
             orientador=professor.usuario,
-            ano=ano,
-            periodo=periodo,
             status__in=[
                 Projeto.EM_ANDAMENTO,
                 Projeto.AGUARDANDO_DEFESA,
@@ -543,9 +561,12 @@ def orientandos_atuais(professor):
 
 def projeto_ativo_do_aluno(usuario, etapa):
     """`Projeto` de `usuario` em `etapa` que ainda não terminou —
-    `CONCLUIDO`/`REPROVADO` são estados terminais e ficam de fora, mesma
-    condição do `UniqueConstraint` de `Projeto.Meta`
-    (`projeto_ativo_unico_por_aluno_e_etapa`). `None` se não houver.
+    `Projeto.STATUS_TERMINAIS` fica de fora, mesma condição do
+    `UniqueConstraint` de `Projeto.Meta` (`projeto_ativo_unico_por_aluno_e_etapa`
+    — achado C4 da auditoria, 2026-09-22: esta função excluía só
+    `[CONCLUIDO, REPROVADO]`, ver a nota equivalente em
+    `_possui_projeto_ativo`, acima, para o efeito prático do desvio). `None`
+    se não houver.
 
     Extraída de `views.py::candidatura` (T11, Bloco B) para esta tarefa
     (Bloco C) não duplicar a mesma consulta uma segunda vez em
@@ -553,7 +574,7 @@ def projeto_ativo_do_aluno(usuario, etapa):
     """
     return (
         Projeto.objects.filter(aluno=usuario, etapa=etapa)
-        .exclude(status__in=[Projeto.CONCLUIDO, Projeto.REPROVADO])
+        .exclude(status__in=Projeto.STATUS_TERMINAIS)
         .select_related("orientador", "tema")
         .first()
     )
@@ -627,14 +648,21 @@ def _possui_projeto_ativo(aluno):
 
     A condição espelha o `UniqueConstraint` "projeto_ativo_unico_por_aluno_e_etapa"
     (`apps/projetos/models.py::Projeto.Meta`) — `aluno`+`etapa`, excluindo
-    `CONCLUIDO`/`REPROVADO`. `etapa=Projeto.TCC_I` é fixo, não um parâmetro:
-    mesma citação já usada alhures neste arquivo (`temas_do_mural`,
-    `registrar_candidatura` logo abaixo) — `Candidatura` não tem campo
-    `etapa`, e TCC_I é a única que este bloco cria.
+    `Projeto.STATUS_TERMINAIS` (achado C4 da auditoria, 2026-09-22: esta
+    função excluía só `[CONCLUIDO, REPROVADO]`, uma lista solta que ficou
+    desatualizada quando `CANCELADO` entrou no `UniqueConstraint` — migração
+    0004 — sem que esta cópia fosse atualizada junto. Um aluno com um
+    projeto `CANCELADO` era lido como se ainda tivesse uma orientação ativa
+    e nunca mais conseguia se candidatar de novo, mesmo o banco já
+    permitindo. Agora as duas leem da MESMA lista — `Projeto.STATUS_TERMINAIS`
+    — e não podem mais divergir em silêncio). `etapa=Projeto.TCC_I` é fixo,
+    não um parâmetro: mesma citação já usada alhures neste arquivo
+    (`temas_do_mural`, `registrar_candidatura` logo abaixo) — `Candidatura`
+    não tem campo `etapa`, e TCC_I é a única que este bloco cria.
     """
     return (
         Projeto.objects.filter(aluno=aluno.usuario, etapa=Projeto.TCC_I)
-        .exclude(status__in=[Projeto.CONCLUIDO, Projeto.REPROVADO])
+        .exclude(status__in=Projeto.STATUS_TERMINAIS)
         .exists()
     )
 
@@ -1425,14 +1453,45 @@ def cancelar_projeto(projeto, por):
     projeto.save(update_fields=["status"])
 
 
+@transaction.atomic
 def aprovar_projeto(projeto, por):
     """Confirma que o aluno corrigiu o que a banca pediu — fecha
     `Aprovado com Ressalvas` → `Aprovado` (Bloco E, spec §3.1). Para o
     TCC_I é uma confirmação simples do orientador, sem checklist — o
     `inicio.pdf` só descreve checklist de correções e termo de publicação
-    para o TCC II (Bloco F), que ganha o gate abaixo."""
+    para o TCC II (Bloco F), que ganha o gate abaixo.
+
+    `@transaction.atomic` (achado C2/H8 da auditoria, 2026-09-22): antes,
+    `projeto.status = APROVADO` era salvo e JÁ COMMITADO (autocommit, sem
+    `ATOMIC_REQUESTS`) antes de `gerar_ata` rodar — uma falha no meio de
+    `gerar_ata` (WeasyPrint sem renderizar, MinIO/S3 fora do ar) deixava o
+    projeto travado em `Aprovado` PARA SEMPRE: sem `Ata`, sem
+    `RevisaoSUGRAD`, sem e-mail à SUGRAD, e sem nenhum jeito de repetir a
+    ação (`aprovar_projeto` só aceita `APROVADO_COM_RESSALVAS`, e o painel
+    da SUGRAD só lista projetos que já têm `Ata`). Agora a mudança de status
+    e a geração da ata commitam juntas ou nenhuma commita.
+
+    `select_for_update` no `Projeto` (achado da re-auditoria, 2026-09-22 —
+    regressão introduzida pelo próprio `@transaction.atomic` acima): sem
+    trava nenhuma, duas aprovações quase simultâneas do MESMO projeto
+    (duplo clique, duas abas) liam as duas `APROVADO_COM_RESSALVAS` antes
+    de qualquer uma commitar. Antes do `@transaction.atomic`, isso ainda
+    era freado por acaso: o `UPDATE` de `projeto.status` de uma delas
+    bloqueava a outra na trava de linha implícita do Postgres, e o
+    `count()+1` de `gerar_ata` (achado M1) corria de verdade, batendo às
+    vezes no `IntegrityError` do `unique=True` de `Ata.numero` — uma falha
+    ALTA, visível. Com o `@transaction.atomic`, a segunda transação passou
+    a esperar a primeira COMITAR (não só salvar) antes de prosseguir,
+    reordenando os dois `gerar_ata` em série — cada um lê um `count()`
+    diferente, tira um número diferente, e as DUAS chamadas têm sucesso:
+    duas `Ata` para o mesmo `Projeto`, silenciosamente, sem erro nenhum
+    para avisar ninguém. `select_for_update` fecha isso na raiz: a segunda
+    transação relê `status` já como `APROVADO` (a primeira já comitou) e é
+    recusada por `ValidationError`, antes de chegar perto de `gerar_ata` —
+    mesmo padrão de `cancelar_candidatura`/`aceitar_opcao`, acima."""
     if not permissions.pode_aprovar_projeto(por, projeto):
         raise PermissionDenied("Somente o orientador do projeto pode aprová-lo.")
+    projeto = Projeto.objects.select_for_update().get(pk=projeto.pk)
     if projeto.status != Projeto.APROVADO_COM_RESSALVAS:
         raise ValidationError("Só é possível aprovar um projeto aprovado com ressalvas.")
     if projeto.etapa == Projeto.TCC_II:
@@ -1460,26 +1519,78 @@ def criar_tcc_ii_automatico(projeto_tcc_i):
     `criar_tcc_ii_manual`, que reaproveita `criar_projeto_sob_limite`).
     Copia também `tema` — se o TCC I nasceu de uma candidatura aberta (sem
     tema pré-publicado), o TCC II herda `tema=None` do mesmo jeito; sem
-    tema, o catálogo (Bloco G) não publica este TCC II."""
+    tema, o catálogo (Bloco G) não publica este TCC II.
+
+    Segunda camada de defesa contra `IntegrityError` (achado residual da
+    revisão de código da correção C3/H5, 2026-09-22): o achado H5
+    (`criar_tcc_ii_manual` recusa um aluno com TCC I ativo) e o
+    `select_for_update` novo em `aprovar_ata` (achado C3 revisitado)
+    fecham os dois vetores CONHECIDOS de colisão contra
+    `projeto_ativo_unico_por_aluno_e_etapa` — mas esta função é chamada
+    automaticamente, sem passar por nenhum formulário, e um terceiro vetor
+    futuro (um comando de management, uma migração de dados, uma chamada
+    direta em shell) não teria como ser antecipado aqui. Em vez de deixar um
+    `IntegrityError` cru vazar como 500 na tela da SUGRAD, traduz para
+    `ValidationError` — mesmo padrão de `criar_projeto_sob_limite` (achado
+    L5): inspeciona a constraint que disparou antes de assumir a causa."""
     ano, periodo = semestre_vigente()
-    tcc_ii = Projeto.objects.create(
-        aluno=projeto_tcc_i.aluno,
-        orientador=projeto_tcc_i.orientador,
-        tema=projeto_tcc_i.tema,
-        coorientador=projeto_tcc_i.coorientador,
-        coorientador_externo=projeto_tcc_i.coorientador_externo,
-        etapa=Projeto.TCC_II,
-        status=Projeto.EM_ANDAMENTO,
-        anterior=projeto_tcc_i,
-        ano=ano,
-        periodo=periodo,
-    )
+    try:
+        with transaction.atomic():
+            tcc_ii = Projeto.objects.create(
+                aluno=projeto_tcc_i.aluno,
+                orientador=projeto_tcc_i.orientador,
+                tema=projeto_tcc_i.tema,
+                coorientador=projeto_tcc_i.coorientador,
+                coorientador_externo=projeto_tcc_i.coorientador_externo,
+                etapa=Projeto.TCC_II,
+                status=Projeto.EM_ANDAMENTO,
+                anterior=projeto_tcc_i,
+                ano=ano,
+                periodo=periodo,
+            )
+    except IntegrityError as erro:
+        nome_da_constraint = getattr(getattr(erro, "__cause__", None), "diag", None)
+        nome_da_constraint = getattr(nome_da_constraint, "constraint_name", None)
+        if nome_da_constraint != "projeto_ativo_unico_por_aluno_e_etapa":
+            raise
+        # A mensagem precisa deixar claro que a APROVAÇÃO INTEIRA foi
+        # recusada, não só a criação do TCC II (achado F-3 da re-auditoria,
+        # 2026-09-22): esta função só é chamada de dentro do
+        # `@transaction.atomic` de `apps.documentos.services.aprovar_ata`,
+        # então este `ValidationError` desfaz TAMBÉM a revisão (continua
+        # `PENDENTE`) e o TCC I (continua `APROVADO`, não `CONCLUIDO`) — uma
+        # mensagem que sugerisse "só o TCC II falhou" faria a SUGRAD achar
+        # que a ata foi aprovada quando na verdade nada foi.
+        raise ValidationError(
+            f"Não foi possível aprovar: {projeto_tcc_i.aluno.nome_completo} já tem um "
+            "TCC II ativo. Resolva essa duplicidade (cancele ou conclua um dos dois "
+            "projetos) antes de aprovar esta ata de novo."
+        ) from None
 
     from apps.projetos.tasks import enviar_tcc_ii_criado
 
     transaction.on_commit(lambda: enviar_tcc_ii_criado.delay(tcc_ii.id))
 
     return tcc_ii
+
+
+def _garante_aluno_valido_para_orientacao_manual(aluno, professor):
+    """Compartilhada por `criar_tcc_i_manual`/`criar_tcc_ii_manual` (achado
+    L6 da auditoria, 2026-09-22): antes, nenhuma das duas checava se o
+    `PerfilAluno` alvo pertencia mesmo a um `Usuario` com `papel=ALUNO`
+    ativo, nem se o "aluno" não era o PRÓPRIO professor que está criando a
+    orientação. No fluxo normal (convite) isso nunca acontece — um
+    `PerfilAluno` só nasce com `papel=ALUNO` —, mas nada no schema garante
+    isso (um mesmo `Usuario` pode ter os dois perfis via admin/shell), e
+    `FormularioCriarOrientacaoManual.aluno` lista TODO `PerfilAluno` sem
+    filtrar por `is_active`. Defesa em profundidade, não uma regra
+    alcançável pela tela normal."""
+    if aluno.usuario_id == professor.usuario_id:
+        raise ValidationError("O professor não pode se orientar.")
+    if aluno.usuario.papel != aluno.usuario.ALUNO:
+        raise ValidationError(f"{aluno.usuario.nome_completo} não é uma conta de aluno.")
+    if not aluno.usuario.is_active:
+        raise ValidationError(f"A conta de {aluno.usuario.nome_completo} está desativada.")
 
 
 def criar_tcc_ii_manual(aluno, professor, tema, por):
@@ -1494,11 +1605,30 @@ def criar_tcc_ii_manual(aluno, professor, tema, por):
 
     Ver `criar_tcc_i_manual`, logo abaixo: mesma forma, mesma permissão
     (`pode_criar_orientacao_manual`), só a etapa muda — as duas nascem da
-    mesma tela ("Criar nova orientação", `views.criar_orientacao_manual_view`)."""
+    mesma tela ("Criar nova orientação", `views.criar_orientacao_manual_view`).
+
+    EXIGE que o aluno NÃO tenha um TCC I ativo (achado H5/C3 da auditoria,
+    2026-09-22): a docstring sempre disse "sem TCC I anterior no sistema",
+    mas nada checava isso — `FormularioCriarOrientacaoManual.aluno` lista
+    TODO `PerfilAluno`, e o `UniqueConstraint`
+    "projeto_ativo_unico_por_aluno_e_etapa" só protege dentro da MESMA
+    etapa, não entre TCC I e TCC II. Sem esta checagem, um professor podia
+    criar manualmente um TCC II para um aluno que já tinha um TCC I em
+    andamento — e semanas depois, quando a SUGRAD aprovasse a ata desse TCC
+    I, `criar_tcc_ii_automatico` batia num `IntegrityError` (dois TCC II
+    ativos para o mesmo aluno), deixando a ata aprovada e o TCC I concluído
+    SEM nenhum TCC II. Recusar aqui, na ENTRADA errada, é mais simples e
+    mais cedo do que tentar recuperar do `IntegrityError` lá na frente."""
     if not permissions.pode_criar_orientacao_manual(por, professor):
         raise PermissionDenied("Somente o próprio professor cria um TCC II em seu nome.")
     if tema.professor_id != professor.id:
         raise PermissionDenied("O tema precisa ser um dos seus próprios temas.")
+    _garante_aluno_valido_para_orientacao_manual(aluno, professor)
+    if projeto_ativo_do_aluno(aluno.usuario, Projeto.TCC_I) is not None:
+        raise ValidationError(
+            f"{aluno.usuario.nome_completo} já tem um TCC I em andamento — crie o TCC II "
+            "só depois que o TCC I chegar a um estado terminal."
+        )
 
     tcc_ii = criar_projeto_sob_limite(aluno, professor, tema=tema, etapa=Projeto.TCC_II)
 
@@ -1509,6 +1639,7 @@ def criar_tcc_ii_manual(aluno, professor, tema, por):
     return tcc_ii
 
 
+@transaction.atomic
 def criar_tcc_i_manual(aluno, professor, tema, por):
     """Cria um TCC I do zero, fora da cascata de candidatura (aluno com
     orientador já definido por fora do sistema — equivalência,
@@ -1525,11 +1656,40 @@ def criar_tcc_i_manual(aluno, professor, tema, por):
     checagem de vaga (`criar_projeto_sob_limite`) e o `UniqueConstraint`
     "projeto_ativo_unico_por_aluno_e_etapa" continuam valendo do mesmo
     jeito — esta função não abre uma segunda orientação de TCC I ativa para
-    o mesmo aluno, só um caminho alternativo de ENTRADA para a primeira."""
+    o mesmo aluno, só um caminho alternativo de ENTRADA para a primeira.
+
+    ENCERRA a `Candidatura` `EM_CURSO` do aluno, se houver uma (achado M11
+    da auditoria, 2026-09-22): antes, esta função criava o `Projeto` e não
+    tocava em `Candidatura` nenhuma — um aluno com uma candidatura em curso
+    (opção enviada a OUTRO professor, aguardando resposta) que ganhasse um
+    TCC I manual deste professor ficava com as duas coisas vivas ao mesmo
+    tempo. A cascata (`avancar_candidaturas_vencidas`, Celery Beat)
+    continuava avançando por prazo, notificando o segundo/terceiro
+    professor da lista sobre um aluno que JÁ tinha orientador, e um desses
+    professores podia até tentar aceitar — só para ser recusado por
+    `criar_projeto_sob_limite` (`UniqueConstraint`) depois de já ter
+    revisado o pedido. Mesmo tratamento de `aceitar_opcao`/
+    `cancelar_candidatura`: candidatura vai para `CANCELADA`, as opções
+    ainda sem desfecho (`AGUARDANDO`/`ENVIADA`) também — sob a MESMA ordem
+    de trava (`Candidatura` primeiro) que o resto do arquivo já documenta,
+    para não abrir um caminho de deadlock novo."""
     if not permissions.pode_criar_orientacao_manual(por, professor):
         raise PermissionDenied("Somente o próprio professor cria um TCC I em seu nome.")
     if tema.professor_id != professor.id:
         raise PermissionDenied("O tema precisa ser um dos seus próprios temas.")
+    _garante_aluno_valido_para_orientacao_manual(aluno, professor)
+
+    candidatura_em_curso = (
+        Candidatura.objects.select_for_update()
+        .filter(aluno=aluno, status=Candidatura.EM_CURSO)
+        .first()
+    )
+    if candidatura_em_curso is not None:
+        candidatura_em_curso.status = Candidatura.CANCELADA
+        candidatura_em_curso.save(update_fields=["status"])
+        candidatura_em_curso.opcoes.filter(
+            situacao__in=[OpcaoCandidatura.AGUARDANDO, OpcaoCandidatura.ENVIADA]
+        ).update(situacao=OpcaoCandidatura.CANCELADA)
 
     tcc_i = criar_projeto_sob_limite(aluno, professor, tema=tema, etapa=Projeto.TCC_I)
 
@@ -1543,8 +1703,30 @@ def criar_tcc_i_manual(aluno, professor, tema, por):
 def assinar_termo_publicacao(projeto, por):
     """Aluno assina o aceite de publicação do TCC II (Bloco F, spec §3.4) —
     a existência da linha já significa "assinado"; sem estado intermediário,
-    sem como desfazer."""
+    sem como desfazer.
+
+    Checagens de etapa/status/duplicidade (achado H6 da auditoria,
+    2026-09-22): antes, esta função só checava POSSE — a regra "só faz
+    sentido no TCC II, só depois da banca, só uma vez" vivia inteira em
+    `views.meu_tcc` (calculada como `pode_assinar` só para desenhar o
+    botão) e nunca era consultada antes de chamar este serviço, violando a
+    regra 4 do CLAUDE.md (regra de negócio fora de `services.py`). Três
+    consequências reais: (1) um reenvio do formulário batia direto no
+    `OneToOneField` de `TermoPublicacao.projeto` — `IntegrityError` cru,
+    500; (2) um aluno de TCC II em `Em Andamento` podia assinar ANTES da
+    banca, satisfazendo o gate de `aprovar_projeto` prematuramente; (3) um
+    aluno de TCC I podia criar um `TermoPublicacao`, registro que a spec
+    define como exclusivo do TCC II."""
     if not permissions.pode_assinar_termo(por, projeto):
         raise PermissionDenied("Somente o aluno do projeto assina o termo.")
+    if projeto.etapa != Projeto.TCC_II:
+        raise ValidationError("O termo de aceite de publicação é exclusivo do TCC II.")
+    if projeto.status != Projeto.APROVADO_COM_RESSALVAS:
+        raise ValidationError(
+            "O termo de publicação só pode ser assinado depois da defesa, "
+            "enquanto o projeto aguarda as correções."
+        )
+    if hasattr(projeto, "termo_publicacao"):
+        raise ValidationError("Este termo já foi assinado.")
 
     return TermoPublicacao.objects.create(projeto=projeto)

@@ -99,6 +99,32 @@ def test_aprovar_projeto_recusa_fora_de_aprovado_com_ressalvas(projeto_com_ressa
 
 
 @pytest.mark.django_db
+def test_aprovar_projeto_e_atomico_uma_falha_na_ata_desfaz_o_status(
+    projeto_com_ressalvas, orientador, monkeypatch
+):
+    """ACHADO C2/H8 da auditoria (2026-09-22): antes, `projeto.status =
+    APROVADO` era salvo e JÁ COMMITADO (autocommit puro, sem
+    `ATOMIC_REQUESTS`) antes de `gerar_ata` rodar — uma falha no meio de
+    `gerar_ata` (WeasyPrint, MinIO/S3) deixava o projeto travado em
+    `Aprovado` PARA SEMPRE, sem `Ata` e sem nenhum jeito de repetir a ação.
+    Prova por mutação: remover o `@transaction.atomic` de `aprovar_projeto`
+    faz este teste reprovar — o `status` ficaria `APROVADO` mesmo com
+    `gerar_ata` tendo levantado."""
+    import apps.documentos.services as documentos_services
+
+    def _gerar_ata_com_falha(projeto):
+        raise RuntimeError("Falha simulada no WeasyPrint/MinIO.")
+
+    monkeypatch.setattr(documentos_services, "gerar_ata", _gerar_ata_com_falha)
+
+    with pytest.raises(RuntimeError):
+        services.aprovar_projeto(projeto_com_ressalvas, por=orientador.usuario)
+
+    projeto_com_ressalvas.refresh_from_db()
+    assert projeto_com_ressalvas.status == Projeto.APROVADO_COM_RESSALVAS
+
+
+@pytest.mark.django_db
 def test_orientandos_atuais_inclui_aprovado_com_ressalvas_e_aprovado(orientador):
     ano, periodo = semestre_vigente()
     aluno_ressalvas = _aluno(4, "Aluno Ressalvas Dois")
@@ -196,6 +222,11 @@ def test_reenviar_ata_view_redireciona(client, orientador):
     from apps.documentos.models import RevisaoSUGRAD
 
     assert ata.revisao.status == RevisaoSUGRAD.PENDENTE
+
+    # ACHADO H7 da auditoria (2026-09-22): um segundo POST (a ata já não
+    # está mais DEVOLVIDA) não deveria vazar como 500.
+    segunda = client.post(f"/orientacoes/{ata.pk}/reenviar-sugrad/")
+    assert segunda.status_code == 302
 
 
 @pytest.mark.django_db

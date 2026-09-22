@@ -85,6 +85,33 @@ def test_gerar_ata_numeracao_sequencial_no_mesmo_ano():
 
 
 @pytest.mark.django_db
+def test_gerar_ata_converte_colisao_de_numero_em_validationerror(monkeypatch):
+    """ACHADO M1 da auditoria (2026-09-22): `Ata.numero` tem `unique=True`
+    como retaguarda contra a corrida documentada de `count()+1` (custo
+    aceito, spec §4.1) — antes desta trava, a colisão era gravada em
+    silêncio (dois documentos oficiais com o mesmo número); agora vira
+    `IntegrityError`, traduzido para `ValidationError` (achado M-2 da
+    re-auditoria: a tradução agora inspeciona `constraint_name`, mesmo
+    padrão de `agendar_banca`/`criar_tcc_ii_automatico`, em vez de assumir
+    que todo `IntegrityError` daqui é a colisão de número). Reproduz a
+    colisão sem depender de threads: força o `count()` do segundo
+    `gerar_ata` a repetir o mesmo resultado do primeiro."""
+    from django.core.exceptions import ValidationError
+
+    projeto1 = _cria_projeto_aprovado(11, 12)
+    projeto2 = _cria_projeto_aprovado(13, 14)
+    services.gerar_ata(projeto1)
+
+    # Força a MESMA colisão que a corrida real produziria: o próximo
+    # `count()+1` de `gerar_ata` calcula o número que já foi usado.
+    monkeypatch.setattr(
+        services.Ata.objects, "filter", lambda **kwargs: services.Ata.objects.none()
+    )
+    with pytest.raises(ValidationError):
+        services.gerar_ata(projeto2)
+
+
+@pytest.mark.django_db
 def test_gerar_ata_usa_a_banca_nao_cancelada():
     projeto = _cria_projeto_aprovado(9, 10)
     banca_cancelada = Banca.objects.create(

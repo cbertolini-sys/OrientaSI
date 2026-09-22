@@ -194,6 +194,62 @@ def test_agendar_banca_recusa_numero_errado_de_membros(
 
 
 @pytest.mark.django_db
+def test_agendar_banca_de_novo_depois_de_reprovado_e_reaberto_funciona(
+    projeto_com_submissao, orientador, dois_professores
+):
+    """ACHADO DA AUDITORIA (C1, 2026-09-22): `banca_ativa_unica_por_projeto`
+    contava uma banca `REALIZADA` como ocupando a vaga única — então, depois
+    de reprovar e reabrir (CLAUDE.md, "Ciclo de Vida", item 6: `Reprovado →
+    reabrir_projeto → Em Andamento → aluno tenta de novo`), agendar a
+    SEGUNDA banca batia num `IntegrityError` não tratado. Este teste pina o
+    ciclo inteiro funcionando: agendar → reprovar → reabrir → agendar de
+    novo, sem levantar nada.
+
+    Prova por mutação: revertendo `apps.bancas.models.Banca.Meta.constraints`
+    para `condition=~models.Q(status="CANCELADA")` (a condição antiga), este
+    teste reprova com `IntegrityError` no segundo `agendar_banca`."""
+    from apps.projetos import services as projetos_services
+
+    primeira = services.agendar_banca(
+        projeto_com_submissao,
+        data_hora=timezone.now() + timezone.timedelta(days=7),
+        local="Sala 12",
+        membros=[{"professor": dois_professores[0]}, {"professor": dois_professores[1]}],
+        por=orientador.usuario,
+    )
+    services.registrar_resultado(
+        primeira,
+        nota=5.0,
+        resultado=Projeto.REPROVADO,
+        comentario="Não convenceu.",
+        por=orientador.usuario,
+    )
+    projeto_com_submissao.refresh_from_db()
+    assert projeto_com_submissao.status == Projeto.REPROVADO
+
+    projetos_services.reabrir_projeto(projeto_com_submissao, por=orientador.usuario)
+    projeto_com_submissao.refresh_from_db()
+    assert projeto_com_submissao.status == Projeto.EM_ANDAMENTO
+
+    segunda = services.agendar_banca(
+        projeto_com_submissao,
+        data_hora=timezone.now() + timezone.timedelta(days=14),
+        local="Sala 13",
+        membros=[{"professor": dois_professores[0]}, {"professor": dois_professores[1]}],
+        por=orientador.usuario,
+    )
+    assert segunda.pk != primeira.pk
+    projeto_com_submissao.refresh_from_db()
+    assert projeto_com_submissao.status == Projeto.AGUARDANDO_DEFESA
+
+    from apps.bancas import services as bancas_services
+
+    projetos = [projeto_com_submissao]
+    bancas_services.anexar_banca_ativa(projetos)
+    assert projetos[0].banca_ativa.pk == segunda.pk
+
+
+@pytest.mark.django_db
 def test_anexar_banca_ativa_marca_none_sem_banca(projeto_com_submissao):
     from apps.bancas import services as bancas_services
 

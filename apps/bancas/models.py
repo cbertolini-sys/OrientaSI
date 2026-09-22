@@ -6,11 +6,23 @@ from apps.projetos.models import Projeto
 
 class Banca(models.Model):
     """Agendamento e resultado da apresentação de um `Projeto` (Bloco D,
-    spec §4.2). `projeto` é `ForeignKey`, não `OneToOneField` — cancelar não
-    apaga o registro (fica `CANCELADA`, histórico), e uma banca cancelada
-    não impede uma banca nova para o mesmo projeto depois (§3.4 do spec).
-    A restrição abaixo garante no máximo UMA banca NÃO CANCELADA por
-    projeto ao mesmo tempo.
+    spec §4.2). `projeto` é `ForeignKey`, não `OneToOneField` — cancelar ou
+    realizar a banca não apaga o registro (fica `CANCELADA`/`REALIZADA`,
+    histórico), e nem uma banca cancelada nem uma já realizada impedem uma
+    banca NOVA para o mesmo projeto depois — é exatamente o que acontece no
+    ciclo `Reprovado → reabrir_projeto → Em Andamento → nova banca`
+    (CLAUDE.md, "Ciclo de Vida", item 6). A restrição abaixo garante no
+    máximo UMA banca `AGENDADA` por projeto ao mesmo tempo — a trava real é
+    contra o DUPLO AGENDAMENTO, não contra o histórico.
+
+    ACHADO DA AUDITORIA (2026-09-22, C1): até esta correção a condição era
+    `~Q(status="CANCELADA")`, que também contava uma banca `REALIZADA` como
+    ocupando a vaga — ou seja, uma banca `REALIZADA` (com resultado
+    `Reprovado`) bloqueava PARA SEMPRE o reagendamento depois de
+    `reabrir_projeto`, contradizendo tanto este docstring quanto o ciclo de
+    vida documentado. `test_modelos.py` tem um teste dedicado que prova essa
+    correção por mutação (reverter para `~Q(status="CANCELADA")` reprova o
+    teste).
     """
 
     AGENDADA = "AGENDADA"
@@ -36,10 +48,16 @@ class Banca(models.Model):
     # usa as MESMAS strings de `Projeto.APROVADO_COM_RESSALVAS`/
     # `Projeto.REPROVADO` — `registrar_resultado` grava
     # `projeto.status = banca.resultado` sem nenhuma tradução no meio.
+    # `max_length=32` (achado L2 da auditoria, 2026-09-22): antes era 22, um
+    # ajuste exato a `len("APROVADO_COM_RESSALVAS")` sem folga nenhuma — um
+    # nome de status futuro mais comprido truncaria/erraria silenciosamente.
+    # Continua acoplado ao `max_length` de `Projeto.status`, de propósito:
+    # os dois precisam caber qualquer valor que passe por essa atribuição
+    # direta.
     nota = models.DecimalField("nota", max_digits=3, decimal_places=1, null=True, blank=True)
     resultado = models.CharField(
         "resultado",
-        max_length=22,
+        max_length=32,
         choices=[
             (Projeto.APROVADO_COM_RESSALVAS, "Aprovado com ressalvas"),
             (Projeto.REPROVADO, "Reprovado"),
@@ -57,7 +75,7 @@ class Banca(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["projeto"],
-                condition=~models.Q(status="CANCELADA"),
+                condition=models.Q(status="AGENDADA"),
                 name="banca_ativa_unica_por_projeto",
             ),
         ]

@@ -262,6 +262,27 @@ def test_registrar_com_projeto_reprovado_nao_e_bloqueado(tres_professores, aluno
 
 
 @pytest.mark.django_db
+def test_registrar_com_projeto_cancelado_nao_e_bloqueado(tres_professores, aluno):
+    """ACHADO C4 da auditoria (2026-09-22): `_possui_projeto_ativo` excluía
+    só `[CONCLUIDO, REPROVADO]` — uma lista solta que ficou desatualizada
+    quando `CANCELADO` entrou no `UniqueConstraint`
+    "projeto_ativo_unico_por_aluno_e_etapa" (migração 0004). Um aluno com
+    projeto `CANCELADO` (reprovado e depois cancelado definitivamente pelo
+    orientador, `services.cancelar_projeto`) era lido como se ainda tivesse
+    uma orientação ativa e ficava PERMANENTEMENTE travado fora do fluxo de
+    candidatura — mesmo o banco já permitindo. Prova por mutação: reverter
+    `_possui_projeto_ativo` para `.exclude(status__in=[Projeto.CONCLUIDO,
+    Projeto.REPROVADO])` faz este teste reprovar com `ValidationError`."""
+    projeto = services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
+    projeto.status = Projeto.CANCELADO
+    projeto.save(update_fields=["status"])
+
+    candidatura = services.registrar_candidatura(aluno, [(tres_professores[1], None)])
+
+    assert candidatura.status == Candidatura.EM_CURSO
+
+
+@pytest.mark.django_db
 def test_registrar_converte_erro_de_integridade_do_banco_em_validationerror(
     monkeypatch, tres_professores, aluno
 ):

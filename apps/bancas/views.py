@@ -83,10 +83,19 @@ def editar(request, banca_id):
 def cancelar(request, banca_id):
     """Cancela uma banca `AGENDADA` (Bloco D, spec §7) — sem tela própria,
     um `<form>` direto em `/orientacoes/`, mesmo padrão simples de
-    `desativar_tema`."""
+    `desativar_tema`.
+
+    `try/except` (achado H7 da auditoria): um duplo clique/reenvio chegava
+    a um `ValidationError` (banca já cancelada, ou projeto que já não está
+    aguardando defesa) sem tratamento nenhum — 500 numa ação que, da
+    primeira vez, já tinha funcionado."""
     banca = get_object_or_404(Banca, pk=banca_id, projeto__orientador=request.user)
-    services.cancelar_banca(banca, por=request.user)
-    messages.success(request, "Banca cancelada.")
+    try:
+        services.cancelar_banca(banca, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Banca cancelada.")
     return redirect("projetos:orientacoes")
 
 
@@ -128,11 +137,15 @@ def correcoes(request, projeto_id):
     if request.method == "POST":
         formulario = FormularioItemCorrecao(request.POST)
         if formulario.is_valid():
-            services.criar_item_correcao(
-                projeto, descricao=formulario.cleaned_data["descricao"], por=request.user
-            )
-            messages.success(request, "Item de correção criado.")
-            return redirect("bancas:correcoes", projeto_id=projeto.pk)
+            try:
+                services.criar_item_correcao(
+                    projeto, descricao=formulario.cleaned_data["descricao"], por=request.user
+                )
+            except ValidationError as erro:
+                formulario.add_error(None, erro.messages[0])
+            else:
+                messages.success(request, "Item de correção criado.")
+                return redirect("bancas:correcoes", projeto_id=projeto.pk)
     else:
         formulario = FormularioItemCorrecao()
 
@@ -147,8 +160,14 @@ def correcoes(request, projeto_id):
 @login_required
 @require_POST
 def concluir_item_view(request, item_id):
-    """Marca um item de correção como concluído (Bloco F, spec §7)."""
+    """Marca um item de correção como concluído (Bloco F, spec §7).
+
+    `try/except` (achado H7): mesma razão de `cancelar`, acima."""
     item = get_object_or_404(ItemCorrecao, pk=item_id, projeto__orientador=request.user)
-    services.concluir_item_correcao(item, por=request.user)
-    messages.success(request, "Item marcado como concluído.")
+    try:
+        services.concluir_item_correcao(item, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Item marcado como concluído.")
     return redirect("bancas:correcoes", projeto_id=item.projeto_id)

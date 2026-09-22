@@ -115,7 +115,8 @@
           Orientandos atuais
         </h2>
         <p class="mt-2 text-sm text-base-content/80">
-          Alunos que você orienta neste semestre, em TCC I ou TCC II.
+          Alunos que você orienta em TCC I ou TCC II — de qualquer semestre,
+          enquanto a orientação não chegar a um status final.
         </p>
 
         {% if orientandos %}
@@ -145,10 +146,24 @@
                      de `projeto.status` (Bloco E, spec §7).
                   3) APROVADO com ata DEVOLVIDA / 4) APROVADO sem pendência:
                      idem, comparação direta (Bloco E).
-                  5) `elif projeto.banca_ativa`: alcançado só por REPROVADO
-                     agora — os outros dois resultados de uma banca REALIZADA
-                     (Aprovado com Ressalvas, Aprovado) já foram capturados
-                     pelos ramos 2-4 acima antes de chegar aqui.
+                  5) `elif projeto.banca_ativa and projeto.status == "REPROVADO"`:
+                     ACHADO H-1 da re-auditoria (2026-09-22, regressão do
+                     próprio achado C1): `projeto.status == "REPROVADO"`
+                     precisa estar EXPLÍCITO aqui, não só implícito por
+                     eliminação — antes da correção de C1
+                     (`banca_ativa_unica_por_projeto` deixar de contar uma
+                     banca REALIZADA como ocupando a vaga), um projeto
+                     REABERTO (`reabrir_projeto`, EM_ANDAMENTO) nunca tinha
+                     `banca_ativa` truthy, porque a única banca não
+                     cancelada dele já tinha sido "gasta". Depois de C1, um
+                     projeto reaberto continua com `banca_ativa` apontando
+                     para a banca REALIZADA antiga (histórico, até uma
+                     banca nova ser agendada) — e SEM esta condição extra,
+                     este ramo capturava esse projeto reaberto também,
+                     mostrando de novo "Resultado da banca: Reprovado" e os
+                     botões Reabrir/Cancelar, em vez do link "Agendar
+                     banca" do último ramo — deixando o fix de C1
+                     inalcançável pela tela, mesmo funcionando no banco.
                 {% endcomment %}
                 {% if projeto.submissao %}
                   <p class="mt-1 text-sm">
@@ -201,7 +216,7 @@
                   </div>
                 {% elif projeto.status == "APROVADO" %}
                   <p class="mt-1 text-sm text-base-content/70">Aguardando revisão da SUGRAD.</p>
-                {% elif projeto.banca_ativa %}
+                {% elif projeto.banca_ativa and projeto.status == "REPROVADO" %}
                   <p class="mt-1 text-sm">
                     Resultado da banca: Reprovado — nota {{ projeto.banca_ativa.nota }}.
                     {{ projeto.banca_ativa.comentario }}
@@ -234,7 +249,7 @@
             faria uma seção vazia parecer a outra.
           {% endcomment %}
           <p class="mt-4 text-base-content/80">
-            Você ainda não tem orientandos em andamento neste semestre.
+            Você ainda não tem orientandos em andamento.
           </p>
         {% endif %}
       </section>
