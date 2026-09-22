@@ -1,7 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -38,6 +38,10 @@ def mural(request):
     """
     formulario = FormularioFiltroMural(request.GET or None)
     area = formulario.cleaned_data["area"] if formulario.is_valid() else None
+    # Filtro continua de UMA área por vez (FormularioFiltroMural.area é
+    # ModelChoiceField, não múltiplo escolha): `temas_do_mural` aceita esse
+    # único valor e casa contra `Tema.areas` (M2M) — mostra qualquer tema
+    # que INCLUA a área escolhida entre as suas, mesmo que tenha outras.
     temas = services.temas_do_mural(area=area)
     return render(request, "projetos/mural.html", {"formulario": formulario, "temas": temas})
 
@@ -66,32 +70,44 @@ def meus_temas(request):
             try:
                 services.criar_tema(
                     professor=professor,
-                    area=formulario.cleaned_data["area"],
+                    areas=formulario.cleaned_data["areas"],
                     titulo=formulario.cleaned_data["titulo"],
                     descricao=formulario.cleaned_data["descricao"],
                     por=request.user,
                 )
             except ValidationError as erro:
-                # Não alcançável por ESTA tela hoje: `FormularioTema.area` já
-                # restringe o `<select>` às áreas do professor
+                # Não alcançável por ESTA tela hoje: `FormularioTema.areas` já
+                # restringe o grupo de checkboxes às áreas do professor
                 # (`professor.areas.all()`), então uma área fora dessa lista
-                # é recusada antes, em `ModelChoiceField.to_python`, com a
+                # é recusada antes, em `ModelMultipleChoiceField.clean`, com a
                 # mensagem genérica do Django — nunca chega aqui (verificado
                 # rodando o teste, não só lendo o código; ver preocupação nº3
                 # do relatório da T6). Este `except` continua sendo a única
                 # reação correta se o queryset do widget for afrouxado depois
                 # (ex.: um bug que volte a `Area.objects.all()`), então fica.
-                formulario.add_error("area", erro.messages[0])
+                formulario.add_error("areas", erro.messages[0])
             else:
                 messages.success(request, "Tema cadastrado.")
                 return redirect("projetos:meus_temas")
     else:
         formulario = FormularioTema(professor=professor)
 
+    # `num_opcoes`/`num_projetos`: contagem de quem já cita este tema
+    # (`OpcaoCandidatura`/`Projeto`), pra template decidir se mostra o botão
+    # "Excluir" — pedido explícito do usuário ("um botão para deletar
+    # temas, só habilitado se o tema não está associado a nenhuma
+    # pessoa"). `distinct=True` nos DOIS `Count`: contar duas relações
+    # reversas diferentes na MESMA query faz um "fan-out" (join cruzado
+    # entre elas), inflando as contagens sem `distinct` — armadilha
+    # conhecida do Django com `annotate` múltiplo.
+    temas = professor.temas.prefetch_related("areas").annotate(
+        num_opcoes=Count("opcoes", distinct=True),
+        num_projetos=Count("projetos", distinct=True),
+    )
     return render(
         request,
         "projetos/meus_temas.html",
-        {"formulario": formulario, "temas": professor.temas.all()},
+        {"formulario": formulario, "temas": temas},
     )
 
 
@@ -133,6 +149,45 @@ def desativar_tema(request, tema_id):
 
 
 @login_required
+@require_POST
+def reativar_tema(request, tema_id):
+    """Reativa um tema do professor autenticado — espelha `desativar_tema`
+    acima, mesma ordem (portão de papel, depois lookup escopado ao
+    professor autenticado, tema alheio e inexistente indistinguíveis, os
+    dois 404)."""
+    permissions.garante(
+        permissions.pode_criar_tema(request.user), "Somente professores cadastram temas."
+    )
+    tema = get_object_or_404(Tema, pk=tema_id, professor=request.user.perfil_professor)
+    services.reativar_tema(tema, por=request.user)
+    messages.success(request, "Tema reativado.")
+    return redirect("projetos:meus_temas")
+
+
+@login_required
+@require_POST
+def deletar_tema(request, tema_id):
+    """Exclui definitivamente um tema do professor autenticado — mesma
+    ordem de `desativar_tema`/`reativar_tema`. `services.deletar_tema`
+    recusa (com `ValidationError`, convertida aqui numa mensagem de erro em
+    vez de deixar propagar) um tema que já tenha candidatura ou orientação
+    associada; a tela (`templates/projetos/meus_temas.html`) já esconde o
+    botão nesse caso, mas a recusa do serviço é a garantia de verdade — o
+    botão escondido é só uma conveniência de interface."""
+    permissions.garante(
+        permissions.pode_criar_tema(request.user), "Somente professores cadastram temas."
+    )
+    tema = get_object_or_404(Tema, pk=tema_id, professor=request.user.perfil_professor)
+    try:
+        services.deletar_tema(tema, por=request.user)
+    except ValidationError as erro:
+        messages.error(request, erro.messages[0])
+    else:
+        messages.success(request, "Tema excluído.")
+    return redirect("projetos:meus_temas")
+
+
+@login_required
 def editar_tema(request, tema_id):
     """Edita um tema do professor autenticado (acréscimo de escopo da
     rodada de correção 1 da T6: o spec exige edição em §2 e §6, e nenhuma
@@ -162,23 +217,27 @@ def editar_tema(request, tema_id):
             try:
                 services.editar_tema(
                     tema,
-                    area=formulario.cleaned_data["area"],
+                    areas=formulario.cleaned_data["areas"],
                     titulo=formulario.cleaned_data["titulo"],
                     descricao=formulario.cleaned_data["descricao"],
                     por=request.user,
                 )
             except ValidationError as erro:
                 # Mesma ressalva de `meus_temas`: não alcançável por esta
-                # tela hoje, porque `FormularioTema.area` já restringe o
-                # `<select>` às áreas do professor — fica como a reação
-                # correta se essa restrição for afrouxada depois.
-                formulario.add_error("area", erro.messages[0])
+                # tela hoje, porque `FormularioTema.areas` já restringe o
+                # grupo de checkboxes às áreas do professor — fica como a
+                # reação correta se essa restrição for afrouxada depois.
+                formulario.add_error("areas", erro.messages[0])
             else:
                 messages.success(request, "Tema atualizado.")
                 return redirect("projetos:meus_temas")
     else:
         formulario = FormularioTema(
-            initial={"titulo": tema.titulo, "descricao": tema.descricao, "area": tema.area},
+            initial={
+                "titulo": tema.titulo,
+                "descricao": tema.descricao,
+                "areas": tema.areas.all(),
+            },
             professor=professor,
         )
 
@@ -223,6 +282,15 @@ def orientacoes(request):
     campo "justificativa" se repetiria a cada `<li>` da lista, e o
     `<label for=...>` do parcial `contas/_campo.html` apontaria para mais de
     um controle.
+
+    `formulario_orientacao` (acréscimo posterior, pedido explícito do
+    usuário — "mesmo padrão... lista à esquerda, adicionar à direita"):
+    instancia vazio aqui só pra desenhar o formulário embutido na coluna da
+    direita do template; o POST de verdade continua batendo em
+    `criar_orientacao_manual_view` (`action="{% url
+    'projetos:criar_orientacao_manual' %}"`), que já existe e já redireciona
+    de volta pra cá no sucesso — nenhuma lógica nova de submissão aqui,
+    só o GET que monta a tela.
     """
     permissions.garante(
         permissions.pode_criar_tema(request.user),
@@ -243,7 +311,13 @@ def orientacoes(request):
     for projeto in orientandos:
         projeto.ata_ativa = projeto.atas.select_related("revisao").order_by("-gerada_em").first()
     return render(
-        request, "projetos/orientacoes.html", {"itens": itens, "orientandos": orientandos}
+        request,
+        "projetos/orientacoes.html",
+        {
+            "itens": itens,
+            "orientandos": orientandos,
+            "formulario_orientacao": FormularioCriarOrientacaoManual(professor=professor),
+        },
     )
 
 

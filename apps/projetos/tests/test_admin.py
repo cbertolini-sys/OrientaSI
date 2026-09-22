@@ -49,8 +49,9 @@ def test_admin_nao_permite_trocar_o_professor_na_edicao_de_um_tema(
     client, superusuario, professor, professor2, area
 ):
     tema = Tema.objects.create(
-        professor=professor, area=area, titulo="Título original", descricao="Descrição original."
+        professor=professor, titulo="Título original", descricao="Descrição original."
     )
+    tema.areas.set([area])
     client.force_login(superusuario)
 
     url = reverse("admin:projetos_tema_change", args=[tema.pk])
@@ -58,7 +59,7 @@ def test_admin_nao_permite_trocar_o_professor_na_edicao_de_um_tema(
         url,
         {
             "professor": professor2.pk,
-            "area": area.pk,
+            "areas": [area.pk],
             "titulo": "Título alterado",
             "descricao": tema.descricao,
             "ativo": "on",
@@ -89,7 +90,7 @@ def test_admin_permite_escolher_o_professor_na_criacao_de_um_tema(
         url,
         {
             "professor": professor.pk,
-            "area": area.pk,
+            "areas": [area.pk],
             "titulo": "Tema novo",
             "descricao": "Descrição do tema novo.",
             "ativo": "on",

@@ -14,13 +14,21 @@ from apps.projetos.models import Projeto, Tema
 class FormularioTema(MisturaAcessibilidadeFormulario, forms.Form):
     """Formulário de cadastro de tema (T6, painel `projetos:meus_temas`).
 
-    `area` nasce com queryset vazio: a view passa `professor=` no
-    construtor, e só então o campo é restrito às áreas que ESSE professor
-    declarou em `PerfilProfessor.areas` (T6, Tarefa 10 do Bloco A). Sem essa
-    restrição por instância, o campo listaria toda `Area` do sistema, e o
-    mural (Tarefa 7) anunciaria um tema numa área em que o professor não
-    afirma atuar — `services.criar_tema` recusa isso de qualquer forma, mas
-    o formulário já evita oferecer a opção errada.
+    `areas` (M2M — acréscimo posterior, pedido explícito do usuário: "o que
+    deveria estar em área é selecionar uma ou várias subáreas") nasce com
+    queryset vazio: a view passa `professor=` no construtor, e só então o
+    campo é restrito às subáreas que ESSE professor declarou em
+    `PerfilProfessor.areas` (T6, Tarefa 10 do Bloco A). Sem essa restrição
+    por instância, o campo listaria toda `Area` do sistema, e o mural
+    (Tarefa 7) anunciaria um tema numa área em que o professor não afirma
+    atuar — `services.criar_tema`/`editar_tema` recusam isso de qualquer
+    forma, mas o formulário já evita oferecer a opção errada.
+
+    `CheckboxSelectMultiple`: mesmo widget de `FormularioPerfilProfessor.areas`
+    (`apps/contas/forms.py`) — o parcial `contas/_campo.html` já sabe
+    envolver um campo de múltipla escolha num `<fieldset>`/`<legend>`
+    (`allow_multiple_selected`), sem precisar de nenhum ajuste de template
+    aqui.
 
     Reusa `MisturaAcessibilidadeFormulario` (apps/contas/forms.py) para a
     mesma ligação de `aria-describedby`/`aria-invalid` que os demais
@@ -32,16 +40,25 @@ class FormularioTema(MisturaAcessibilidadeFormulario, forms.Form):
         label="Descrição",
         widget=forms.Textarea(attrs={"class": "textarea w-full"}),
     )
-    area = forms.ModelChoiceField(
-        label="Área",
+    areas = forms.ModelMultipleChoiceField(
+        label="Áreas",
         queryset=Area.objects.none(),
-        widget=forms.Select(attrs={"class": "select w-full"}),
+        # `attrs={"class": ...}`: sem isso, `contas/_campo.html` renderizava
+        # cada opção como um checkbox NATIVO sem nenhum estilo do DaisyUI —
+        # "muito grande e feio" (achado do usuário), porque a regra global
+        # de alvo de toque (`min-height/min-width: 2.75rem`,
+        # static/css/entrada.css) força 44px em QUALQUER `input`, e um
+        # checkbox de navegador sem estilo nesse tamanho fica visualmente
+        # bruto. `.checkbox` do DaisyUI desenha o mesmo tamanho de forma
+        # bonita (caixa preenchida + marca de visto), em vez do quadrado
+        # nu do navegador.
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "checkbox checkbox-primary"}),
     )
 
     def __init__(self, *args, professor=None, **kwargs):
         super().__init__(*args, **kwargs)
         if professor is not None:
-            self.fields["area"].queryset = professor.areas.all()
+            self.fields["areas"].queryset = professor.areas.all()
 
 
 class FormularioRecusaOpcao(MisturaAcessibilidadeFormulario, forms.Form):

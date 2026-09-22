@@ -400,11 +400,21 @@ def test_orientacoes_lista_as_pendentes_do_professor_autenticado(
 def test_orientacoes_nao_lista_pendente_de_outro_professor(
     client, candidatura_em_curso, tres_professores
 ):
+    """`not in html` sozinho quebrou nesta revisão (achado): a coluna da
+    direita da tela ganhou um formulário embutido de "Criar nova orientação"
+    (pedido explícito do usuário) cujo campo "Aluno" lista TODO `PerfilAluno`
+    do sistema, de propósito — a criação manual serve justamente para um
+    aluno que ainda não é orientando de ninguém aqui. O nome do aluno de
+    OUTRO professor aparece ali como `<option>`, legitimamente. A checagem
+    precisa ser específica do cartão da fila (`<p class="font-medium">...`,
+    o mesmo marcador de `templates/projetos/orientacoes.html`), não da
+    página inteira."""
     client.force_login(tres_professores[1].usuario)
 
     html = client.get(reverse("projetos:orientacoes")).content.decode()
 
-    assert candidatura_em_curso.aluno.usuario.nome_completo not in html
+    nome = candidatura_em_curso.aluno.usuario.nome_completo
+    assert f'<p class="font-medium">{nome}</p>' not in html
 
 
 @pytest.mark.django_db
@@ -645,12 +655,18 @@ def test_orientacoes_mostra_estado_vazio_de_orientandos_distinto_do_da_fila(
 
 @pytest.mark.django_db
 def test_orientacoes_nao_mostra_orientando_de_outro_professor(client, tres_professores, aluno):
+    """Mesmo achado de `test_orientacoes_nao_lista_pendente_de_outro_professor`,
+    acima: `not in html` sozinho quebra desde que a coluna da direita ganhou
+    o formulário embutido "Criar nova orientação", cujo `<select>` de Aluno
+    lista todo `PerfilAluno` do sistema por design. A checagem precisa mirar
+    o cartão de "Orientandos atuais" especificamente."""
     services.criar_projeto_sob_limite(aluno, tres_professores[0], None, Projeto.TCC_I)
     client.force_login(tres_professores[1].usuario)
 
     html = client.get(reverse("projetos:orientacoes")).content.decode()
 
-    assert aluno.usuario.nome_completo not in html
+    nome = aluno.usuario.nome_completo
+    assert f'<p class="font-medium">{nome}</p>' not in html
 
 
 # --------------------------------------------------------------------------

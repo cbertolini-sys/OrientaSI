@@ -54,6 +54,23 @@ def pode_editar_tema(usuario, tema):
     return _e_o_dono(usuario, tema.professor)
 
 
+def pode_reativar_tema(usuario, tema):
+    """Mesma regra de posse de `pode_desativar_tema` — acréscimo posterior,
+    pedido explícito do usuário: reativar é o inverso simétrico de
+    desativar, então a mesma pessoa que pode tirar o tema do mural pode
+    devolvê-lo."""
+    return _e_o_dono(usuario, tema.professor)
+
+
+def pode_deletar_tema(usuario, tema):
+    """Mesma regra de posse — acréscimo posterior, pedido explícito do
+    usuário: "um botão para deletar temas". A elegibilidade em si (o tema
+    não pode ter nenhuma pessoa associada) é regra de NEGÓCIO, não de
+    PERMISSÃO — mora em `services.deletar_tema` (CLAUDE.md §4), não aqui:
+    esta função só responde "é o dono?", a mesma pergunta de sempre."""
+    return _e_o_dono(usuario, tema.professor)
+
+
 def pode_montar_candidatura(usuario):
     """Só quem tem `PerfilAluno` monta, acompanha ou cancela uma candidatura
     de orientação (T11, spec §6 — "/candidatura/ | aluno | montar, acompanhar

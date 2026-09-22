@@ -294,10 +294,10 @@ def test_registrar_tema_que_nao_pertence_ao_professor_da_opcao_e_recusado(
     ANTES de chegar lá."""
     tema_do_professor_2 = Tema.objects.create(
         professor=tres_professores[1],
-        area=area,
         titulo="Tema do professor 2",
         descricao="Descrição.",
     )
+    tema_do_professor_2.areas.set([area])
 
     with pytest.raises(ValidationError) as excinfo:
         services.registrar_candidatura(aluno, [(tres_professores[0], tema_do_professor_2)])
@@ -343,11 +343,11 @@ def test_registrar_com_tema_desativado_e_recusado(tres_professores, aluno, area)
     `ativo` significa."""
     tema_desativado = Tema.objects.create(
         professor=tres_professores[0],
-        area=area,
         titulo="Tema desativado",
         descricao="Descrição.",
         ativo=False,
     )
+    tema_desativado.areas.set([area])
 
     with pytest.raises(ValidationError) as excinfo:
         services.registrar_candidatura(aluno, [(tres_professores[0], tema_desativado)])

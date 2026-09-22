@@ -53,9 +53,11 @@ def area(db):
 
 @pytest.fixture
 def tema(professor, area):
-    return Tema.objects.create(
-        professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."
+    tema = Tema.objects.create(
+        professor=professor, titulo="Tema", descricao="Descrição do tema."
     )
+    tema.areas.set([area])
+    return tema
 
 
 def _cria_perfil_aluno(indice):
@@ -285,3 +287,43 @@ def test_criar_projeto_sob_limite_converte_erro_de_integridade_em_validationerro
     # Continua existindo exatamente UM Projeto ativo do aluno nesta etapa —
     # a tentativa recusada não deixou lixo parcial para trás.
     assert Projeto.objects.filter(aluno=perfil_aluno.usuario, etapa=Projeto.TCC_I).count() == 1
+
+
+@pytest.mark.django_db
+def test_mesmo_tema_aceita_mais_de_um_aluno(professor, tema):
+    """Decisão explícita do usuário: "o mesmo tema poderá ser associado a
+    mais de um aluno". NÃO existe teto por tema — o único limite é o do
+    PROFESSOR (aqui, 2 de 3 ocupadas ao final, ainda com folga).
+
+    Este teste PINA essa decisão: uma tentativa anterior de `Tema.vagas`
+    (teto por tema) foi revertida por confundir mais do que ajudar, e
+    reintroduzi-la derrubaria este teste em vez de passar despercebida."""
+    primeiro = services.criar_projeto_sob_limite(
+        _cria_perfil_aluno(60), professor, tema, Projeto.TCC_I
+    )
+    segundo = services.criar_projeto_sob_limite(
+        _cria_perfil_aluno(61), professor, tema, Projeto.TCC_I
+    )
+
+    assert primeiro.tema_id == tema.pk
+    assert segundo.tema_id == tema.pk
+    assert Projeto.objects.filter(tema=tema).count() == 2
+
+
+@pytest.mark.django_db
+def test_desativar_tema_permitido_mesmo_com_aluno_ja_associado(professor, tema):
+    """Outra metade da mesma decisão do usuário: o tema pode ser
+    "desativado pelo professor uma vez que algum aluno já tenha escolhido
+    ele". Desativar tira do mural sem apagar nada — o `Projeto` do aluno
+    continua de pé, intacto."""
+    projeto = services.criar_projeto_sob_limite(
+        _cria_perfil_aluno(62), professor, tema, Projeto.TCC_I
+    )
+
+    services.desativar_tema(tema, por=professor.usuario)
+
+    tema.refresh_from_db()
+    projeto.refresh_from_db()
+    assert tema.ativo is False
+    assert projeto.tema_id == tema.pk
+    assert projeto.status == Projeto.EM_ANDAMENTO

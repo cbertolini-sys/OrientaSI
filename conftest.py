@@ -327,17 +327,17 @@ def cria_professor_com_tema_para_rotas():
     perfil.areas.add(area)
     tema = Tema.objects.create(
         professor=perfil,
-        area=area,
         titulo="Tema das Rotas",
         descricao="Descrição do tema das rotas, para a tela de edição não ficar vazia.",
     )
-    Tema.objects.create(
+    tema.areas.set([area])
+    tema_inativo = Tema.objects.create(
         professor=perfil,
-        area=area,
         titulo="Tema Inativo das Rotas",
         descricao="Descrição do tema inativo das rotas, para o badge entrar na medição.",
         ativo=False,
     )
+    tema_inativo.areas.set([area])
     usuario.tema_id_para_rota = tema.pk
     return usuario
 
@@ -393,12 +393,12 @@ def cria_aluno_com_mural_para_rotas():
         siape="1000003",
     )
     professor_com_vaga.areas.add(area)
-    Tema.objects.create(
+    tema_com_vaga = Tema.objects.create(
         professor=professor_com_vaga,
-        area=area,
         titulo="Tema Com Vaga das Rotas",
         descricao="Descrição do tema com vaga das rotas, para o badge-success entrar na medição.",
     )
+    tema_com_vaga.areas.set([area])
 
     professor_sem_vaga = PerfilProfessor.objects.create(
         usuario=Usuario.objects.create_user(
@@ -410,12 +410,12 @@ def cria_aluno_com_mural_para_rotas():
         siape="1000004",
     )
     professor_sem_vaga.areas.add(area)
-    Tema.objects.create(
+    tema_sem_vaga = Tema.objects.create(
         professor=professor_sem_vaga,
-        area=area,
         titulo="Tema Sem Vaga das Rotas",
         descricao="Descrição do tema sem vaga das rotas, para o badge-neutral entrar na medição.",
     )
+    tema_sem_vaga.areas.set([area])
     ano, periodo = semestre_vigente()
     cpfs_orientandos = ["22296296386", "23061728465", "23827160537"]
     for indice, cpf in enumerate(cpfs_orientandos):
@@ -483,10 +483,10 @@ def cria_professor_com_manifestacao_para_rotas():
     perfil.areas.add(area)
     tema = Tema.objects.create(
         professor=perfil,
-        area=area,
         titulo="Tema das Orientações das Rotas",
         descricao="Descrição do tema das orientações das rotas.",
     )
+    tema.areas.set([area])
 
     ano, periodo = semestre_vigente()
     agora = timezone.now()
@@ -594,12 +594,12 @@ def cria_aluno_sem_candidatura_para_rotas():
         siape="1000006",
     )
     professor.areas.add(area)
-    Tema.objects.create(
+    tema = Tema.objects.create(
         professor=professor,
-        area=area,
         titulo="Tema da Candidatura das Rotas",
         descricao="Descrição do tema da candidatura das rotas.",
     )
+    tema.areas.set([area])
     return usuario
 
 
@@ -646,10 +646,10 @@ def cria_aluno_com_candidatura_para_rotas():
 
     tema_recusado = Tema.objects.create(
         professor=professores[0],
-        area=area,
         titulo="Tema Recusado da Candidatura das Rotas",
         descricao="Descrição do tema recusado da candidatura das rotas.",
     )
+    tema_recusado.areas.set([area])
 
     ano, periodo = semestre_vigente()
     agora = timezone.now()
@@ -775,10 +775,10 @@ def cria_coordenador_com_painel_orientacoes_para_rotas():
     professor2.areas.add(area)
     tema = Tema.objects.create(
         professor=professor1,
-        area=area,
         titulo="Tema do Painel de Orientações das Rotas",
         descricao="Descrição do tema do painel de orientações das rotas.",
     )
+    tema.areas.set([area])
 
     ano, periodo = semestre_vigente()
     aluno1 = Usuario.objects.create_user(
@@ -1068,10 +1068,10 @@ def cria_projeto_catalogavel_para_rotas():
     area = Area.objects.create(nome="Área Catálogo das Rotas")
     tema = Tema.objects.create(
         professor=perfil_orientador,
-        area=area,
         titulo="Tema Catálogo das Rotas",
         descricao="Descrição do tema catalogado.",
     )
+    tema.areas.set([area])
     projeto = Projeto.objects.create(
         aluno=aluno,
         orientador=orientador,

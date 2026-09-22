@@ -55,7 +55,8 @@
               <div>
                 <p class="font-medium">{{ tema.titulo }}</p>
                 <p class="text-sm text-base-content/80">
-                  {{ tema.area.nome }} — {{ tema.professor.usuario.nome_completo }}
+                  {% for area in tema.areas.all %}{{ area.nome }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                  — {{ tema.professor.usuario.nome_completo }}
                 </p>
                 <p class="mt-2">{{ tema.descricao }}</p>
               </div>

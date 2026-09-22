@@ -22,16 +22,28 @@ class Tema(models.Model):
         related_name="temas",
         verbose_name="professor",
     )
-    area = models.ForeignKey(
+    # M2M, não FK (acréscimo posterior, pedido explícito do usuário: "área"
+    # deveria deixar selecionar uma ou várias subáreas). Sem `on_delete`
+    # (não existe pra M2M) — apagar uma `Area` só remove a linha de junção,
+    # nunca o `Tema`; `PROTECT` na FK antiga não tinha equivalente aqui
+    # porque nada mais depende de uma área específica do tema continuar
+    # existindo (ao contrário de `professor`, que `OpcaoCandidatura`/
+    # `Projeto` referenciam via o próprio `Tema`, não via a área dele).
+    areas = models.ManyToManyField(
         Area,
-        on_delete=models.PROTECT,
         related_name="temas",
-        verbose_name="área",
+        verbose_name="áreas",
     )
     titulo = models.CharField("título", max_length=200)
     descricao = models.TextField("descrição")
+    # SEM teto de vagas POR TEMA (decisão explícita do usuário, revertendo
+    # uma tentativa anterior de `Tema.vagas`): o mesmo tema pode ser
+    # associado a mais de um aluno livremente — quem limita é só o teto do
+    # PROFESSOR (`LIMITE_PADRAO_VAGAS`/`LimiteOrientacao`, `services.py`).
+    # Um segundo teto, por tema, confundia mais do que ajudava.
     # Desativar tira o tema do mural sem apagar histórico: candidaturas que já
-    # apontam para ele continuam legíveis (spec §4.1).
+    # apontam para ele continuam legíveis (spec §4.1) — e continua permitido
+    # mesmo depois de algum aluno já ter escolhido o tema.
     ativo = models.BooleanField("ativo", default=True)
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 

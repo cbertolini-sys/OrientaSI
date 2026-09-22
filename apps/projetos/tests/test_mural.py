@@ -64,13 +64,14 @@ def _cria_aluno(indice, nome):
 
 
 def _cria_tema(professor, area, titulo, ativo=True):
-    return Tema.objects.create(
+    tema = Tema.objects.create(
         professor=professor,
-        area=area,
         titulo=titulo,
         descricao=f"Descrição de {titulo}.",
         ativo=ativo,
     )
+    tema.areas.set([area])
+    return tema
 
 
 def _cria_projeto_tcc1(aluno_usuario, professor):

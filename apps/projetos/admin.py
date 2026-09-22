@@ -12,10 +12,17 @@ from apps.projetos.models import (
 
 @admin.register(Tema)
 class TemaAdmin(admin.ModelAdmin):
-    list_display = ["titulo", "professor", "area", "ativo", "criado_em"]
-    list_filter = ["ativo", "area"]
+    # `areas` é M2M — não cabe direto em `list_display` (o Django recusa um
+    # ManyToManyField ali, `SystemCheckError`), daí o método
+    # `areas_display` abaixo. `list_filter` aceita M2M normalmente.
+    list_display = ["titulo", "professor", "areas_display", "ativo", "criado_em"]
+    list_filter = ["ativo", "areas"]
     search_fields = ["titulo", "descricao", "professor__usuario__nome_completo"]
     readonly_fields = ["criado_em"]
+
+    @admin.display(description="áreas")
+    def areas_display(self, tema):
+        return ", ".join(area.nome for area in tema.areas.all())
 
     def get_readonly_fields(self, request, obj=None):
         # Trocar o professor de um Tema já existente deixaria, em silêncio,

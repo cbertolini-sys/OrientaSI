@@ -46,9 +46,11 @@ def _aluno(indice, nome):
 
 def _tema(indice, professor, titulo="Tema TCC II de Teste"):
     area = Area.objects.create(nome=f"Área TCC II {indice}")
-    return Tema.objects.create(
-        professor=professor, area=area, titulo=titulo, descricao="Descrição de teste."
+    tema = Tema.objects.create(
+        professor=professor, titulo=titulo, descricao="Descrição de teste."
     )
+    tema.areas.set([area])
+    return tema
 
 
 @pytest.fixture
@@ -251,7 +253,9 @@ def test_criar_tcc_i_manual_cria_orientacao():
     orientador = _professor(80, "Orientador Manual TCC I")
     aluno = _aluno(81, "Aluno Manual TCC I")
     tema = _tema(80, orientador)
-    tcc_i = services.criar_tcc_i_manual(aluno.perfil_aluno, orientador, tema, por=orientador.usuario)
+    tcc_i = services.criar_tcc_i_manual(
+        aluno.perfil_aluno, orientador, tema, por=orientador.usuario
+    )
     assert tcc_i.etapa == Projeto.TCC_I
     assert tcc_i.orientador_id == orientador.usuario_id
     assert tcc_i.tema_id == tema.id
@@ -297,7 +301,9 @@ def test_criar_tcc_i_manual_recusa_professor_no_limite():
         )
     aluno_novo = _aluno(92, "Aluno Manual TCC I Recusado")
     with pytest.raises(ValidationError):
-        services.criar_tcc_i_manual(aluno_novo.perfil_aluno, orientador, tema, por=orientador.usuario)
+        services.criar_tcc_i_manual(
+            aluno_novo.perfil_aluno, orientador, tema, por=orientador.usuario
+        )
 
 
 @pytest.mark.django_db

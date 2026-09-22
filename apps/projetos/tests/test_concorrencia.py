@@ -139,8 +139,9 @@ def test_duas_aceitacoes_simultaneas_no_ultimo_lugar_resultam_em_uma_recusa():
     area = Area.objects.create(nome="Área de Teste Padrão")
     professor = _cria_professor(0)
     tema = Tema.objects.create(
-        professor=professor, area=area, titulo="Tema", descricao="Descrição do tema."
+        professor=professor, titulo="Tema", descricao="Descrição do tema."
     )
+    tema.areas.set([area])
     # Duas vagas já ocupadas de três (LIMITE_PADRAO_VAGAS): resta exatamente
     # UMA vaga, e é essa vaga que as duas threads vão disputar. Precisam cair
     # no semestre VIGENTE (não num fixo) porque `criar_projeto_sob_limite`

@@ -176,6 +176,11 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
     mensagem aqui é outra de propósito (nomeia a etapa e fala com o
     professor, não com o aluno), porque quem lê esta é quem tentou aceitar,
     não quem tentou se candidatar.
+
+    SEM teto por TEMA, de propósito (decisão explícita do usuário, que
+    reverteu uma tentativa anterior de `Tema.vagas`): o MESMO tema pode ser
+    associado a mais de um aluno livremente. A única vaga disputada aqui é a
+    do PROFESSOR — é ela, e só ela, que a trava acima protege.
     """
     professor = PerfilProfessor.objects.select_for_update().get(pk=professor.pk)
     ano, periodo = semestre_vigente()
@@ -217,7 +222,7 @@ def criar_projeto_sob_limite(aluno, professor, tema, etapa):
 
 
 @transaction.atomic
-def criar_tema(professor, area, titulo, descricao, por):
+def criar_tema(professor, areas, titulo, descricao, por):
     """Cadastra um `Tema` oferecido por `professor` (T6, mural do Bloco B).
 
     `por` é quem está EXECUTANDO a ação, e precisa ser EXATAMENTE o
@@ -231,22 +236,40 @@ def criar_tema(professor, area, titulo, descricao, por):
     exatamente esse caso (achado da rodada de correção 1 da T6, reproduzido
     e fechado por `test_professor_nao_cria_tema_em_nome_de_outro`).
 
-    A área precisa estar entre as que `professor` declarou em
-    `PerfilProfessor.areas` — sem essa trava, o mural (Tarefa 7) anunciaria
-    um tema numa área em que o professor não afirma atuar. A mensagem nomeia
-    a área recusada, para a pessoa entender o que fazer (declarar a área no
-    perfil antes, ou escolher outra já declarada).
+    `areas` (M2M — acréscimo posterior, pedido explícito do usuário: "o que
+    deveria estar em área é selecionar uma ou várias subáreas") é um
+    iterável de `Area`, TODAS precisam estar entre as que `professor`
+    declarou em `PerfilProfessor.areas` — sem essa trava, o mural (Tarefa 7)
+    anunciaria um tema numa área em que o professor não afirma atuar. A
+    mensagem nomeia a(s) área(s) recusada(s), para a pessoa entender o que
+    fazer (declarar a área no perfil antes, ou escolher outra já
+    declarada). Uma única consulta (`values_list` em vez de um `.exists()`
+    por área) resolve as declaradas de uma vez, não N+1.
     """
     permissions.garante(
         permissions.pode_criar_tema_para(por, professor),
         "Você só pode cadastrar temas em seu próprio nome.",
     )
-    if not professor.areas.filter(pk=area.pk).exists():
+    areas = list(areas)
+    # `Tema.areas` é M2M: ao contrário da antiga FK `area` (NOT NULL, o
+    # banco recusava sozinho), um M2M aceita zero linhas sem reclamar — a
+    # trava "pelo menos uma área" precisa ser explícita aqui agora.
+    # `FormularioTema.areas` já é `required=True`, mas essa é só a UI; um
+    # chamador direto do serviço (ou um form afrouxado depois) precisa da
+    # mesma garantia.
+    if not areas:
+        raise ValidationError("Selecione ao menos uma área para o tema.")
+    declaradas = set(professor.areas.values_list("pk", flat=True))
+    nao_declaradas = [area for area in areas if area.pk not in declaradas]
+    if nao_declaradas:
+        nomes = ", ".join(f'"{area.nome}"' for area in nao_declaradas)
         raise ValidationError(
-            f'Você ainda não declarou atuar em "{area.nome}". Adicione essa área ao seu '
-            "perfil antes de publicar um tema nela."
+            f"Você ainda não declarou atuar em {nomes}. Adicione essa(s) área(s) ao "
+            "seu perfil antes de publicar um tema nela(s)."
         )
-    return Tema.objects.create(professor=professor, area=area, titulo=titulo, descricao=descricao)
+    tema = Tema.objects.create(professor=professor, titulo=titulo, descricao=descricao)
+    tema.areas.set(areas)
+    return tema
 
 
 @transaction.atomic
@@ -271,9 +294,63 @@ def desativar_tema(tema, por):
 
 
 @transaction.atomic
-def editar_tema(tema, area, titulo, descricao, por):
-    """Edita título, descrição e área de um `tema` já cadastrado (spec §2 e
-    §6: o professor "publica, edita e desativa os próprios temas" —
+def reativar_tema(tema, por):
+    """Reativa `tema` (`ativo = True`), devolvendo-o ao mural — inverso
+    simétrico de `desativar_tema`, acréscimo posterior pedido explícito do
+    usuário ("quando um tema fica inativo seria bom poder colocar ele como
+    ativo novamente"). Sem checagem de estado prévio (reativar um tema já
+    ativo é inofensivo, um no-op com `update_fields`), mesmo raciocínio de
+    `desativar_tema` não checar `ativo` antes de desligar."""
+    permissions.garante(
+        permissions.pode_reativar_tema(por, tema),
+        "Você só pode reativar temas que você mesmo cadastrou.",
+    )
+    tema.ativo = True
+    tema.save(update_fields=["ativo"])
+
+
+@transaction.atomic
+def deletar_tema(tema, por):
+    """Apaga `tema` DEFINITIVAMENTE — acréscimo posterior, pedido explícito
+    do usuário: "um botão para deletar temas (só habilitado se o tema não
+    está associado a nenhuma pessoa)". Diferente de `desativar_tema`
+    (`ativo=False`, preserva o registro): aqui a linha some do banco de
+    verdade, então só é seguro quando NINGUÉM depende dela.
+
+    "Associado a nenhuma pessoa" cobre as DUAS pontas que apontam um aluno
+    pro tema, não só uma:
+    - `OpcaoCandidatura.tema` (`related_name="opcoes"`) — QUALQUER
+      manifestação de interesse já registrada nele, mesmo recusada/cancelada
+      /expirada. Esse campo já é `on_delete=PROTECT` (apps/projetos/models.py)
+      — o banco recusaria o DELETE de qualquer jeito —, mas a checagem
+      aqui devolve uma `ValidationError` com mensagem legível ANTES de
+      tentar, em vez de deixar um `ProtectedError` cru estourar pra quem
+      chama (mesmo raciocínio de `criar_projeto_sob_limite` traduzindo
+      `IntegrityError` em `ValidationError`, acima).
+    - `Projeto.tema` (`related_name="projetos"`) — QUALQUER orientação (TCC
+      I ou II) que cita este tema como o seu. Esse campo é
+      `on_delete=SET_NULL` (não PROTECT): sem esta checagem própria, o
+      banco deixaria apagar o tema e simplesmente zeraria `Projeto.tema` em
+      silêncio — corrompendo, sem aviso a ninguém, a fonte de Título/Resumo
+      que o catálogo público (Bloco G) usa pra exibir esse TCC. A trava
+      aqui é o que fecha essa lacuna que o schema sozinho não fecha.
+    """
+    permissions.garante(
+        permissions.pode_deletar_tema(por, tema),
+        "Você só pode excluir temas que você mesmo cadastrou.",
+    )
+    if tema.opcoes.exists() or tema.projetos.exists():
+        raise ValidationError(
+            f'"{tema.titulo}" já tem aluno associado (candidatura ou orientação) e não '
+            "pode ser excluído. Desative-o, se quiser tirá-lo do mural sem apagar o histórico."
+        )
+    tema.delete()
+
+
+@transaction.atomic
+def editar_tema(tema, areas, titulo, descricao, por):
+    """Edita título, descrição e área(s) de um `tema` já cadastrado (spec §2
+    e §6: o professor "publica, edita e desativa os próprios temas" —
     acréscimo de escopo da rodada de correção 1 da T6; o plano original do
     Bloco B não tinha nenhuma tarefa que implementasse edição, e o spec é
     quem manda).
@@ -302,15 +379,24 @@ def editar_tema(tema, area, titulo, descricao, por):
         permissions.pode_editar_tema(por, tema),
         "Você só pode editar temas que você mesmo cadastrou.",
     )
-    if not tema.professor.areas.filter(pk=area.pk).exists():
+    areas = list(areas)
+    # Mesmo raciocínio de `criar_tema`, acima: `Tema.areas` é M2M, sem
+    # equivalente ao NOT NULL que a antiga FK `area` tinha — a trava "pelo
+    # menos uma área" precisa ser explícita aqui.
+    if not areas:
+        raise ValidationError("Selecione ao menos uma área para o tema.")
+    declaradas = set(tema.professor.areas.values_list("pk", flat=True))
+    nao_declaradas = [area for area in areas if area.pk not in declaradas]
+    if nao_declaradas:
+        nomes = ", ".join(f'"{area.nome}"' for area in nao_declaradas)
         raise ValidationError(
-            f'Você ainda não declarou atuar em "{area.nome}". Adicione essa área ao seu '
-            "perfil antes de publicar um tema nela."
+            f"Você ainda não declarou atuar em {nomes}. Adicione essa(s) área(s) ao "
+            "seu perfil antes de publicar um tema nela(s)."
         )
-    tema.area = area
     tema.titulo = titulo
     tema.descricao = descricao
-    tema.save(update_fields=["area", "titulo", "descricao"])
+    tema.save(update_fields=["titulo", "descricao"])
+    tema.areas.set(areas)
     return tema
 
 
@@ -347,6 +433,11 @@ def temas_do_mural(area=None):
     `Coalesce` cai para `LIMITE_PADRAO_VAGAS` — mesmo comportamento de
     `limite_do_professor`, sem chamá-la (chamá-la exigiria uma consulta por
     professor, o N+1 que este serviço existe para evitar).
+
+    Só o teto do PROFESSOR entra aqui — não existe teto por tema (decisão
+    explícita do usuário, que reverteu uma tentativa de `Tema.vagas`): o
+    mesmo tema pode ser escolhido por mais de um aluno, então o selo do
+    mural depende só de o professor ainda ter vaga.
     """
     ano, periodo = semestre_vigente()
     limite_concedido = LimiteOrientacao.objects.filter(
@@ -358,7 +449,8 @@ def temas_do_mural(area=None):
 
     qs = (
         Tema.objects.filter(ativo=True)
-        .select_related("professor__usuario", "area")
+        .select_related("professor__usuario")
+        .prefetch_related("areas")
         .annotate(
             vagas_ocupadas_do_professor=Count(
                 "professor__usuario__projetos_orientados",
@@ -381,7 +473,7 @@ def temas_do_mural(area=None):
         )
     )
     if area is not None:
-        qs = qs.filter(area=area)
+        qs = qs.filter(areas=area)
     return qs
 
 
@@ -1446,8 +1538,6 @@ def criar_tcc_i_manual(aluno, professor, tema, por):
     transaction.on_commit(lambda: enviar_tcc_i_criado.delay(tcc_i.id))
 
     return tcc_i
-
-    return tcc_ii
 
 
 def assinar_termo_publicacao(projeto, por):

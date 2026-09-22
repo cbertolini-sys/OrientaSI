@@ -75,15 +75,16 @@ def tres_professores(area):
 
 @pytest.fixture
 def tres_temas(area, tres_professores):
-    return [
-        Tema.objects.create(
+    temas = []
+    for indice, professor in enumerate(tres_professores, start=1):
+        tema = Tema.objects.create(
             professor=professor,
-            area=area,
             titulo=f"Tema Tela {indice}",
             descricao=f"Descrição do tema tela {indice}.",
         )
-        for indice, professor in enumerate(tres_professores, start=1)
-    ]
+        tema.areas.set([area])
+        temas.append(tema)
+    return temas
 
 
 @pytest.fixture
@@ -198,11 +199,11 @@ def test_candidatura_mostra_formulario_quando_nao_ha_candidatura_em_curso(
 def test_candidatura_so_lista_temas_ativos_no_formulario(client, aluno, tres_temas):
     tema_inativo = Tema.objects.create(
         professor=tres_temas[0].professor,
-        area=tres_temas[0].area,
         titulo="Tema Tela Inativo",
         descricao="Descrição do tema inativo.",
         ativo=False,
     )
+    tema_inativo.areas.set(tres_temas[0].areas.all())
     client.force_login(aluno.usuario)
 
     html = client.get(reverse("projetos:candidatura")).content.decode()
@@ -404,10 +405,10 @@ def test_candidatura_com_professor_repetido_e_recusada_pelo_formulario(
     chegar em `services.registrar_candidatura`."""
     segundo_tema_do_professor_1 = Tema.objects.create(
         professor=tres_professores[0],
-        area=area,
         titulo="Segundo Tema do Professor 1",
         descricao="Outro tema do mesmo professor.",
     )
+    segundo_tema_do_professor_1.areas.set([area])
     client.force_login(aluno.usuario)
 
     resposta = client.post(
@@ -462,11 +463,11 @@ def test_candidatura_com_tema_inativo_e_recusada_pelo_formulario_nao_pelo_servic
     versão anterior (só status/ausência de candidatura) continuava passando."""
     tema_inativo = Tema.objects.create(
         professor=tres_temas[0].professor,
-        area=tres_temas[0].area,
         titulo="Tema Tela Inativo Submetido",
         descricao="Descrição.",
         ativo=False,
     )
+    tema_inativo.areas.set(tres_temas[0].areas.all())
     client.force_login(aluno.usuario)
 
     resposta = client.post(reverse("projetos:candidatura"), {"opcao_1": tema_inativo.pk})

@@ -42,7 +42,33 @@
   {% endcomment %}
   <fieldset class="flex flex-col gap-1">
     <legend class="font-medium text-base-content">{{ campo.label }}</legend>
-    {{ campo }}
+    {% comment %}
+      Itera `{% for opcao in campo %}` (subwidgets do BoundField — API
+      pública do Django para widgets de múltipla escolha) em vez de
+      `{{ campo }}` de uma vez: o parcial genérico de campo simples
+      (`{{ campo }}`, ramo `{% else %}` abaixo) delega tudo ao Django, mas
+      `CheckboxSelectMultiple` sozinho não alinha a caixa e o rótulo numa
+      linha compacta nem estiliza a caixa — achado do usuário ("layout dos
+      checkbox é muito grande... preciso algo simples, bonito e alinhado na
+      linha"). O `<label>` envolvendo `{{ opcao.tag }}` já associa rótulo e
+      controle sem precisar de `id_for_label`/`for` explícitos.
+
+      A caixa em si continua com 44px reais (`min-height/min-width: 2.75rem`,
+      static/css/entrada.css, aplicado a QUALQUER `input`) — o alvo de toque
+      mínimo do WCAG 2.5.5 não muda; só o ESPAÇAMENTO ao redor de cada linha
+      encolheu (`py-1`, não um cartão cheio), e a classe `.checkbox` do
+      widget (definida no formulário, não aqui — ver `FormularioTema.areas`)
+      dá a ela a aparência preenchida do DaisyUI em vez do quadrado nu do
+      navegador.
+    {% endcomment %}
+    <div class="flex flex-col gap-1">
+      {% for opcao in campo %}
+        <label class="flex items-center gap-3 py-1 text-sm text-base-content">
+          {{ opcao.tag }}
+          <span>{{ opcao.choice_label }}</span>
+        </label>
+      {% endfor %}
+    </div>
     {% if campo.help_text %}
       {% comment %}
         `<div>`, não `<p>`: mesmo motivo do ramo do campo simples logo

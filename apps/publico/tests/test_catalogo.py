@@ -58,10 +58,10 @@ def _projeto_catalogavel(
     if com_tema:
         tema = Tema.objects.create(
             professor=perfil_orientador,
-            area=tema_area,
             titulo=f"Título do TCC {indice}",
             descricao=f"Resumo do TCC {indice}.",
         )
+        tema.areas.set([tema_area])
     projeto = Projeto.objects.create(
         aluno=aluno,
         orientador=orientador,

@@ -59,37 +59,50 @@ def professor2(db):
 
 @pytest.fixture
 def tema(professor, area):
-    return Tema.objects.create(
+    tema = Tema.objects.create(
         professor=professor,
-        area=area,
         titulo="Tema do professor",
         descricao="Descrição do tema.",
     )
+    tema.areas.set([area])
+    return tema
 
 
 @pytest.fixture
 def tema_de_outro_professor(professor2, area):
-    return Tema.objects.create(
+    tema = Tema.objects.create(
         professor=professor2,
-        area=area,
         titulo="Tema de outro professor",
         descricao="Descrição de outro tema.",
     )
+    tema.areas.set([area])
+    return tema
 
 
 @pytest.mark.django_db
 def test_tema_exige_professor(area):
     with pytest.raises(IntegrityError), transaction.atomic():
-        Tema.objects.create(
-            professor=None, area=area, titulo="Título", descricao="Descrição do tema."
-        )
+        Tema.objects.create(professor=None, titulo="Título", descricao="Descrição do tema.")
 
 
 @pytest.mark.django_db
-def test_tema_exige_area(professor):
-    with pytest.raises(IntegrityError), transaction.atomic():
-        Tema.objects.create(
-            professor=professor, area=None, titulo="Título", descricao="Descrição do tema."
+def test_criar_tema_exige_ao_menos_uma_area(professor):
+    """`Tema.areas` é M2M — o banco não recusa mais um `Tema` sem nenhuma
+    área sozinho (não há equivalente a NOT NULL para M2M); a trava virou
+    responsabilidade do serviço (`services.criar_tema`), não mais do
+    model/banco. SUBSTITUI `test_tema_exige_area` (que testava a extinta FK
+    `area`, sempre presente antes desta migração)."""
+    from django.core.exceptions import ValidationError
+
+    from apps.projetos import services
+
+    with pytest.raises(ValidationError):
+        services.criar_tema(
+            professor=professor,
+            areas=[],
+            titulo="Título",
+            descricao="Descrição do tema.",
+            por=professor.usuario,
         )
 
 

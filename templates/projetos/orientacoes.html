@@ -3,222 +3,264 @@
 {% block titulo %} — Minhas orientações{% endblock %}
 
 {% block conteudo %}
-  <article class="mx-auto max-w-3xl rounded-box bg-base-100 p-6 shadow-sm">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <h1 class="font-display text-2xl font-bold text-primary">Minhas orientações</h1>
+  <h1 class="font-display text-2xl font-bold text-primary">Minhas orientações</h1>
+
+  {% comment %}
+    Duas colunas, mesmo padrão de contas/painel_coordenacao.html,
+    projetos/painel_orientacoes.html e projetos/meus_temas.html (pedido
+    explícito do usuário): as duas listas de acompanhamento (Manifestações
+    pendentes, Orientandos atuais) à esquerda; "Criar nova orientação" — a
+    única ação que não é sobre algo já existente na lista — à direita, como
+    formulário embutido em vez de só um link pra outra tela.
+
+    O formulário aqui é o MESMO `FormularioCriarOrientacaoManual` de
+    `templates/projetos/criar_orientacao.html`, só desenhado nesta página; o
+    POST continua batendo em `criar_orientacao_manual_view`
+    (`views.orientacoes` só monta uma instância vazia pro GET). Sucesso
+    redireciona de volta pra `/orientacoes/` (já era o comportamento); um
+    erro de validação leva à tela dedicada `/orientacoes/criar/`, que exibe
+    o mesmo formulário com os erros — não fica preso nesta página, mas
+    também não se perde: o professor só vê a tela de criação com o problema
+    apontado, em vez de voltar para uma "Minhas orientações" sem nenhum
+    sinal do que falhou.
+
+    `min-w-0` nos dois filhos diretos do grid, desde já (mesmo achado de
+    painel_coordenacao.html): item de grid nasce com `min-width: auto`, e
+    conteúdo sem quebra (nome comprido, título de tema) força rolagem
+    horizontal a 360px sem essa classe.
+  {% endcomment %}
+  <div class="mt-6 grid gap-6 lg:grid-cols-[3fr_2fr] lg:items-start">
+    <div class="flex min-w-0 flex-col gap-6">
+      <section aria-labelledby="titulo-pendentes" class="rounded-box bg-base-100 p-6 shadow-sm">
+        <h2 id="titulo-pendentes" class="font-display text-xl font-bold text-primary">
+          Manifestações pendentes
+        </h2>
+        <p class="mt-2">
+          Manifestações de interesse aguardando sua resposta. Aceitar cria o projeto de
+          orientação; recusar exige uma justificativa, que é enviada ao aluno.
+        </p>
+
+        {% if itens %}
+          <ul class="mt-4 space-y-6">
+            {% for item in itens %}
+              {% with opcao=item.opcao %}
+                <li class="rounded-box border border-base-300 p-4">
+                  <p class="font-medium">{{ opcao.candidatura.aluno.usuario.nome_completo }}</p>
+                  <p class="text-sm text-base-content/80">
+                    {% if opcao.tema %}
+                      Tema: {{ opcao.tema.titulo }}
+                    {% else %}
+                      Sem tema específico — orientação em aberto
+                    {% endif %}
+                  </p>
+                  <p class="text-sm text-base-content/80">
+                    Prazo para responder: {{ opcao.prazo }}
+                  </p>
+
+                  <div class="mt-4 flex flex-wrap items-start gap-6">
+                    <form method="post" action="{% url 'projetos:aceitar_opcao' opcao.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-primary">
+                        Aceitar
+                        <span class="sr-only"> manifestação de {{ opcao.candidatura.aluno.usuario.nome_completo }}</span>
+                      </button>
+                    </form>
+
+                    <form
+                      method="post"
+                      action="{% url 'projetos:recusar_opcao' opcao.pk %}"
+                      class="w-full flex-1 space-y-2 sm:min-w-64"
+                    >
+                      {% comment %}
+                        M6 da rodada de correção 1: `min-w-64` sozinho (sem
+                        `w-full`) estourava o padding do cartão a 360px —
+                        o axe não acusa (não há rolagem horizontal de verdade,
+                        a régua oficial de test_responsivo.py aprova), mas o
+                        formulário encostava na borda do cartão. `w-full` deixa
+                        o formulário ocupar a largura disponível em qualquer
+                        viewport, e `sm:min-w-64` só impõe o mínimo de 16rem a
+                        partir do breakpoint onde sobra espaço ao lado do botão
+                        "Aceitar".
+                      {% endcomment %}
+                      {% csrf_token %}
+                      {% with campo=item.formulario_recusa.justificativa %}
+                        {% include "contas/_campo.html" with campo=campo %}
+                      {% endwith %}
+                      <button type="submit" class="btn btn-outline">
+                        Recusar
+                        <span class="sr-only"> manifestação de {{ opcao.candidatura.aluno.usuario.nome_completo }}</span>
+                      </button>
+                    </form>
+                  </div>
+                </li>
+              {% endwith %}
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="mt-4 text-base-content/80">Nenhuma manifestação aguardando sua resposta no momento.</p>
+        {% endif %}
+      </section>
+
       {% comment %}
-        Único ponto de entrada da UI pra `criar_orientacao_manual_view`
-        (antes só TCC II, `/temas/tcc-ii/criar/`, sem nenhum link em lugar
-        nenhum — achado desta revisão). "Criar nova orientação" porque a
-        tela deixa escolher a etapa (TCC I ou TCC II) dentro do formulário,
-        não um botão por etapa.
+        Acréscimo da rodada de correção 1 (spec §6: "/orientacoes/" mostra
+        "fila de manifestações e orientandos atuais" — nenhuma tarefa do plano
+        original implementava a segunda metade). Sem esta seção, a tela
+        mentia por omissão logo depois de um aceite: a manifestação aceita
+        some da fila acima, e "Nenhuma manifestação..." ficava parecendo a
+        única informação da página, mesmo para um professor com vários
+        orientandos.
       {% endcomment %}
-      <a href="{% url 'projetos:criar_orientacao_manual' %}" class="btn btn-outline btn-sm">
-        Criar nova orientação
-      </a>
+      <section aria-labelledby="titulo-orientandos" class="rounded-box bg-base-100 p-6 shadow-sm">
+        <h2 id="titulo-orientandos" class="font-display text-xl font-bold text-primary">
+          Orientandos atuais
+        </h2>
+        <p class="mt-2 text-sm text-base-content/80">
+          Alunos que você orienta neste semestre, em TCC I ou TCC II.
+        </p>
+
+        {% if orientandos %}
+          <ul class="mt-4 space-y-3">
+            {% for projeto in orientandos %}
+              <li class="rounded-box border border-base-300 p-4">
+                <p class="font-medium">{{ projeto.aluno.nome_completo }}</p>
+                <p class="mt-1 flex flex-wrap items-center gap-2 text-sm text-base-content/80">
+                  <span class="badge badge-neutral badge-sm">{{ projeto.get_etapa_display }}</span>
+                  <span class="badge badge-primary badge-sm">{{ projeto.get_status_display }}</span>
+                  {% if projeto.tema %}<span>{{ projeto.tema.titulo }}</span>{% endif %}
+                </p>
+                {% if projeto.coorientador or projeto.coorientador_externo %}
+                  <p class="text-sm text-base-content/80">
+                    Coorientador:
+                    {% if projeto.coorientador %}{{ projeto.coorientador.usuario.nome_completo }}{% else %}{{ projeto.coorientador_externo }} (externo){% endif %}
+                  </p>
+                {% endif %}
+                {% comment %}
+                  Ramos, nesta ordem — a ORDEM importa porque `banca_ativa` é
+                  truthy para REALIZADA de mais de um status (Bloco D+E):
+                  1) AGENDADA: `projeto.banca_ativa.status` como proxy (mesmo
+                     raciocínio de candidatura.html sobre preferir um campo
+                     mais específico a comparar a string de status).
+                  2) APROVADO_COM_RESSALVAS: sem proxy melhor disponível — a
+                     `Ata` só existe depois de `APROVADO` — comparação direta
+                     de `projeto.status` (Bloco E, spec §7).
+                  3) APROVADO com ata DEVOLVIDA / 4) APROVADO sem pendência:
+                     idem, comparação direta (Bloco E).
+                  5) `elif projeto.banca_ativa`: alcançado só por REPROVADO
+                     agora — os outros dois resultados de uma banca REALIZADA
+                     (Aprovado com Ressalvas, Aprovado) já foram capturados
+                     pelos ramos 2-4 acima antes de chegar aqui.
+                {% endcomment %}
+                {% if projeto.submissao %}
+                  <p class="mt-1 text-sm">
+                    <a href="{{ projeto.submissao.pdf.url }}" class="link">
+                      Ver PDF enviado (versão {{ projeto.submissao.versao }})
+                    </a>
+                  </p>
+                {% endif %}
+
+                {% if projeto.banca_ativa.status == "AGENDADA" %}
+                  <p class="mt-1 text-sm">
+                    Banca agendada: {{ projeto.banca_ativa.data_hora }} — {{ projeto.banca_ativa.local }}
+                  </p>
+                  <p class="text-sm text-base-content/80">
+                    Membros:
+                    {% for membro in projeto.banca_ativa.membros.all %}
+                      {% if membro.professor %}{{ membro.professor.usuario.nome_completo }}{% else %}{{ membro.nome_externo }} (externo){% endif %}{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                  </p>
+                  <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <a href="{% url 'bancas:editar' projeto.banca_ativa.pk %}" class="btn btn-outline btn-sm">Editar</a>
+                    <form method="post" action="{% url 'bancas:cancelar' projeto.banca_ativa.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-outline btn-sm">Cancelar</button>
+                    </form>
+                    <a href="{% url 'bancas:resultado' projeto.banca_ativa.pk %}" class="btn btn-primary btn-sm">Registrar resultado</a>
+                  </div>
+                {% elif projeto.status == "APROVADO_COM_RESSALVAS" and projeto.etapa == "TCC_II" %}
+                  <div class="mt-2">
+                    <a href="{% url 'bancas:correcoes' projeto.pk %}" class="btn btn-outline btn-sm">
+                      Gerenciar correções
+                    </a>
+                  </div>
+                {% elif projeto.status == "APROVADO_COM_RESSALVAS" %}
+                  <div class="mt-2">
+                    <form method="post" action="{% url 'projetos:aprovar_projeto' projeto.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-primary btn-sm">Aprovar</button>
+                    </form>
+                  </div>
+                {% elif projeto.status == "APROVADO" and projeto.ata_ativa.revisao.status == "DEVOLVIDA" %}
+                  <p class="mt-1 text-sm">
+                    A SUGRAD devolveu a ata: {{ projeto.ata_ativa.revisao.comentario }}
+                  </p>
+                  <div class="mt-2">
+                    <form method="post" action="{% url 'projetos:reenviar_ata' projeto.ata_ativa.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-outline btn-sm">Reenviar à SUGRAD</button>
+                    </form>
+                  </div>
+                {% elif projeto.status == "APROVADO" %}
+                  <p class="mt-1 text-sm text-base-content/70">Aguardando revisão da SUGRAD.</p>
+                {% elif projeto.banca_ativa %}
+                  <p class="mt-1 text-sm">
+                    Resultado da banca: Reprovado — nota {{ projeto.banca_ativa.nota }}.
+                    {{ projeto.banca_ativa.comentario }}
+                  </p>
+                  <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <form method="post" action="{% url 'projetos:reabrir_projeto' projeto.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-outline btn-sm">Reabrir projeto</button>
+                    </form>
+                    <form method="post" action="{% url 'projetos:cancelar_projeto' projeto.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-outline btn-sm">Cancelar definitivamente</button>
+                    </form>
+                  </div>
+                {% elif not projeto.submissao %}
+                  <p class="mt-1 text-sm text-base-content/70">Ainda não enviou o trabalho.</p>
+                {% else %}
+                  <p class="mt-1 text-sm">
+                    <a href="{% url 'bancas:agendar' projeto.pk %}" class="link">Agendar banca</a>
+                  </p>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          {% comment %}
+            Texto DISTINTO do estado vazio da fila acima, de propósito (brief
+            da rodada de correção 1): "nenhum orientando" e "nenhuma
+            manifestação" são fatos diferentes, e confundir os dois textos
+            faria uma seção vazia parecer a outra.
+          {% endcomment %}
+          <p class="mt-4 text-base-content/80">
+            Você ainda não tem orientandos em andamento neste semestre.
+          </p>
+        {% endif %}
+      </section>
     </div>
 
-    <section class="mt-6">
-      <h2 class="font-display text-xl font-bold text-primary">Manifestações pendentes</h2>
-      <p class="mt-2">
-        Manifestações de interesse aguardando sua resposta. Aceitar cria o projeto de
-        orientação; recusar exige uma justificativa, que é enviada ao aluno.
-      </p>
-
-      {% if itens %}
-        <ul class="mt-4 space-y-6">
-          {% for item in itens %}
-            {% with opcao=item.opcao %}
-              <li class="rounded-box border border-base-300 p-4">
-                <p class="font-medium">{{ opcao.candidatura.aluno.usuario.nome_completo }}</p>
-                <p class="text-sm text-base-content/80">
-                  {% if opcao.tema %}
-                    Tema: {{ opcao.tema.titulo }}
-                  {% else %}
-                    Sem tema específico — orientação em aberto
-                  {% endif %}
-                </p>
-                <p class="text-sm text-base-content/80">
-                  Prazo para responder: {{ opcao.prazo }}
-                </p>
-
-                <div class="mt-4 flex flex-wrap items-start gap-6">
-                  <form method="post" action="{% url 'projetos:aceitar_opcao' opcao.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-primary">
-                      Aceitar
-                      <span class="sr-only"> manifestação de {{ opcao.candidatura.aluno.usuario.nome_completo }}</span>
-                    </button>
-                  </form>
-
-                  <form
-                    method="post"
-                    action="{% url 'projetos:recusar_opcao' opcao.pk %}"
-                    class="w-full flex-1 space-y-2 sm:min-w-64"
-                  >
-                    {% comment %}
-                      M6 da rodada de correção 1: `min-w-64` sozinho (sem
-                      `w-full`) estourava o padding do `<article>` a 360px —
-                      o axe não acusa (não há rolagem horizontal de verdade,
-                      a régua oficial de test_responsivo.py aprova), mas o
-                      formulário encostava na borda do cartão. `w-full` deixa
-                      o formulário ocupar a largura disponível em qualquer
-                      viewport, e `sm:min-w-64` só impõe o mínimo de 16rem a
-                      partir do breakpoint onde sobra espaço ao lado do botão
-                      "Aceitar".
-                    {% endcomment %}
-                    {% csrf_token %}
-                    {% with campo=item.formulario_recusa.justificativa %}
-                      {% include "contas/_campo.html" with campo=campo %}
-                    {% endwith %}
-                    <button type="submit" class="btn btn-outline">
-                      Recusar
-                      <span class="sr-only"> manifestação de {{ opcao.candidatura.aluno.usuario.nome_completo }}</span>
-                    </button>
-                  </form>
-                </div>
-              </li>
-            {% endwith %}
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="mt-4 text-base-content/80">Nenhuma manifestação aguardando sua resposta no momento.</p>
-      {% endif %}
-    </section>
-
-    {% comment %}
-      Acréscimo da rodada de correção 1 (spec §6: "/orientacoes/" mostra
-      "fila de manifestações e orientandos atuais" — nenhuma tarefa do plano
-      original implementava a segunda metade). Sem esta seção, a tela
-      mentia por omissão logo depois de um aceite: a manifestação aceita
-      some da fila acima, e "Nenhuma manifestação..." ficava parecendo a
-      única informação da página, mesmo para um professor com vários
-      orientandos.
-    {% endcomment %}
-    <section class="mt-8">
-      <h2 class="font-display text-xl font-bold text-primary">Orientandos atuais</h2>
+    <section aria-labelledby="titulo-criar-orientacao"
+             class="min-w-0 rounded-box bg-base-100 p-6 shadow-sm">
+      <h2 id="titulo-criar-orientacao" class="font-display text-xl font-semibold">
+        Criar nova orientação
+      </h2>
       <p class="mt-2 text-sm text-base-content/80">
-        Alunos que você orienta em TCC I neste semestre.
+        Para alunos com orientador já definido fora da candidatura normal — equivalência,
+        transferência ou TCC I concluído fora deste sistema.
       </p>
-
-      {% if orientandos %}
-        <ul class="mt-4 space-y-3">
-          {% for projeto in orientandos %}
-            <li class="rounded-box border border-base-300 p-4">
-              <p class="font-medium">{{ projeto.aluno.nome_completo }}</p>
-              <p class="text-sm text-base-content/80">
-                {{ projeto.get_etapa_display }}
-                {% if projeto.tema %} — {{ projeto.tema.titulo }}{% endif %}
-              </p>
-              {% if projeto.coorientador or projeto.coorientador_externo %}
-                <p class="text-sm text-base-content/80">
-                  Coorientador:
-                  {% if projeto.coorientador %}{{ projeto.coorientador.usuario.nome_completo }}{% else %}{{ projeto.coorientador_externo }} (externo){% endif %}
-                </p>
-              {% endif %}
-              {% comment %}
-                Ramos, nesta ordem — a ORDEM importa porque `banca_ativa` é
-                truthy para REALIZADA de mais de um status (Bloco D+E):
-                1) AGENDADA: `projeto.banca_ativa.status` como proxy (mesmo
-                   raciocínio de candidatura.html sobre preferir um campo
-                   mais específico a comparar a string de status).
-                2) APROVADO_COM_RESSALVAS: sem proxy melhor disponível — a
-                   `Ata` só existe depois de `APROVADO` — comparação direta
-                   de `projeto.status` (Bloco E, spec §7).
-                3) APROVADO com ata DEVOLVIDA / 4) APROVADO sem pendência:
-                   idem, comparação direta (Bloco E).
-                5) `elif projeto.banca_ativa`: alcançado só por REPROVADO
-                   agora — os outros dois resultados de uma banca REALIZADA
-                   (Aprovado com Ressalvas, Aprovado) já foram capturados
-                   pelos ramos 2-4 acima antes de chegar aqui.
-              {% endcomment %}
-              {% if projeto.submissao %}
-                <p class="mt-1 text-sm">
-                  <a href="{{ projeto.submissao.pdf.url }}" class="link">
-                    Ver PDF enviado (versão {{ projeto.submissao.versao }})
-                  </a>
-                </p>
-              {% endif %}
-
-              {% if projeto.banca_ativa.status == "AGENDADA" %}
-                <p class="mt-1 text-sm">
-                  Banca agendada: {{ projeto.banca_ativa.data_hora }} — {{ projeto.banca_ativa.local }}
-                </p>
-                <p class="text-sm text-base-content/80">
-                  Membros:
-                  {% for membro in projeto.banca_ativa.membros.all %}
-                    {% if membro.professor %}{{ membro.professor.usuario.nome_completo }}{% else %}{{ membro.nome_externo }} (externo){% endif %}{% if not forloop.last %}, {% endif %}
-                  {% endfor %}
-                </p>
-                <div class="mt-2 flex flex-wrap items-center gap-2">
-                  <a href="{% url 'bancas:editar' projeto.banca_ativa.pk %}" class="btn btn-outline btn-sm">Editar</a>
-                  <form method="post" action="{% url 'bancas:cancelar' projeto.banca_ativa.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-outline btn-sm">Cancelar</button>
-                  </form>
-                  <a href="{% url 'bancas:resultado' projeto.banca_ativa.pk %}" class="btn btn-primary btn-sm">Registrar resultado</a>
-                </div>
-              {% elif projeto.status == "APROVADO_COM_RESSALVAS" and projeto.etapa == "TCC_II" %}
-                <div class="mt-2">
-                  <a href="{% url 'bancas:correcoes' projeto.pk %}" class="btn btn-outline btn-sm">
-                    Gerenciar correções
-                  </a>
-                </div>
-              {% elif projeto.status == "APROVADO_COM_RESSALVAS" %}
-                <div class="mt-2">
-                  <form method="post" action="{% url 'projetos:aprovar_projeto' projeto.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-primary btn-sm">Aprovar</button>
-                  </form>
-                </div>
-              {% elif projeto.status == "APROVADO" and projeto.ata_ativa.revisao.status == "DEVOLVIDA" %}
-                <p class="mt-1 text-sm">
-                  A SUGRAD devolveu a ata: {{ projeto.ata_ativa.revisao.comentario }}
-                </p>
-                <div class="mt-2">
-                  <form method="post" action="{% url 'projetos:reenviar_ata' projeto.ata_ativa.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-outline btn-sm">Reenviar à SUGRAD</button>
-                  </form>
-                </div>
-              {% elif projeto.status == "APROVADO" %}
-                <p class="mt-1 text-sm text-base-content/70">Aguardando revisão da SUGRAD.</p>
-              {% elif projeto.banca_ativa %}
-                <p class="mt-1 text-sm">
-                  Resultado da banca: Reprovado — nota {{ projeto.banca_ativa.nota }}.
-                  {{ projeto.banca_ativa.comentario }}
-                </p>
-                <div class="mt-2 flex flex-wrap items-center gap-2">
-                  <form method="post" action="{% url 'projetos:reabrir_projeto' projeto.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-outline btn-sm">Reabrir projeto</button>
-                  </form>
-                  <form method="post" action="{% url 'projetos:cancelar_projeto' projeto.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-outline btn-sm">Cancelar definitivamente</button>
-                  </form>
-                </div>
-              {% elif not projeto.submissao %}
-                <p class="mt-1 text-sm text-base-content/70">Ainda não enviou o trabalho.</p>
-              {% else %}
-                <p class="mt-1 text-sm">
-                  <a href="{% url 'bancas:agendar' projeto.pk %}" class="link">Agendar banca</a>
-                </p>
-              {% endif %}
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        {% comment %}
-          Texto DISTINTO do estado vazio da fila acima, de propósito (brief
-          da rodada de correção 1): "nenhum orientando" e "nenhuma
-          manifestação" são fatos diferentes, e confundir os dois textos
-          faria uma seção vazia parecer a outra.
-        {% endcomment %}
-        <p class="mt-4 text-base-content/80">
-          Você ainda não tem orientandos em andamento neste semestre.
-        </p>
-      {% endif %}
+      <form method="post" action="{% url 'projetos:criar_orientacao_manual' %}" class="mt-4 space-y-4">
+        {% csrf_token %}
+        {% if formulario_orientacao.non_field_errors %}
+          <div role="alert" class="alert alert-error">
+            {% for erro in formulario_orientacao.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+          </div>
+        {% endif %}
+        {% for campo in formulario_orientacao %}
+          {% include "contas/_campo.html" with campo=campo %}
+        {% endfor %}
+        <button type="submit" class="btn btn-primary w-full">Criar</button>
+      </form>
     </section>
-  </article>
+  </div>
 {% endblock %}
