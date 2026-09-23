@@ -1,0 +1,520 @@
+{% extends "base.html" %}
+
+{% block titulo %} — Sobre{% endblock %}
+
+{% block topo %}
+  {% comment %}
+    Mesma faixa `fundo-degrade-heroi` da página inicial (entrada.css), só
+    sem o carrossel — este heroi é só título + resumo, mais curto que o da
+    vitrine de propósito (pedido já registrado de deixar a faixa "menor").
+  {% endcomment %}
+  <section class="fundo-degrade-heroi relative overflow-hidden text-white">
+    <div class="pointer-events-none absolute -top-24 -right-24 h-80 w-80 rounded-full bg-accent/20 blur-3xl" aria-hidden="true"></div>
+    <div class="relative mx-auto max-w-3xl px-4 py-10 text-center">
+      <h1 class="font-display text-2xl font-bold sm:text-3xl">Sobre o OrientaSI</h1>
+      <p class="mt-4 text-white/80">
+        O sistema de gestão de TCC do curso de Sistemas de Informação — do
+        primeiro tema publicado no mural até a ata da defesa, revisada e
+        arquivada.
+      </p>
+    </div>
+  </section>
+{% endblock %}
+
+{% block conteudo %}
+  <div class="mx-auto max-w-4xl space-y-10">
+
+    {% comment %} ---- Seção 1: O que é ---- {% endcomment %}
+    <section aria-labelledby="titulo-o-que-e">
+      <h2 id="titulo-o-que-e" class="font-display text-xl font-bold text-primary">O que é</h2>
+      <p class="mt-3 text-base-content/80">
+        Antes do OrientaSI, orientar um TCC dependia de planilha, e-mail
+        avulso e memória de quem estava acompanhando. O sistema junta o
+        processo inteiro num só lugar: o professor publica temas, o aluno
+        se candidata, a orientação nasce, o trabalho é entregue, a banca é
+        agendada e avaliada, e a aprovação final gera um documento oficial
+        — tudo com histórico e sem depender de ninguém lembrar de nada.
+      </p>
+
+      <ul class="mt-6 grid gap-4 sm:grid-cols-2">
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Um fluxo só, do tema à ata</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Cada etapa do TCC — tema, candidatura, orientação, submissão,
+            banca, correções, aprovação — vive no mesmo sistema, com
+            histórico de quem decidiu o quê e quando.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Alocação por ordem de chegada</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            O aluno manifesta interesse por até três professores, em
+            ordem. O primeiro que aceitar leva a vaga — não quem tem o
+            melhor histórico escolar.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Documento oficial, numerado</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Toda aprovação gera uma ata em PDF, com numeração sequencial
+            (NNN/AAAA), revisada pela SUGRAD antes de valer.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Catálogo público</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Todo TCC concluído fica pesquisável por qualquer pessoa, sem
+            login — título, resumo, autor, orientador e o PDF final. Sem
+            CPF, telefone ou outro dado sensível.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4 sm:col-span-2">
+          <h3 class="font-display font-bold text-base-content">Acessível para todo mundo</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Interface mobile-first, navegável inteira por teclado e
+            testada contra o WCAG 2.1 nível AA em cada tela — não como
+            revisão final, mas como parte de cada mudança.
+          </p>
+        </li>
+      </ul>
+    </section>
+
+    {% comment %} ---- Seção 2: Fluxogramas por papel ---- {% endcomment %}
+    <section aria-labelledby="titulo-fluxos" class="space-y-10">
+      <div>
+        <h2 id="titulo-fluxos" class="font-display text-xl font-bold text-primary">
+          Como cada papel percorre o sistema
+        </h2>
+        <p class="mt-3 text-base-content/80">
+          Quatro papéis, quatro caminhos. Cada passo abaixo corresponde a
+          uma tela ou a uma decisão que existe de verdade no sistema —
+          não a um resumo simplificado do processo.
+        </p>
+      </div>
+
+      {% comment %}
+        `aria-hidden="true"` em cada `.etapa-marca`: o número/símbolo é
+        decoração redundante com a própria semântica do `<ol>` (um leitor
+        de tela já anuncia "item 3 de 8" sozinho) — mesmo raciocínio do
+        IntegraSI, `templates/catalogo/sobre.html` de lá.
+      {% endcomment %}
+
+      {% comment %} -- Coordenação -- {% endcomment %}
+      <article aria-labelledby="fluxo-coordenacao" class="fluxo">
+        <div class="fluxo-texto">
+          <p class="fluxo-quem">Coordenação</p>
+          <h3 id="fluxo-coordenacao">Quem mantém o sistema em funcionamento</h3>
+          <p>
+            Convida professores e alunos, acompanha as orientações em
+            andamento e concede exceções — sem participar do dia a dia de
+            cada orientação.
+          </p>
+        </div>
+
+        <ol class="fluxograma">
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Entra com e-mail e senha</h4>
+              <p>Conta de coordenador — no máximo quatro no sistema ao mesmo tempo.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Convida professor ou aluno</h4>
+              <p>Por e-mail, com um link de primeiro acesso.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Acompanha o painel</h4>
+              <p>Professores e alunos que ainda não concluíram o TCC II, e os convites enviados.</p></div>
+          </li>
+          <li class="etapa decisao">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo">
+              <h4>Um professor precisa de mais vagas do que o padrão?</h4>
+              <p>O teto padrão é três orientandos por etapa, por semestre.</p>
+              <div class="ramos">
+                <div class="ramo sim"><span class="ramo-rotulo">Sim</span>
+                  <p>Concede um limite elevado, com justificativa — vale só para aquele professor, aquela etapa e aquele semestre.</p></div>
+                <div class="ramo nao"><span class="ramo-rotulo">Não</span>
+                  <p>Segue com o teto padrão.</p></div>
+              </div>
+            </div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Acompanha as orientações por professor</h4>
+              <p>Todos os projetos em andamento, agrupados por quem orienta.</p></div>
+          </li>
+          <li class="etapa decisao">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo">
+              <h4>É preciso trocar o orientador de um projeto?</h4>
+              <div class="ramos">
+                <div class="ramo sim"><span class="ramo-rotulo">Sim</span>
+                  <p>Troca pelo painel — a vaga do novo orientador é conferida de novo antes de confirmar.</p></div>
+                <div class="ramo nao"><span class="ramo-rotulo">Não</span>
+                  <p>Nada muda.</p></div>
+              </div>
+            </div>
+          </li>
+          <li class="etapa decisao">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo">
+              <h4>O sistema precisa de outro coordenador?</h4>
+              <div class="ramos">
+                <div class="ramo sim"><span class="ramo-rotulo">Sim</span>
+                  <p>Promove outro professor a coordenador pelo painel.</p></div>
+                <div class="ramo nao"><span class="ramo-rotulo">Não</span>
+                  <p>Segue como está — o sistema nunca fica sem nenhum coordenador ativo.</p></div>
+              </div>
+            </div>
+          </li>
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Sistema em funcionamento</h4>
+              <p>O dia a dia de cada orientação — aceitar aluno, agendar banca, aprovar — é do professor e da SUGRAD.</p></div>
+          </li>
+        </ol>
+      </article>
+
+      {% comment %} -- Professor -- {% endcomment %}
+      <article aria-labelledby="fluxo-professor" class="fluxo professor">
+        <div class="fluxo-texto">
+          <p class="fluxo-quem">Professor</p>
+          <h3 id="fluxo-professor">Quem publica o tema e orienta o TCC</h3>
+          <p>
+            Recebe manifestações de interesse na ordem em que chegam —
+            não por desempenho escolar do aluno — e conduz a orientação
+            até a aprovação final.
+          </p>
+        </div>
+
+        <ol class="fluxograma professor">
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Recebe o convite da coordenação</h4>
+              <p>Define a senha e completa SIAPE e áreas de atuação.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Publica um tema no mural</h4>
+              <p>Título, descrição e as subáreas do tema.</p></div>
+          </li>
+          <li class="etapa sistema">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Tema visível a todos os alunos</h4>
+              <p>Com um selo mostrando se o professor ainda tem vaga disponível.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Recebe manifestações de interesse</h4>
+              <p>Em ordem de chegada — não por desempenho escolar do aluno.</p></div>
+          </li>
+          <li class="etapa decisao">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo">
+              <h4>Aceita a manifestação?</h4>
+              <div class="ramos">
+                <div class="ramo sim"><span class="ramo-rotulo">Aceita</span>
+                  <p>Nasce o projeto de TCC I. As outras opções em aberto desse aluno são canceladas.</p></div>
+                <div class="ramo nao"><span class="ramo-rotulo">Recusa</span>
+                  <p>Escreve uma justificativa; a candidatura segue para o próximo professor da lista do aluno.</p></div>
+              </div>
+            </div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Alternativa: cria uma orientação manual</h4>
+              <p>TCC I ou TCC II, para um aluno que já tem orientador definido fora do sistema — fora da fila de manifestações.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Acompanha o envio do trabalho</h4>
+              <p>Em Minhas orientações, vê quando o aluno envia o texto (PDF e editável).</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Agenda a banca</h4>
+              <p>Data, local e dois membros — professores do sistema ou convidados externos, só pelo nome.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Registra o resultado da defesa</h4>
+              <p>Uma nota e um parecer só, decididos coletivamente na banca.</p></div>
+          </li>
+          <li class="etapa decisao">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo">
+              <h4>Qual foi o resultado?</h4>
+              <div class="ramos">
+                <div class="ramo nao"><span class="ramo-rotulo">Reprovado</span>
+                  <p>Reabre o projeto (o aluno tenta de novo) ou cancela definitivamente.</p></div>
+                <div class="ramo sim"><span class="ramo-rotulo">Aprovado com ressalvas</span>
+                  <p>O aluno corrige o que a banca pediu. No TCC II, o professor também monta um checklist de correções.</p></div>
+              </div>
+            </div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Confirma a correção</h4>
+              <p>No TCC II, só depois do checklist inteiro concluído, do aluno assinar o termo de aceite de publicação e de enviar a versão final revisada.</p></div>
+          </li>
+          <li class="etapa sistema">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Ata gerada e SUGRAD avisada</h4>
+              <p>O mesmo passo que confirma a correção já gera o documento oficial.</p></div>
+          </li>
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>SUGRAD aprova a ata</h4>
+              <p>Se era TCC I, o TCC II do mesmo aluno nasce automaticamente, com o mesmo orientador —
+                 o acompanhamento recomeça no passo 7. Se já era TCC II, o ciclo do aluno termina ali.</p>
+              <span class="volta">volta ao passo 7</span></div>
+          </li>
+        </ol>
+      </article>
+
+      {% comment %} -- Aluno -- {% endcomment %}
+      <article aria-labelledby="fluxo-aluno" class="fluxo aluno">
+        <div class="fluxo-texto">
+          <p class="fluxo-quem">Aluno</p>
+          <h3 id="fluxo-aluno">Quem escolhe o orientador e produz o trabalho</h3>
+          <p>
+            Escolhe até três professores em ordem de preferência, produz
+            o trabalho e o defende — quem decide a orientação é o
+            professor, não quem tem melhor histórico.
+          </p>
+        </div>
+
+        <ol class="fluxograma aluno">
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Recebe o convite por e-mail</h4>
+              <p>Define a senha e completa CPF, matrícula e telefone.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Consulta o mural de temas</h4>
+              <p>Filtra por subárea, entre os temas ativos de qualquer professor.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Monta a candidatura</h4>
+              <p>Até três professores, em ordem — cada um com um tema publicado dele, ou orientação em aberto.</p></div>
+          </li>
+          <li class="etapa sistema">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Primeira opção enviada</h4>
+              <p>Com um prazo automático para o professor responder.</p></div>
+          </li>
+          <li class="etapa decisao">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo">
+              <h4>O professor aceita?</h4>
+              <div class="ramos">
+                <div class="ramo nao"><span class="ramo-rotulo">Não, ou o prazo vence</span>
+                  <p>A próxima opção da lista é enviada automaticamente.</p></div>
+                <div class="ramo sim"><span class="ramo-rotulo">Sim</span>
+                  <p>Nasce o TCC I, com esse professor como orientador.</p></div>
+              </div>
+            </div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Trabalha e envia o texto</h4>
+              <p>Em Meu TCC — PDF e a versão editável, com reenvio permitido enquanto o orientador não agendar a banca.</p></div>
+          </li>
+          <li class="etapa sistema">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Orientador agenda a banca</h4>
+              <p>O aluno acompanha data e local.</p></div>
+          </li>
+          <li class="etapa decisao">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo">
+              <h4>Qual foi o resultado da defesa?</h4>
+              <div class="ramos">
+                <div class="ramo nao"><span class="ramo-rotulo">Reprovado</span>
+                  <p>Aguarda o orientador reabrir o projeto para tentar de novo, ou encerrar definitivamente.</p></div>
+                <div class="ramo sim"><span class="ramo-rotulo">Aprovado com ressalvas</span>
+                  <p>Corrige o que foi pedido.</p></div>
+              </div>
+            </div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>No TCC II, assina o termo de publicação</h4>
+              <p>Depois que o orientador concluir o checklist de correções.</p></div>
+          </li>
+          <li class="etapa sistema">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Orientador confirma a correção</h4>
+              <p>A ata é gerada e enviada à SUGRAD no mesmo passo.</p></div>
+          </li>
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>TCC I concluído</h4>
+              <p>O TCC II nasce automaticamente, com o mesmo orientador — o trabalho recomeça no passo 6, para a nova etapa.</p>
+              <span class="volta">volta ao passo 6</span></div>
+          </li>
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>TCC II concluído</h4>
+              <p>O ciclo termina. Se o termo de publicação foi assinado, o trabalho pode aparecer no catálogo público.</p></div>
+          </li>
+        </ol>
+      </article>
+
+      {% comment %} -- SUGRAD -- {% endcomment %}
+      <article aria-labelledby="fluxo-sugrad" class="fluxo sugrad">
+        <div class="fluxo-texto">
+          <p class="fluxo-quem">SUGRAD</p>
+          <h3 id="fluxo-sugrad">Quem revisa a ata antes do TCC virar Concluído</h3>
+          <p>
+            A última revisão antes de um TCC virar Concluído — confere a
+            ata gerada automaticamente pelo sistema e aprova ou devolve.
+          </p>
+        </div>
+
+        <ol class="fluxograma sugrad">
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Acessa o Painel do Sistema</h4>
+              <p>Conta única do setor — sem CPF, e sempre pelo painel, nunca por e-mail direto.</p></div>
+          </li>
+          <li class="etapa sistema">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Recebe um e-mail</h4>
+              <p>Sempre que um professor aprova um projeto e uma ata nova é gerada.</p></div>
+          </li>
+          <li class="etapa">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Abre o painel e lê a ata pendente</h4>
+              <p>PDF numerado (NNN/AAAA), com os dados da defesa.</p></div>
+          </li>
+          <li class="etapa decisao">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo">
+              <h4>A ata está correta?</h4>
+              <div class="ramos">
+                <div class="ramo nao"><span class="ramo-rotulo">Não</span>
+                  <p>Devolve com um comentário; o orientador vê o motivo e reenvia a mesma ata.</p>
+                  <span class="volta">volta ao passo 3</span></div>
+                <div class="ramo sim"><span class="ramo-rotulo">Sim</span>
+                  <p>Aprova.</p></div>
+              </div>
+            </div>
+          </li>
+          <li class="etapa sistema">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Projeto vira Concluído</h4></div>
+          </li>
+          <li class="etapa limite">
+            <span class="etapa-marca" aria-hidden="true"></span>
+            <div class="etapa-corpo"><h4>Fim do ciclo desta ata</h4>
+              <p>Se era TCC I, o TCC II do aluno já nasceu automaticamente nesse instante. Se já era TCC II, o ciclo do aluno termina ali — nenhum "TCC III" é criado.</p></div>
+          </li>
+        </ol>
+      </article>
+    </section>
+
+    {% comment %} ---- Seção 3: Stack tecnológica ---- {% endcomment %}
+    <section aria-labelledby="titulo-stack">
+      <h2 id="titulo-stack" class="font-display text-xl font-bold text-primary">Stack tecnológica</h2>
+      <p class="mt-3 text-base-content/80">
+        Ferramentas estáveis e documentadas, vendorizadas no repositório
+        sempre que possível — o sistema não depende de um serviço externo
+        para carregar o essencial da tela.
+      </p>
+
+      <ul class="mt-6 grid gap-4 sm:grid-cols-2">
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Servidor</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Python {{ versao_python }} e Django {{ versao_django }}. Telas
+            renderizadas no servidor, com HTMX para interações sem
+            recarregar a página e Alpine.js para o que é só do navegador.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Banco de dados</h3>
+          <p class="mt-1 text-sm text-base-content/80">PostgreSQL.</p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Aparência</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Tailwind CSS v4 e DaisyUI 5, com um tema próprio sobre as
+            cores institucionais.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Tarefas em segundo plano</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Celery e Redis — envio de e-mails e o avanço automático da
+            cascata de candidatura quando um prazo vence.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Documentos oficiais</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            WeasyPrint gera as atas em PDF, com numeração sequencial.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">API</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Django REST Framework e drf-spectacular — catálogo e
+            calendário só leitura, documentados em OpenAPI/Swagger.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Armazenamento</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            PDFs, arquivos editáveis e fotos de perfil em S3/MinIO.
+          </p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Acessibilidade e testes</h3>
+          <p class="mt-1 text-sm text-base-content/80">
+            Playwright e axe-core testam o WCAG 2.1 nível AA em cada
+            tela, a cada mudança — não como revisão final.
+          </p>
+        </li>
+      </ul>
+    </section>
+
+    {% comment %} ---- Seção 4: Equipe ---- {% endcomment %}
+    <section aria-labelledby="titulo-equipe">
+      <h2 id="titulo-equipe" class="font-display text-xl font-bold text-primary">Equipe de desenvolvimento</h2>
+      <p class="mt-3 text-base-content/80">
+        O sistema é desenvolvido e mantido no curso de Sistemas de
+        Informação da UFSM, campus Frederico Westphalen.
+      </p>
+
+      <ul class="mt-6 grid gap-4 sm:grid-cols-2">
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Cristiano Bertolini</h3>
+          <p class="mt-1 text-sm text-base-content/80">Curso de Sistemas de Informação, UFSM Frederico Westphalen.</p>
+        </li>
+        <li class="rounded-box border border-base-300 bg-base-100 p-4">
+          <h3 class="font-display font-bold text-base-content">Evandro Preuss</h3>
+          <p class="mt-1 text-sm text-base-content/80">Curso de Sistemas de Informação, UFSM Frederico Westphalen.</p>
+        </li>
+      </ul>
+    </section>
+
+    {% comment %} ---- Chamada final ---- {% endcomment %}
+    <section aria-labelledby="titulo-chamada" class="rounded-box bg-base-200 p-6 text-center">
+      <h2 id="titulo-chamada" class="font-display text-xl font-bold text-primary">Quer ver os TCCs já publicados?</h2>
+      <p class="mt-2 text-base-content/80">
+        O catálogo e o calendário de apresentações são públicos — sem
+        login, sem cadastro.
+      </p>
+      <div class="mt-4 flex flex-wrap justify-center gap-3">
+        <a href="{% url 'publico:catalogo' %}" class="btn btn-primary">Ver o catálogo</a>
+        <a href="{% url 'publico:calendario' %}" class="btn btn-outline">Ver o calendário</a>
+      </div>
+    </section>
+
+  </div>
+{% endblock %}

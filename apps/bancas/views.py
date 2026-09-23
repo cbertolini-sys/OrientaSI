@@ -150,10 +150,28 @@ def correcoes(request, projeto_id):
         formulario = FormularioItemCorrecao()
 
     itens = projeto.itens_correcao.all()
+    # Mesmo cálculo do terceiro gate de `services.aprovar_projeto` (Bloco F,
+    # acréscimo pedido pelo usuário): sem mostrar aqui se a versão já
+    # revisada foi enviada, o botão "Aprovar" só falhava depois do clique,
+    # com uma mensagem genérica na tela de orientações — mesma classe de
+    # lacuna do achado H-1 da auditoria (checagem certa, invisível na tela).
+    banca_realizada = projeto.bancas.filter(status=Banca.REALIZADA).order_by("-data_hora").first()
+    submissao_atual = projeto.submissao if hasattr(projeto, "submissao") else None
+    submissao_revisada = bool(
+        submissao_atual
+        and banca_realizada
+        and submissao_atual.atualizada_em > banca_realizada.data_hora
+    )
     return render(
         request,
         "bancas/correcoes.html",
-        {"projeto": projeto, "itens": itens, "formulario": formulario},
+        {
+            "projeto": projeto,
+            "itens": itens,
+            "formulario": formulario,
+            "submissao_atual": submissao_atual,
+            "submissao_revisada": submissao_revisada,
+        },
     )
 
 

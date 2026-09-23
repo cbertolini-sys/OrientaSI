@@ -1,6 +1,8 @@
 import calendar
+import sys
 from datetime import date
 
+import django
 from django.shortcuts import render
 from django.utils import timezone
 
@@ -102,3 +104,24 @@ def calendario(request):
     """Calendário público de apresentações futuras (Bloco G, spec §6) —
     sem login, sem filtro (YAGNI: nenhum requisito pediu)."""
     return render(request, "publico/calendario.html", {"bancas": services.calendario_publico()})
+
+
+def sobre(request):
+    """Página pública "Sobre" — o que o sistema é, os quatro fluxogramas de
+    papel e a ficha técnica. Sem login e sem models próprios, mesmo padrão
+    de `catalogo`/`calendario` — inclusive para quem nunca vai ter conta
+    (a comunidade externa lendo sobre o sistema antes de acessar o
+    catálogo).
+
+    Python/Django lidos da instalação real, não escritos à mão (mesmo
+    cuidado do sistema irmão IntegraSI, `templates/catalogo/sobre.html`
+    de lá): uma versão digitada na página envelhece na primeira
+    atualização, e ninguém lembra de vir corrigir uma página pública. Só
+    maior.menor — o patch muda toda hora e não é o que a frase promete."""
+    versao_python = f"{sys.version_info.major}.{sys.version_info.minor}"
+    versao_django = ".".join(django.get_version().split(".")[:2])
+    return render(
+        request,
+        "publico/sobre.html",
+        {"versao_python": versao_python, "versao_django": versao_django},
+    )

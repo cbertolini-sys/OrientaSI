@@ -134,17 +134,29 @@
       <nav aria-label="Principal">
        <div class="flex flex-wrap items-center justify-end gap-x-5 gap-y-2 text-sm font-medium">
         {% comment %}
-          `inline-flex min-h-11 items-center`: a regra global de alvo de
-          toque de entrada.css só cobre `button`/`a.btn`/campos/`summary` —
-          um `<a>` solto como este, fora de um parágrafo de prosa, fica de
-          fora e mede só a altura da linha de texto (~20px), abaixo do
-          mínimo de 44px (achado do test_toque.py).
+          `inline-flex min-h-11 min-w-11 items-center`: a regra global de
+          alvo de toque de entrada.css só cobre `button`/`a.btn`/campos/
+          `summary` — um `<a>` solto como este, fora de um parágrafo de
+          prosa, fica de fora e mede só a altura da linha de texto (~20px),
+          abaixo do mínimo de 44px (achado do test_toque.py). `min-w-11`
+          entrou junto com o link "Sobre" (achado da mesma rodada): a
+          LARGURA nunca precisou de reforço enquanto todo rótulo da nav
+          era comprido o bastante pra passar de 44px sozinho — "Sobre", com
+          5 letras, rendia 41px de largura e derrubava o teste de toque em
+          TODA rota (a nav é global), não só em `/sobre/`. Aplicado em
+          todos os links, não só nesse: um rótulo curto novo no futuro não
+          pode reabrir o mesmo defeito em silêncio.
+
+          Catálogo e Calendário saíram desta nav a pedido do usuário
+          (2026-09-22) — as rotas `/catalogo/` e `/calendario/` continuam
+          existindo (Bloco G), só não ficam mais no cabeçalho global. Ainda
+          alcançáveis pela página inicial (`inicio.html`) e pelo CTA de
+          fechamento da página Sobre.
         {% endcomment %}
-        <a href="{% url 'publico:catalogo' %}" class="inline-flex min-h-11 items-center text-base-content hover:text-secondary">Catálogo</a>
-        <a href="{% url 'publico:calendario' %}" class="inline-flex min-h-11 items-center text-base-content hover:text-secondary">Calendário</a>
+        <a href="{% url 'publico:sobre' %}" class="inline-flex min-h-11 min-w-11 items-center text-base-content hover:text-secondary">Sobre</a>
 
         {% if user.is_authenticated %}
-          <a href="{% url 'projetos:mural' %}" class="inline-flex min-h-11 items-center text-base-content hover:text-secondary">Mural de temas</a>
+          <a href="{% url 'projetos:mural' %}" class="inline-flex min-h-11 min-w-11 items-center text-base-content hover:text-secondary">Mural de temas</a>
 
           {% comment %}
             O gatilho: um avatar de iniciais (degradê azul→ciano, mesmo

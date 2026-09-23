@@ -64,6 +64,41 @@ def test_recuperacao_de_senha_envia_email(client, professora):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "papel,is_coordenador",
+    [
+        (Usuario.ALUNO, False),
+        (Usuario.PROFESSOR, False),
+        (Usuario.PROFESSOR, True),
+        (Usuario.SUGRAD, False),
+    ],
+    ids=["aluno", "professor", "coordenador", "sugrad"],
+)
+def test_recuperacao_de_senha_funciona_para_todos_os_perfis(client, papel, is_coordenador):
+    """Pedido do usuário (2026-09-22): `password_reset` (Django puro, sem
+    ramificação por `papel`/`is_coordenador` em `FormularioRecuperarSenha`
+    nem em `PasswordResetForm.get_users()`) já deveria valer pra qualquer
+    `Usuario` — este teste prova que não há nenhuma trava escondida contra
+    aluno, coordenador ou a conta da SUGRAD."""
+    usuario = Usuario.objects.create_user(
+        email=f"recuperacao.{papel.lower()}.{is_coordenador}@ufsm.br",
+        password="senha-bem-forte-123",
+        nome_completo=f"Pessoa {papel}",
+        # SUGRAD é um setor, não uma pessoa, e não tem CPF (models.py,
+        # constraint `cpf_obrigatorio_para_pessoas`) — mesmo formato que
+        # `semear_sistema._semear_sugrad` usa de verdade.
+        cpf=None if papel == Usuario.SUGRAD else "52998224725",
+        papel=papel,
+        is_coordenador=is_coordenador,
+        is_staff=is_coordenador,
+    )
+    resposta = client.post(reverse("password_reset"), {"email": usuario.email})
+    assert resposta.status_code == 302
+    assert len(mail.outbox) == 1
+    assert usuario.email in mail.outbox[0].to
+
+
+@pytest.mark.django_db
 def test_fluxo_completo_de_recuperacao_de_senha_ate_novo_login(client, professora):
     """Cobertura ponta a ponta que faltava (revisão 1 da T9):
     `test_recuperacao_de_senha_envia_email` para no envio do e-mail e nunca

@@ -550,6 +550,24 @@ def test_painel_nao_oferece_reenvio_para_convite_ja_aceito(client):
 
 
 @pytest.mark.django_db
+def test_convite_aceito_sai_da_lista_de_convites_do_painel(client):
+    """Pedido do usuário (2026-09-22): um convite aceito não some só o botão
+    de reenvio — a linha inteira sai da lista de "Convites enviados". A
+    pessoa já aparece nas próprias listas de professores/alunos do painel."""
+    coordenadora = cria_professor(0, coordenador=True)
+    convite = _convite_pendente(coordenadora, email="ja-aceito@ufsm.br")
+    convite.usado_em = timezone.now()
+    convite.save(update_fields=["usado_em"])
+    _convite_pendente(coordenadora, email="ainda-pendente@ufsm.br", token_hash="b" * 64)
+    client.force_login(coordenadora)
+
+    html = client.get(reverse("contas:painel")).content.decode()
+
+    assert "ja-aceito@ufsm.br" not in html
+    assert "ainda-pendente@ufsm.br" in html
+
+
+@pytest.mark.django_db
 def test_reenviar_via_painel_expira_o_anterior_e_manda_outro_email(
     client, settings, django_capture_on_commit_callbacks
 ):

@@ -25,7 +25,7 @@
 {% endcomment %}
 <div class="mt-4 overflow-x-auto" tabindex="0" role="region" aria-labelledby="titulo-convites">
   <table class="table">
-    <caption class="sr-only">Convites enviados, do mais recente ao mais antigo</caption>
+    <caption class="sr-only">Convites enviados ainda não aceitos, do mais recente ao mais antigo</caption>
     <thead>
       <tr>
         <th scope="col" class="text-base-content">E-mail</th>
@@ -39,9 +39,18 @@
           <td>{{ convite.email }}</td>
           <td>{{ convite.get_papel_display }}</td>
           <td>
-            {% if convite.usado_em %}Aceito
-            {% elif convite.esta_valido %}Pendente
-            {% else %}Expirado{% endif %}
+            {% comment %}
+              `Aceito` não é mais um caso possível aqui (pedido do usuário,
+              2026-09-22): `services.convites_recentes` já filtra
+              `usado_em__isnull=True` — assim que o convite é aceito, o
+              aluno/professor sai desta lista (aparece nas próprias listas
+              de professores/alunos do painel em vez disso). Sobram só
+              Pendente/Expirado, e por isso o botão de reenvio abaixo não
+              precisa mais de nenhum `{% templatetag openblock %} if
+              {% templatetag closeblock %}` — todo convite que chega aqui é
+              reenviável.
+            {% endcomment %}
+            {% if convite.esta_valido %}Pendente{% else %}Expirado{% endif %}
             {% comment %}
               Reenvio (achado da revisão final): `services.reenviar_convite`
               existia desde a T7, com testes, e não tinha porta nenhuma —
@@ -52,29 +61,21 @@
               preciso", e não havia onde reenviar. A única saída era esperar
               os sete dias de validade.
 
-              Só para convite NÃO aceito: `reenviar_convite` recusa um
-              convite já utilizado, e oferecer o botão ali seria oferecer
-              uma ação que só produz mensagem de erro. Convite expirado
-              continua reenviável — é justamente o caso em que a pessoa
-              perdeu o prazo e precisa de outro link.
-
               POST com CSRF, como promover/revogar; o aria-label começa com
               o texto visível do botão (WCAG 2.5.3, Label in Name).
             {% endcomment %}
-            {% if not convite.usado_em %}
-              <form method="post" action="{% url 'contas:reenviar' %}" class="mt-2">
-                {% csrf_token %}
-                <input type="hidden" name="convite_id" value="{{ convite.pk }}">
-                <button type="submit" class="btn btn-primary"
-                        aria-label="Reenviar convite: {{ convite.email }}">
-                  Reenviar convite
-                </button>
-              </form>
-            {% endif %}
+            <form method="post" action="{% url 'contas:reenviar' %}" class="mt-2">
+              {% csrf_token %}
+              <input type="hidden" name="convite_id" value="{{ convite.pk }}">
+              <button type="submit" class="btn btn-primary"
+                      aria-label="Reenviar convite: {{ convite.email }}">
+                Reenviar convite
+              </button>
+            </form>
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="3">Nenhum convite enviado ainda.</td></tr>
+        <tr><td colspan="3">Nenhum convite pendente no momento.</td></tr>
       {% endfor %}
     </tbody>
   </table>

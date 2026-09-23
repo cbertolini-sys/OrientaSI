@@ -78,9 +78,7 @@ def test_criar_item_correcao_recusa_tcc_i(projeto_tcc_ii):
     projeto_tcc_ii.etapa = Projeto.TCC_I
     projeto_tcc_ii.save(update_fields=["etapa"])
     with pytest.raises(ValidationError):
-        services.criar_item_correcao(
-            projeto_tcc_ii, descricao="x", por=projeto_tcc_ii.orientador
-        )
+        services.criar_item_correcao(projeto_tcc_ii, descricao="x", por=projeto_tcc_ii.orientador)
     assert not ItemCorrecao.objects.filter(projeto=projeto_tcc_ii).exists()
 
 
@@ -93,9 +91,7 @@ def test_criar_item_correcao_recusa_fora_de_aprovado_com_ressalvas(projeto_tcc_i
     projeto_tcc_ii.status = Projeto.APROVADO
     projeto_tcc_ii.save(update_fields=["status"])
     with pytest.raises(ValidationError):
-        services.criar_item_correcao(
-            projeto_tcc_ii, descricao="x", por=projeto_tcc_ii.orientador
-        )
+        services.criar_item_correcao(projeto_tcc_ii, descricao="x", por=projeto_tcc_ii.orientador)
 
 
 @pytest.mark.django_db
@@ -202,3 +198,72 @@ def test_criar_item_correcao_notifica_aluno(
         )
     assert len(mail.outbox) == 1
     assert mail.outbox[0].to == [projeto_tcc_ii.aluno.email]
+
+
+def _submissao_fake(projeto, versao=1):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from apps.projetos.models import Submissao
+
+    return Submissao.objects.create(
+        projeto=projeto,
+        pdf=SimpleUploadedFile(
+            "trabalho.pdf", b"%PDF-1.4 conteudo", content_type="application/pdf"
+        ),
+        editavel=SimpleUploadedFile(
+            "trabalho.docx",
+            b"conteudo docx",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        versao=versao,
+    )
+
+
+@pytest.mark.django_db
+def test_correcoes_view_mostra_reenvio_depois_da_banca(client, projeto_tcc_ii):
+    """Achado do pedido do usuário (2026-09-22): sem esta pista na tela, o
+    professor só descobria que faltava a versão revisada depois de clicar
+    em "Aprovar projeto" e ser jogado de volta pra `/orientacoes/` com uma
+    mensagem genérica — mesma classe de lacuna do achado H-1 da auditoria."""
+    from django.utils import timezone
+
+    from apps.bancas.models import Banca
+
+    Banca.objects.create(
+        projeto=projeto_tcc_ii,
+        data_hora=timezone.now() - timezone.timedelta(hours=1),
+        local="Sala 1",
+        status=Banca.REALIZADA,
+        nota=8.0,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+    )
+    _submissao_fake(projeto_tcc_ii, versao=2)
+    client.force_login(projeto_tcc_ii.orientador)
+    resposta = client.get(f"/bancas/{projeto_tcc_ii.pk}/correcoes/").content.decode()
+    assert "Reenviado depois da banca" in resposta
+    assert "Ainda é a versão anterior à banca" not in resposta
+
+
+@pytest.mark.django_db
+def test_correcoes_view_avisa_versao_anterior_a_banca(client, projeto_tcc_ii):
+    from django.utils import timezone
+
+    from apps.bancas.models import Banca
+    from apps.projetos.models import Submissao
+
+    banca = Banca.objects.create(
+        projeto=projeto_tcc_ii,
+        data_hora=timezone.now(),
+        local="Sala 1",
+        status=Banca.REALIZADA,
+        nota=8.0,
+        resultado=Projeto.APROVADO_COM_RESSALVAS,
+    )
+    submissao = _submissao_fake(projeto_tcc_ii, versao=1)
+    Submissao.objects.filter(pk=submissao.pk).update(
+        atualizada_em=banca.data_hora - timezone.timedelta(hours=1)
+    )
+    client.force_login(projeto_tcc_ii.orientador)
+    resposta = client.get(f"/bancas/{projeto_tcc_ii.pk}/correcoes/").content.decode()
+    assert "Ainda é a versão anterior à banca" in resposta
+    assert "Reenviado depois da banca" not in resposta

@@ -1459,7 +1459,8 @@ def aprovar_projeto(projeto, por):
     `Aprovado com Ressalvas` → `Aprovado` (Bloco E, spec §3.1). Para o
     TCC_I é uma confirmação simples do orientador, sem checklist — o
     `inicio.pdf` só descreve checklist de correções e termo de publicação
-    para o TCC II (Bloco F), que ganha o gate abaixo.
+    para o TCC II (Bloco F), que ganha os três gates abaixo: checklist
+    concluído, termo assinado, e a versão final revisada de fato enviada.
 
     `@transaction.atomic` (achado C2/H8 da auditoria, 2026-09-22): antes,
     `projeto.status = APROVADO` era salvo e JÁ COMMITADO (autocommit, sem
@@ -1501,6 +1502,31 @@ def aprovar_projeto(projeto, por):
             )
         if not hasattr(projeto, "termo_publicacao"):
             raise ValidationError("O aluno ainda não assinou o termo de aceite de publicação.")
+
+        # Terceiro gate do TCC II (pedido do usuário, 2026-09-22): nem o
+        # checklist nem o termo garantem que o aluno REALMENTE depositou a
+        # versão corrigida — `enviar_submissao` aceita reenvio durante
+        # `Aprovado com Ressalvas` (Bloco G), mas é opcional; sem esta
+        # checagem, o professor aprovava com a `Submissao` ainda na versão
+        # pré-banca, e o "PDF Final" do catálogo público (Bloco G) nunca
+        # era o corrigido. Comparar contra a banca REALIZADA mais recente
+        # (não contra `enviada_em`, que é a primeira submissão e nunca
+        # muda) é o mesmo proxy de "aconteceu depois da defesa" já usado
+        # por `anexar_banca_ativa`.
+        from apps.bancas.models import Banca
+
+        banca_realizada = (
+            projeto.bancas.filter(status=Banca.REALIZADA).order_by("-data_hora").first()
+        )
+        submissao_revisada = (
+            hasattr(projeto, "submissao")
+            and banca_realizada is not None
+            and projeto.submissao.atualizada_em > banca_realizada.data_hora
+        )
+        if not submissao_revisada:
+            raise ValidationError(
+                "O aluno ainda não enviou a versão final revisada, depois da banca."
+            )
 
     projeto.status = Projeto.APROVADO
     projeto.save(update_fields=["status"])

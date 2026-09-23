@@ -1,6 +1,8 @@
 """Testes do Bloco F: TCC II. Modelos (`Projeto.anterior`/`coorientador`,
 `TermoPublicacao`) nesta primeira parte; serviços nas tarefas seguintes."""
 
+from datetime import timedelta
+
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError
@@ -46,9 +48,7 @@ def _aluno(indice, nome):
 
 def _tema(indice, professor, titulo="Tema TCC II de Teste"):
     area = Area.objects.create(nome=f"Área TCC II {indice}")
-    tema = Tema.objects.create(
-        professor=professor, titulo=titulo, descricao="Descrição de teste."
-    )
+    tema = Tema.objects.create(professor=professor, titulo=titulo, descricao="Descrição de teste.")
     tema.areas.set([area])
     return tema
 
@@ -329,9 +329,7 @@ def test_criar_tcc_i_manual_encerra_candidatura_em_curso_do_aluno():
     aluno = _aluno(105, "Aluno Com Candidatura E TCC I Manual")
     tema_manual = _tema(103, orientador_manual)
 
-    candidatura = services.registrar_candidatura(
-        aluno.perfil_aluno, [(professor_da_fila, None)]
-    )
+    candidatura = services.registrar_candidatura(aluno.perfil_aluno, [(professor_da_fila, None)])
     assert candidatura.status == Candidatura.EM_CURSO
 
     services.criar_tcc_i_manual(
@@ -576,7 +574,14 @@ def projeto_tcc_ii_com_ressalvas(db):
     """`aprovar_projeto` chama `gerar_ata` ao final (Bloco E), que exige uma
     `Banca` `REALIZADA` do projeto — sem ela, `Banca.DoesNotExist` mascara
     a checagem de gate que este arquivo quer provar (mesmo achado do Bloco
-    E em `test_aprovacao.py::projeto_com_ressalvas`)."""
+    E em `test_aprovacao.py::projeto_com_ressalvas`).
+
+    `data_hora` da banca fica no passado (1h atrás) de propósito: o
+    terceiro gate de `aprovar_projeto` (versão final revisada) compara
+    `Submissao.atualizada_em` contra essa data, e o "tudo pronto" precisa
+    de folga real para a submissão revisada, criada DEPOIS deste fixture,
+    ficar claramente depois — sem folga, os dois `auto_now`/`timezone.now()`
+    no mesmo teste poderiam empatar por sorte de timing."""
     from apps.bancas.models import Banca
 
     orientador = _professor(60, "Orientador Gate")
@@ -591,13 +596,34 @@ def projeto_tcc_ii_com_ressalvas(db):
     )
     Banca.objects.create(
         projeto=projeto,
-        data_hora=timezone.now(),
+        data_hora=timezone.now() - timedelta(hours=1),
         local="Sala 1",
         status=Banca.REALIZADA,
         nota=8.0,
         resultado=Projeto.APROVADO_COM_RESSALVAS,
     )
     return projeto
+
+
+def _envia_versao_revisada(projeto):
+    """Cria a `Submissao` do projeto já como reenvio pós-banca — mesmo
+    arquivo fake usado pelos testes de `apps/projetos/tests/test_submissao.py`."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from apps.projetos.models import Submissao
+
+    return Submissao.objects.create(
+        projeto=projeto,
+        pdf=SimpleUploadedFile(
+            "trabalho.pdf", b"%PDF-1.4 conteudo", content_type="application/pdf"
+        ),
+        editavel=SimpleUploadedFile(
+            "trabalho.docx",
+            b"conteudo docx",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        versao=2,
+    )
 
 
 @pytest.mark.django_db
@@ -641,11 +667,57 @@ def test_aprovar_projeto_tcc_ii_aprova_com_tudo_pronto(projeto_tcc_ii_com_ressal
     services.assinar_termo_publicacao(
         projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.aluno
     )
+    _envia_versao_revisada(projeto_tcc_ii_com_ressalvas)
     services.aprovar_projeto(
         projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.orientador
     )
     projeto_tcc_ii_com_ressalvas.refresh_from_db()
     assert projeto_tcc_ii_com_ressalvas.status == Projeto.APROVADO
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_tcc_ii_recusa_sem_versao_revisada(projeto_tcc_ii_com_ressalvas):
+    """Checklist concluído e termo assinado não bastam — sem nenhuma
+    `Submissao`, o aluno nunca depositou nada, corrigido ou não."""
+    item = bancas_services.criar_item_correcao(
+        projeto_tcc_ii_com_ressalvas,
+        descricao="Vai ser concluído.",
+        por=projeto_tcc_ii_com_ressalvas.orientador,
+    )
+    bancas_services.concluir_item_correcao(item, por=projeto_tcc_ii_com_ressalvas.orientador)
+    services.assinar_termo_publicacao(
+        projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.aluno
+    )
+    with pytest.raises(ValidationError):
+        services.aprovar_projeto(
+            projeto_tcc_ii_com_ressalvas, por=projeto_tcc_ii_com_ressalvas.orientador
+        )
+    projeto_tcc_ii_com_ressalvas.refresh_from_db()
+    assert projeto_tcc_ii_com_ressalvas.status == Projeto.APROVADO_COM_RESSALVAS
+
+
+@pytest.mark.django_db
+def test_aprovar_projeto_tcc_ii_recusa_submissao_anterior_a_banca(projeto_tcc_ii_com_ressalvas):
+    """A `Submissao` existe, mas nunca foi reenviada depois da banca — é a
+    mesma versão pré-defesa que a banca já avaliou, não a corrigida."""
+    from apps.projetos.models import Submissao
+
+    projeto = projeto_tcc_ii_com_ressalvas
+    submissao = _envia_versao_revisada(projeto)
+    # Força `atualizada_em` (auto_now) para ANTES da banca, sem passar pelo
+    # `save()` normal, que sempre grava "agora".
+    Submissao.objects.filter(pk=submissao.pk).update(
+        atualizada_em=projeto.bancas.get().data_hora - timedelta(hours=1)
+    )
+    item = bancas_services.criar_item_correcao(
+        projeto, descricao="Vai ser concluído.", por=projeto.orientador
+    )
+    bancas_services.concluir_item_correcao(item, por=projeto.orientador)
+    services.assinar_termo_publicacao(projeto, por=projeto.aluno)
+    with pytest.raises(ValidationError):
+        services.aprovar_projeto(projeto, por=projeto.orientador)
+    projeto.refresh_from_db()
+    assert projeto.status == Projeto.APROVADO_COM_RESSALVAS
 
 
 @pytest.mark.django_db

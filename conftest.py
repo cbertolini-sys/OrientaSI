@@ -1319,6 +1319,11 @@ ROTAS = [
         fabrica_usuario=cria_banca_agendada_para_calendario_das_rotas,
         h1="Calendário de Apresentações",
     ),
+    Rota(
+        "/sobre/",
+        "h1",
+        h1="Sobre o OrientaSI",
+    ),
 ]
 
 

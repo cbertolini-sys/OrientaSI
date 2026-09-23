@@ -77,6 +77,15 @@
 
   --sombra-suave: 0 1px 2px rgba(14, 27, 51, 0.06), 0 8px 24px -12px rgba(14, 27, 51, 0.18);
   --sombra-elevada: 0 4px 10px rgba(14, 27, 51, 0.08), 0 20px 40px -16px rgba(14, 27, 51, 0.28);
+
+  /* Ciano institucional (`--color-accent`, `#38c2c2`) escurecido — só para
+     o fluxograma do papel Aluno em /sobre/ (ver o componente abaixo).
+     `#38c2c2` reprova AA como cor de TEXTO (registrado no CLAUDE.md);
+     `#0f6e6e` é o mesmo matiz, escuro o bastante pra rotular um número
+     pequeno sobre fundo claro sem furar 4.5:1 — o mesmo raciocínio que já
+     gerou `--color-warning` a partir do laranja institucional, aplicado ao
+     ciano em vez do laranja. */
+  --acento-aluno: #0f6e6e;
 }
 
 /* Classes utilitárias próprias para os tokens acima — nomes que não colidem
@@ -87,6 +96,302 @@
   .fundo-rodape { background: var(--azul-meia-noite); }
   .sombra-suave { box-shadow: var(--sombra-suave); }
   .sombra-elevada { box-shadow: var(--sombra-elevada); }
+}
+
+/* Componente "fluxograma" (página /sobre/): uma linha do tempo vertical de
+   passos, com desvios de decisão abrindo em dois ramos lado a lado — mesmo
+   desenho e mesmo vocabulário de classes do `.fluxograma`/`.etapa`/`.ramos`
+   do sistema irmão IntegraSI (pedido explícito do usuário: "inclusive no
+   estilo dos workflows"), reimplementado aqui sobre os tokens do OrientaSI
+   em vez de copiar o CSS de lá.
+
+   É `<ol>` no template, de propósito (mesma razão de lá): a sequência É o
+   conteúdo, e um leitor de tela anuncia "item 3 de 9" sem precisar de mais
+   nada. O retorno de um ramo (voltar a um passo anterior) é dito em texto
+   ("↺ volta ao passo N"), nunca desenhado — uma seta curva subindo vários
+   passos seria ilegível na vertical e pior ainda no celular.
+
+   Cada papel (Coordenação/Professor/Aluno/SUGRAD) recebe um acento dentro
+   da própria paleta institucional (`--color-primary`/`--color-secondary`/
+   `--acento-aluno`/`--color-warning`) — as quatro cores que já existem no
+   tema, uma por papel, para as quatro seções se distinguirem de relance ao
+   rolar a página. `--acento-aluno` é um ciano ESCURECIDO só para este
+   componente, não o `--color-accent` do tema: o ciano puro (`#38c2c2`)
+   reprova contraste AA como cor de TEXTO (já registrado no CLAUDE.md —
+   "text-accent fails as text color") e aqui ele rotula números pequenos
+   (~13px) sobre fundo claro, abaixo do piso de "texto grande" que
+   dispensaria o 4.5:1.
+
+   `.fluxo` é o contêiner de CADA papel — duas colunas no desktop (rótulo +
+   título + prosa à esquerda, o próprio `.fluxograma` à direita), a mesma
+   quebra de largura do IntegraSI (`62rem`/992px) e o mesmo `position:
+   sticky` no texto: são até 13 passos por papel, e sem o texto acompanhar
+   a rolagem a explicação sai da tela muito antes do desenho terminar.
+   Achado da revisão visual do usuário — a versão anterior deste
+   componente empilhava tudo numa coluna só, larga demais pra parecer o
+   "workflow" do sistema irmão. */
+.fluxo {
+  display: grid;
+  gap: 2rem;
+  align-items: start;
+  padding-block: 2.5rem;
+  border-top: 1px solid var(--color-base-300);
+}
+
+.fluxo:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+@media (min-width: 62rem) {
+  .fluxo {
+    grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+    gap: 3rem;
+  }
+  .fluxo-texto {
+    position: sticky;
+    top: 5.5rem;
+  }
+}
+
+.fluxo-quem {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--acento, var(--color-primary));
+  margin: 0 0 0.375rem;
+}
+
+.fluxo-texto h3 {
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin: 0 0 0.875rem;
+  color: var(--color-base-content);
+}
+
+.fluxo-texto p {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-base-content);
+  opacity: 0.8;
+  margin: 0 0 0.875rem;
+}
+
+.fluxograma {
+  --acento: var(--color-primary);
+  --acento-fraco: color-mix(in oklab, var(--color-primary) 10%, white);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: passo;
+}
+
+/* Repetidas no `.fluxo` (o `<article>` — ver a regra dele, acima), não só
+   no `.fluxograma` (o `<ol>`): `.fluxo-quem` é IRMÃO do `<ol>`, não
+   descendente, e uma variável CSS só desce a árvore — declará-la apenas
+   no `<ol>` nunca chegaria ao rótulo. Mesmo achado que o comentário do
+   IntegraSI já registra pro mesmo par de seletores. */
+.fluxo.professor,
+.fluxograma.professor {
+  --acento: var(--color-secondary);
+  --acento-fraco: color-mix(in oklab, var(--color-secondary) 10%, white);
+}
+
+.fluxo.aluno,
+.fluxograma.aluno {
+  --acento: var(--acento-aluno);
+  --acento-fraco: color-mix(in oklab, var(--acento-aluno) 10%, white);
+}
+
+.fluxo.sugrad,
+.fluxograma.sugrad {
+  --acento: var(--color-warning);
+  --acento-fraco: color-mix(in oklab, var(--color-warning) 10%, white);
+}
+
+.etapa {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: 0 1rem;
+  padding-bottom: 1.5rem;
+}
+
+/* O conector é uma linha atrás da coluna dos marcadores, não um elemento
+   entre os passos — acompanha a altura real do bloco (que muda com o
+   texto) sem cálculo nenhum no template. */
+.etapa::before {
+  content: "";
+  position: absolute;
+  left: 1.0625rem;
+  top: 2.25rem;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-base-300);
+}
+
+.etapa:last-child {
+  padding-bottom: 0;
+}
+
+.etapa:last-child::before {
+  display: none;
+}
+
+.etapa-marca {
+  grid-row: 1 / -1;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  background: var(--acento-fraco);
+  color: var(--acento);
+  border: 1.5px solid var(--acento);
+  position: relative;
+  z-index: 1;
+}
+
+.etapa-marca::before {
+  counter-increment: passo;
+  content: counter(passo);
+}
+
+/* Início e fim de um fluxo não são passos numerados: são estados-limite —
+   círculo PREENCHIDO (não só contornado) com um ponto branco, pra saltar
+   aos olhos como começo/fim de verdade, mesmo desenho do IntegraSI.
+   `counter-increment` continua rodando (herdado da regra acima, não
+   reescrito aqui) — a NUMERAÇÃO dos passos comuns não pula um número só
+   porque um estado-limite ficou no meio da sequência. Sempre passa AA
+   como fundo sólido com texto branco: as quatro cores de `--acento`
+   deste componente já foram conferidas (≥4.5:1) contra branco, e o
+   contraste é simétrico — vale nos dois sentidos. */
+.etapa.limite .etapa-marca {
+  background: var(--acento);
+  color: var(--color-primary-content);
+}
+
+.etapa.limite .etapa-marca::before {
+  content: "●";
+  font-size: 0.625rem;
+}
+
+/* Marca visualmente o que o SISTEMA faz sozinho e o que é uma DECISÃO,
+   direto no círculo — o número seria o mesmo dado que a numeração do
+   `<ol>` já entrega a quem usa leitor de tela; aqui é reforço visual pra
+   quem lê a página inteira. */
+.etapa.sistema .etapa-marca::before {
+  content: "⚙";
+  font-size: 0.75rem;
+}
+
+.etapa.decisao .etapa-marca::before {
+  content: "?";
+  font-size: 0.9375rem;
+}
+
+.etapa-corpo {
+  background: var(--color-base-100);
+  border: 1px solid var(--color-base-300);
+  border-radius: var(--radius-field);
+  padding: 0.875rem 1.125rem;
+  min-width: 0;
+}
+
+.etapa-corpo h4 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 0;
+  color: var(--color-base-content);
+}
+
+.etapa-corpo p {
+  margin: 0.375rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--color-base-content);
+  opacity: 0.8;
+}
+
+/* Marca o que o SISTEMA faz sozinho (e-mail enfileirado, status gravado
+   automaticamente), sem ação humana no passo. */
+.etapa.sistema .etapa-corpo {
+  background: var(--color-base-200);
+  border-style: dashed;
+}
+
+/* ---- decisão e seus dois ramos ---- */
+.etapa.decisao .etapa-corpo {
+  border-color: var(--acento);
+  border-left-width: 3px;
+  background: var(--acento-fraco);
+}
+
+.ramos {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.875rem;
+  /* `min(100%, 13rem)`: lado a lado quando cabe, empilhado quando não —
+     impede a coluna de forçar rolagem horizontal a 360px. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+}
+
+.ramo {
+  background: var(--color-base-100);
+  border: 1px solid var(--color-base-300);
+  border-radius: 0.5rem;
+  padding: 0.75rem 0.875rem;
+}
+
+.ramo-rotulo {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.125rem 0.625rem;
+  margin-bottom: 0.375rem;
+}
+
+/* Verde/laranja-escuro reaproveitados como par positivo/negativo — mesmos
+   dois tons que o restante do sistema já usa para "sucesso"/"atenção"
+   (não um verde novo inventado só pra esta tela), ambos com texto escuro
+   o bastante sobre o próprio fundo claro pra passar AA. */
+.ramo.sim .ramo-rotulo {
+  background: #e6f4ea;
+  color: #1b6b42;
+}
+
+.ramo.nao .ramo-rotulo {
+  background: #fdeeea;
+  color: var(--color-warning);
+}
+
+.ramo p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-base-content);
+  opacity: 0.8;
+}
+
+.volta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--acento);
 }
 
 /* Fontes vendorizadas em static/fonts/ (sem CDN, ver restricoes-globais.md).

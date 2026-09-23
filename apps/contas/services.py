@@ -132,14 +132,22 @@ LIMITE_CONVITES_NO_PAINEL = 50
 
 
 def convites_recentes():
-    """Os `LIMITE_CONVITES_NO_PAINEL` convites mais recentes, para a lista
-    de "Convites enviados" do painel da coordenação — mesmo padrão das
-    outras quatro listas da tela (`coordenadores`/`professores_para_painel`/
-    `alunos_sem_tcc_ii_concluido`/`candidatos_a_coordenacao`), todas
-    servidas pela camada de serviço, não filtradas ad-hoc em `views.py`
-    (CLAUDE.md, regra 4)."""
+    """Os `LIMITE_CONVITES_NO_PAINEL` convites mais recentes ainda não
+    aceitos, para a lista de "Convites enviados" do painel da coordenação —
+    mesmo padrão das outras quatro listas da tela
+    (`coordenadores`/`professores_para_painel`/`alunos_sem_tcc_ii_concluido`/
+    `candidatos_a_coordenacao`), todas servidas pela camada de serviço, não
+    filtradas ad-hoc em `views.py` (CLAUDE.md, regra 4).
+
+    `usado_em__isnull=True` (pedido do usuário, 2026-09-22): assim que o
+    convite é aceito, o aluno/professor já aparece nas próprias listas do
+    painel (`professores_para_painel`/`alunos_sem_tcc_ii_concluido`) — ficar
+    listado aqui também, como "Aceito", só duplicava a mesma pessoa em duas
+    seções da mesma tela sem nenhuma ação nova disponível (o botão de
+    reenvio já era escondido para ele)."""
     return (
-        Convite.objects.select_related("criado_por")
+        Convite.objects.filter(usado_em__isnull=True)
+        .select_related("criado_por")
         .order_by("-criado_em")[:LIMITE_CONVITES_NO_PAINEL]
     )
 

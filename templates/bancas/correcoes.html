@@ -6,6 +6,19 @@
   <article class="mx-auto max-w-2xl rounded-box bg-base-100 p-6 shadow-sm">
     <h1 class="font-display text-2xl font-bold text-primary">Correções — {{ projeto.aluno.nome_completo }}</h1>
 
+    <p class="mt-2 text-sm">
+      {% if submissao_atual %}
+        <a href="{{ submissao_atual.pdf.url }}" class="link">Ver PDF enviado (versão {{ submissao_atual.versao }})</a>
+        {% if submissao_revisada %}
+          <span class="badge badge-success ml-2">Reenviado depois da banca</span>
+        {% else %}
+          <span class="badge badge-warning ml-2">Ainda é a versão anterior à banca</span>
+        {% endif %}
+      {% else %}
+        <span class="text-base-content/70">O aluno ainda não enviou o trabalho.</span>
+      {% endif %}
+    </p>
+
     {% if itens %}
       <ul class="mt-4 space-y-3">
         {% for item in itens %}

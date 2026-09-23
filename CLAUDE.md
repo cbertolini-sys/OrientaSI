@@ -113,9 +113,13 @@ Todos os comandos devem rodar via container Docker:
   no `Projeto` são
   só informativos, e mutuamente exclusivos (`CheckConstraint`
   `projeto_coorientador_nao_duplo`). Para o TCC II, `aprovar_projeto` exige
-  todos os `ItemCorrecao` concluídos e um `TermoPublicacao` assinado
-  (existência da linha = assinado) antes de aprovar — diferente do TCC I, que
-  não tem esse checklist.
+  três gates antes de aprovar — diferente do TCC I, que não tem nenhum
+  deles: todos os `ItemCorrecao` concluídos; um `TermoPublicacao` assinado
+  (existência da linha = assinado); e a versão final revisada de fato
+  enviada (`Submissao.atualizada_em` depois da `data_hora` da `Banca`
+  `REALIZADA` mais recente — reenvio é permitido, mas opcional, desde o
+  Bloco G, e nada garantia que o professor esperasse por ele antes desta
+  checagem, pedido explícito do usuário, 2026-09-22).
 * `apps/bancas`: agendamento de banca (`agendar_banca`/`editar_banca`/
   `cancelar_banca`), registro do resultado da apresentação
   (`registrar_resultado`) e notificação por e-mail do agendamento (Bloco D,
@@ -258,7 +262,14 @@ checklist para o TCC I**, decisão do brainstorming do Bloco E: o
 modelo `Projeto`/mesma máquina de status: para o TCC II, `aprovar_projeto`
 exige adicionalmente que todo `ItemCorrecao` esteja concluído e que exista
 um `TermoPublicacao` (o aluno assina em `/meu-tcc/`) antes de aprovar —
-sem quebrar o caminho do TCC I, que continua sem esse checklist. Quando a
+sem quebrar o caminho do TCC I, que continua sem esse checklist. **Acréscimo
+posterior, pedido explícito do usuário (2026-09-22):** um terceiro gate,
+a versão final revisada — `aprovar_projeto` também exige que
+`Submissao.atualizada_em` seja depois da `data_hora` da `Banca` `REALIZADA`
+mais recente do projeto, senão recusa com `ValidationError`. Sem essa
+checagem, o checklist e o termo por si só não garantiam que o aluno tivesse
+de fato reenviado o trabalho corrigido — o reenvio pós-banca (`Bloco G`)
+sempre foi permitido, nunca obrigatório. Quando a
 ata de um TCC I é aprovada pela SUGRAD, `criar_tcc_ii_automatico` cria o
 TCC II na hora (mesmo aluno/orientador, `anterior` apontando pro TCC I, sem
 checar limite de vagas); um professor também pode criar um TCC II
@@ -273,10 +284,11 @@ manualmente a qualquer momento para um aluno sem TCC I no sistema
    correções.
 4. **`Aprovado`:** Orientador confirma a correção (`aprovar_projeto`). Para o
    TCC I (Bloco E) é só uma confirmação, sem checklist. Para o TCC II (Bloco
-   F) exige o **checklist de correções** (`ItemCorrecao`, todos concluídos)
-   e o **termo de aceite de publicação** (`TermoPublicacao`, assinado pelo
-   aluno) antes de aprovar. Em ambos os casos o sistema gera a `Ata` e
-   notifica a SUGRAD no mesmo passo.
+   F) exige o **checklist de correções** (`ItemCorrecao`, todos concluídos),
+   o **termo de aceite de publicação** (`TermoPublicacao`, assinado pelo
+   aluno) e a **versão final revisada** (`Submissao` reenviada depois da
+   banca — pedido explícito do usuário, 2026-09-22) antes de aprovar. Em
+   ambos os casos o sistema gera a `Ata` e notifica a SUGRAD no mesmo passo.
 5. **`Concluído`:** SUGRAD aprova a Ata no Painel SUGRAD (`aprovar_ata`,
    `/painel/sugrad/`, Bloco E, implementado). Se a ata era de um TCC I, o
    TCC II é criado automaticamente nesse momento (Bloco F); se já era de um
@@ -330,9 +342,11 @@ para que as fronteiras de cada fase sejam escolhas conscientes:
   no sistema, casca sobre `criar_projeto_sob_limite`, checando limite).
   `coorientador`/`coorientador_externo` no `Projeto` (informativo, mutuamente
   exclusivo). Para o TCC II, `aprovar_projeto` exige o checklist
-  (`ItemCorrecao`, `apps/bancas`) todo concluído e o `TermoPublicacao`
-  assinado pelo aluno (`/meu-tcc/`) antes de aprovar; aprovar a ata de um
-  TCC I dispara a criação automática do TCC II, aprovar a de um TCC II
+  (`ItemCorrecao`, `apps/bancas`) todo concluído, o `TermoPublicacao`
+  assinado pelo aluno (`/meu-tcc/`) e a versão final revisada enviada
+  (`Submissao` reenviada depois da banca, acréscimo posterior pedido pelo
+  usuário) antes de aprovar; aprovar a ata de um TCC I dispara a criação
+  automática do TCC II, aprovar a de um TCC II
   termina o ciclo (sem "TCC III"). Notificação por e-mail ao aluno na
   criação do TCC II e a cada item de correção novo. **Acréscimo posterior,
   pedido explícito do usuário:** `criar_tcc_i_manual`, espelhando
